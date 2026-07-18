@@ -1,7 +1,7 @@
 services:
   filter-coffee-club:
     build: .
-    image: filter-coffee-club:local
+    image: ${FCC_IMAGE:-ghcr.io/clelange/filter-coffee-club}:${FCC_IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       FCC_PUBLIC_BASE_URL: ${FCC_PUBLIC_BASE_URL:-http://filter-coffee-club.local}
