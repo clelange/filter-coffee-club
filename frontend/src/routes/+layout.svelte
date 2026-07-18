@@ -125,7 +125,6 @@
         {#if $sessionStore.profile.pin_change_required}
           <a class:active={$page.url.pathname === '/account/pin'} href="/account/pin" onclick={closeNav}>Change PIN</a>
         {:else}
-          <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
           <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
           <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment" onclick={closeNav}>Equipment</a>
           <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics" onclick={closeNav}>Analytics</a>
