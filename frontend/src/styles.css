@@ -97,14 +97,14 @@ textarea:focus-visible {
   font-size: 0.72rem;
 }
 
-nav {
+.site-header nav {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
 }
 
-nav a,
+.site-header nav a,
 .nav-action {
   min-height: 48px;
   padding: 12px 14px;
@@ -117,10 +117,24 @@ nav a,
   text-decoration: none;
 }
 
-nav a:hover,
-nav a.active,
+.site-header nav a:hover,
+.site-header nav a.active,
 .nav-action:hover {
   background: color-mix(in srgb, var(--coffee) 9%, transparent);
+}
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 800;
 }
 
 .config-warning {
@@ -460,19 +474,39 @@ details > :not(summary) {
 @media (max-width: 820px) {
   .site-header {
     position: static;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 10px;
   }
   .brand small {
     display: none;
   }
-  nav {
-    overflow-x: auto;
-    justify-content: flex-start;
-    max-width: 64vw;
+  .nav-toggle {
+    display: inline-flex;
   }
-  nav a,
+  .site-header nav {
+    display: none;
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+    width: 100%;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .site-header nav.open {
+    display: grid;
+  }
+  .site-header nav a,
   .nav-action {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    border-radius: 11px;
+    text-align: left;
     white-space: nowrap;
   }
   .split {
@@ -491,14 +525,9 @@ details > :not(summary) {
 
 @media (max-width: 600px) {
   .site-header {
-    display: grid;
     padding: 8px 12px 10px;
   }
-  nav {
-    width: 100%;
-    max-width: none;
-  }
-  nav a,
+  .site-header nav a,
   .nav-action {
     padding: 10px 12px;
     font-size: 0.82rem;

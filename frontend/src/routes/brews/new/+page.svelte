@@ -15,6 +15,8 @@
   let editId = $state<number | null>(null);
   let selectedRatio = $state(16);
   let showCoffeeForm = $state(false);
+  let coffeeError = $state('');
+  let addingCoffee = $state(false);
   let error = $state('');
   let saving = $state(false);
   let ready = $state(false);
@@ -113,14 +115,28 @@
 
   async function addCoffee(event: SubmitEvent) {
     event.preventDefault();
-    const coffee = await api<Coffee>('/coffees', {
-      method: 'POST',
-      body: jsonBody({ ...newCoffee, country: newCoffee.country || null, process: newCoffee.process || null, roast_level: newCoffee.roast_level || null })
-    });
-    coffees = [...coffees, coffee];
-    form.coffee_id = coffee.id;
-    showCoffeeForm = false;
-    await loadHistory();
+    addingCoffee = true;
+    coffeeError = '';
+    try {
+      const coffee = await api<Coffee>('/coffees', {
+        method: 'POST',
+        body: jsonBody({ ...newCoffee, country: newCoffee.country || null, process: newCoffee.process || null, roast_level: newCoffee.roast_level || null })
+      });
+      coffees = [...coffees, coffee];
+      form.coffee_id = coffee.id;
+      newCoffee = { roaster: '', name: '', country: '', process: '', roast_level: '' };
+      showCoffeeForm = false;
+      await loadHistory();
+    } catch (caught) {
+      coffeeError = caught instanceof Error ? caught.message : 'Could not add this coffee.';
+    } finally {
+      addingCoffee = false;
+    }
+  }
+
+  function toggleCoffeeForm() {
+    showCoffeeForm = !showCoffeeForm;
+    if (showCoffeeForm) coffeeError = '';
   }
 
   async function submit(event: SubmitEvent) {
@@ -152,6 +168,7 @@
 {#if !ready}
   <div class="empty section">Loading the equipment rack…</div>
 {:else}
+  <form id="coffee-form" onsubmit={addCoffee}></form>
   <div class="split section">
     <form class="panel" onsubmit={submit}>
       <div class="field-row">
@@ -161,7 +178,7 @@
             {#each coffees as coffee}<option value={coffee.id}>{coffee.roaster} · {coffee.name}</option>{/each}
           </select>
         </label>
-        <button class="secondary compact" type="button" onclick={() => (showCoffeeForm = !showCoffeeForm)}>+ Coffee</button>
+        <button class="secondary compact" type="button" aria-expanded={showCoffeeForm} onclick={toggleCoffeeForm}>+ Coffee</button>
       </div>
       {#if showCoffeeForm}
         <div class="inline-form">
@@ -172,7 +189,8 @@
             <label>Country<input bind:value={newCoffee.country} form="coffee-form" /></label>
             <label>Process<input bind:value={newCoffee.process} form="coffee-form" /></label>
           </div>
-          <button class="secondary" type="button" onclick={(event) => addCoffee(event as unknown as SubmitEvent)}>Save coffee</button>
+          {#if coffeeError}<p class="error" role="alert">{coffeeError}</p>{/if}
+          <button class="secondary" type="submit" form="coffee-form" disabled={addingCoffee}>{addingCoffee ? 'Saving coffee…' : 'Save coffee'}</button>
         </div>
       {/if}
 

@@ -22,6 +22,9 @@
     public_url_needs_configuration: false
   });
   let ready = $state(false);
+  let navOpen = $state(false);
+  let navToggle: HTMLButtonElement;
+  let navPanel: HTMLElement;
 
   function applyTheme(value: AppSettings) {
     const root = document.documentElement;
@@ -50,10 +53,28 @@
   });
 
   async function signOut() {
+    navOpen = false;
     await logout();
     await goto('/login');
   }
+
+  function closeNav() {
+    navOpen = false;
+  }
+
+  function handleNavKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || !navOpen) return;
+    navOpen = false;
+    navToggle?.focus();
+  }
+
+  function handleOutsideClick(event: MouseEvent) {
+    const target = event.target as Node;
+    if (navOpen && !navToggle?.contains(target) && !navPanel?.contains(target)) navOpen = false;
+  }
 </script>
+
+<svelte:window onkeydown={handleNavKeydown} onclick={handleOutsideClick} />
 
 <svelte:head>
   <meta name="theme-color" content={settings.color_cream} />
@@ -67,18 +88,28 @@
       <small>{settings.subtitle}</small>
     </span>
   </a>
-  <nav aria-label="Main navigation">
-    <a class:active={$page.url.pathname === '/'} href="/">Home</a>
-    <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees">Coffees</a>
-    {#if $sessionStore}
-      <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment">Equipment</a>
-      <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics">Analytics</a>
-      {#if $sessionStore.profile.role === 'admin'}
-        <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin">Admin</a>
+  <button
+    class="nav-toggle"
+    type="button"
+    bind:this={navToggle}
+    aria-expanded={navOpen}
+    aria-controls="main-navigation"
+    onclick={() => (navOpen = !navOpen)}
+  >Menu</button>
+  <nav id="main-navigation" class:open={navOpen} aria-label="Main navigation" bind:this={navPanel}>
+    <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
+    <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
+    {#if ready}
+      {#if $sessionStore}
+        <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment" onclick={closeNav}>Equipment</a>
+        <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics" onclick={closeNav}>Analytics</a>
+        {#if $sessionStore.profile.role === 'admin'}
+          <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin" onclick={closeNav}>Admin</a>
+        {/if}
+        <button class="nav-action" onclick={signOut}>{$sessionStore.profile.display_name} · Sign out</button>
+      {:else}
+        <a class="button small" href="/login" onclick={closeNav}>Sign in</a>
       {/if}
-      <button class="nav-action" onclick={signOut}>{$sessionStore.profile.display_name} · Sign out</button>
-    {:else}
-      <a class="button small" href="/login">Sign in</a>
     {/if}
   </nav>
 </header>
