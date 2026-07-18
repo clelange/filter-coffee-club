@@ -103,7 +103,7 @@ make install
 make hooks
 ```
 
-`make hooks` installs Chromium for Playwright and configures `prek` to run fast static checks before commits, validate Conventional Commit messages, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
+`make hooks` installs Chromium for Playwright and configures `prek` to format-check Python and frontend sources, lint GitHub Actions, validate lockfiles and common repository hazards, validate Conventional Commit messages, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
 
 ```text
 feat: add brew comparison
@@ -111,9 +111,10 @@ fix(ratings): preserve the active session
 feat(api)!: remove the legacy export shape
 ```
 
-Run individual checks or the same suite used by the pre-push hook:
+Apply the project formatters, run individual checks, or run the same suite used by the pre-push hook:
 
 ```sh
+make format
 make check
 make test
 make types-check

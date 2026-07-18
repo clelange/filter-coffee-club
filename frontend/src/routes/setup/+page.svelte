@@ -6,7 +6,7 @@
   let displayName = $state('');
   let pin = $state('');
   let confirmPin = $state('');
-  let deviceMode: 'kiosk'|'personal' = $state('personal');
+  let deviceMode: 'kiosk' | 'personal' = $state('personal');
   let error = $state('');
   let saving = $state(false);
 
@@ -39,7 +39,9 @@
   <section>
     <p class="eyebrow">First run</p>
     <h1>Open the club.</h1>
-    <p class="lede">Create the first administrator. More members and shared equipment can be added next.</p>
+    <p class="lede">
+      Create the first administrator. More members and shared equipment can be added next.
+    </p>
   </section>
   <form class="panel" onsubmit={submit}>
     <label>
@@ -48,15 +50,42 @@
     </label>
     <label>
       Four-digit PIN
-      <input bind:value={pin} inputmode="numeric" autocomplete="new-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+      <input
+        bind:value={pin}
+        inputmode="numeric"
+        autocomplete="new-password"
+        pattern="[0-9][0-9][0-9][0-9]"
+        maxlength="4"
+        required
+      />
     </label>
     <label>
       Repeat PIN
-      <input bind:value={confirmPin} inputmode="numeric" autocomplete="new-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+      <input
+        bind:value={confirmPin}
+        inputmode="numeric"
+        autocomplete="new-password"
+        pattern="[0-9][0-9][0-9][0-9]"
+        maxlength="4"
+        required
+      />
     </label>
-    <fieldset><legend>This device is…</legend><label class="choice"><input type="radio" bind:group={deviceMode} value="personal" /><span><strong>My phone or tablet</strong><small>Stay signed in for 3.5 days.</small></span></label><label class="choice"><input type="radio" bind:group={deviceMode} value="kiosk" /><span><strong>Shared touch display</strong><small>Require a PIN for each brew or rating.</small></span></label></fieldset>
+    <fieldset>
+      <legend>This device is…</legend><label class="choice"
+        ><input type="radio" bind:group={deviceMode} value="personal" /><span
+          ><strong>My phone or tablet</strong><small>Stay signed in for 3.5 days.</small></span
+        ></label
+      ><label class="choice"
+        ><input type="radio" bind:group={deviceMode} value="kiosk" /><span
+          ><strong>Shared touch display</strong><small>Require a PIN for each brew or rating.</small
+          ></span
+        ></label
+      >
+    </fieldset>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="primary" disabled={saving}>{saving ? 'Creating…' : 'Create administrator'}</button>
+    <button class="primary" disabled={saving}
+      >{saving ? 'Creating…' : 'Create administrator'}</button
+    >
   </form>
 </div>
 
@@ -68,8 +97,28 @@
     align-items: center;
     min-height: 66vh;
   }
-  .choice { grid-template-columns:24px 1fr; align-items:center; padding:10px; border:1px solid var(--line); border-radius:13px; cursor:pointer; }.choice input{width:20px;min-height:20px}.choice span{display:grid}.choice small{color:var(--muted);font-weight:500}
+  .choice {
+    grid-template-columns: 24px 1fr;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    cursor: pointer;
+  }
+  .choice input {
+    width: 20px;
+    min-height: 20px;
+  }
+  .choice span {
+    display: grid;
+  }
+  .choice small {
+    color: var(--muted);
+    font-weight: 500;
+  }
   @media (max-width: 760px) {
-    .setup-wrap { grid-template-columns: 1fr; }
+    .setup-wrap {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

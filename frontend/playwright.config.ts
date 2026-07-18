@@ -9,7 +9,10 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   projects: [
-    { name: 'pi-and-mobile', use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 600 } } }
+    {
+      name: 'pi-and-mobile',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 600 } }
+    }
   ],
   webServer: {
     command: '../.venv/bin/python ../scripts/e2e_server.py',

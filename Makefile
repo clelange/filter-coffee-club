@@ -1,4 +1,4 @@
-.PHONY: install hooks check test build e2e types types-check verify dev
+.PHONY: install hooks format check test build e2e types types-check verify dev
 
 install:
 	uv sync
@@ -8,9 +8,15 @@ hooks:
 	pnpm --dir frontend exec playwright install chromium
 	uv run prek install --prepare-hooks
 
+format:
+	uv run ruff check --fix backend tests scripts migrations
+	uv run ruff format backend tests scripts migrations
+	pnpm --dir frontend format
+
 check:
 	uv run ruff check backend tests scripts migrations
 	uv run ruff format --check backend tests scripts migrations
+	pnpm --dir frontend format:check
 	pnpm --dir frontend check
 
 test:

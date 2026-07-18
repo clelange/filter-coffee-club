@@ -8,7 +8,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       value: {
         request: async () => {
           if (sessionStorage.getItem('wake-lock-fail')) throw new Error('Wake Lock unavailable');
-          (globalThis as typeof globalThis & { __wakeLockRequested?: boolean }).__wakeLockRequested = true;
+          (
+            globalThis as typeof globalThis & { __wakeLockRequested?: boolean }
+          ).__wakeLockRequested = true;
           return { release: async () => undefined };
         }
       }
@@ -29,7 +31,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
   await peopleTab.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'Equipment' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Equipment' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
@@ -62,7 +67,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await adminSectionSelect.selectOption('equipment');
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await adminSectionSelect.selectOption('people');
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
   await page.setViewportSize({ width: 1024, height: 600 });
 
   await page.getByLabel('New member display name').fill('Bob');
@@ -91,7 +102,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.route('**/api/v1/coffees', async (route) => {
     if (route.request().method() === 'POST' && failInlineCoffee) {
       failInlineCoffee = false;
-      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'Temporary coffee failure' }) });
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Temporary coffee failure' })
+      });
       return;
     }
     await route.continue();
@@ -102,28 +117,52 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(inlineCoffeeName).toHaveValue('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
   await page.unroute('**/api/v1/coffees');
   await inlineSave.click();
-  await expect(page.getByLabel('Coffee').locator('option:checked')).toHaveText('Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name');
+  await expect(page.getByLabel('Coffee').locator('option:checked')).toHaveText(
+    'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+  );
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
   await page.getByRole('spinbutton', { name: 'Coffee dose' }).fill('40');
   await page.getByRole('spinbutton', { name: 'Total water' }).fill('600');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page.getByText('settings locked on screen')).toBeVisible();
   await expect(page.getByText('Ethiopia Guji Hambela Buku Abel Extended Lot Name')).toBeVisible();
-  await expect.poll(() => page.evaluate(() => {
-    const metric = document.querySelector<HTMLElement>('.hero-metric');
-    const value = metric?.querySelector<HTMLElement>('strong');
-    const label = metric?.querySelector<HTMLElement>('span');
-    if (!value || !label) return -1;
-    return label.getBoundingClientRect().top - value.getBoundingClientRect().bottom;
-  })).toBeGreaterThanOrEqual(6);
-  await expect.poll(() => page.evaluate(() => Boolean((globalThis as typeof globalThis & { __wakeLockRequested?: boolean }).__wakeLockRequested))).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const metric = document.querySelector<HTMLElement>('.hero-metric');
+        const value = metric?.querySelector<HTMLElement>('strong');
+        const label = metric?.querySelector<HTMLElement>('span');
+        if (!value || !label) return -1;
+        return label.getBoundingClientRect().top - value.getBoundingClientRect().bottom;
+      })
+    )
+    .toBeGreaterThanOrEqual(6);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          (globalThis as typeof globalThis & { __wakeLockRequested?: boolean }).__wakeLockRequested
+        )
+      )
+    )
+    .toBe(true);
   await page.evaluate(() => sessionStorage.setItem('wake-lock-fail', '1'));
   await page.reload();
   await expect(page.getByRole('button', { name: 'Finish brew' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => {
-    const finish = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('Finish brew'));
-    return Boolean(finish && finish.getBoundingClientRect().bottom <= window.innerHeight && document.documentElement.scrollWidth <= document.documentElement.clientWidth);
-  })).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const finish = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('Finish brew')
+        );
+        return Boolean(
+          finish &&
+          finish.getBoundingClientRect().bottom <= window.innerHeight &&
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth
+        );
+      })
+    )
+    .toBe(true);
 
   await page.getByRole('button', { name: 'Finish brew' }).click();
   const modalLayout = await page.evaluate(() => {
@@ -146,9 +185,17 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByAltText(/QR code to rate/)).toBeVisible();
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
 
-  const ratingPath = await page.getByRole('link', { name: 'Rate on this screen' }).getAttribute('href');
+  const ratingPath = await page
+    .getByRole('link', { name: 'Rate on this screen' })
+    .getAttribute('href');
   expect(ratingPath).toContain('next=');
   const mobileRatingPath = new URL(ratingPath!, 'http://127.0.0.1:8000').searchParams.get('next');
   expect(mobileRatingPath).toContain('/rate/');
@@ -175,7 +222,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   }
   const flavorDisclosures = phone.locator('.flavor-disclosure');
   await expect(flavorDisclosures).toHaveCount(8);
-  for (let index = 0; index < await flavorDisclosures.count(); index += 1) {
+  for (let index = 0; index < (await flavorDisclosures.count()); index += 1) {
     await expect(flavorDisclosures.nth(index)).toHaveAttribute('aria-expanded', 'false');
   }
   const fruityDisclosure = phone.locator('.flavor-disclosure').filter({ hasText: 'Fruity' });
@@ -208,7 +255,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(ratingScaleLayout?.titleGap).toBeGreaterThanOrEqual(16);
   expect(ratingScaleLayout?.anchorSize).toBe(ratingScaleLayout?.intensitySize);
   expect(ratingScaleLayout?.anchorWeight).toBe(ratingScaleLayout?.intensityWeight);
-  await expect.poll(() => phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect
+    .poll(() =>
+      phone.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
   await phone.getByRole('button', { name: 'Submit rating' }).click();
   await expect(phone.getByRole('heading', { name: 'Thanks, Bob.' })).toBeVisible();
   await phone.goto('/analytics');
@@ -246,13 +299,21 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('PIN').fill('1234');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
-  const personalRatingPath = await page.getByRole('link', { name: 'Rate on this screen' }).getAttribute('href');
+  const personalRatingPath = await page
+    .getByRole('link', { name: 'Rate on this screen' })
+    .getAttribute('href');
   expect(personalRatingPath).toMatch(/^\/rate\//);
   await page.getByRole('link', { name: 'Rate on this screen' }).click();
   await expect(page).toHaveURL(/\/rate\//);
   await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
   await page.setViewportSize({ width: 768, height: 1024 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
 
   await page.goto(invitationPath);
   await page.getByRole('link', { name: 'Correct brew' }).click();

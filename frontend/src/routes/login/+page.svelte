@@ -35,9 +35,7 @@
       setSession(session);
       const next = safeNext();
       await goto(
-        session.profile.pin_change_required
-          ? `/account/pin?next=${encodeURIComponent(next)}`
-          : next
+        session.profile.pin_change_required ? `/account/pin?next=${encodeURIComponent(next)}` : next
       );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Sign-in failed.';
@@ -67,7 +65,14 @@
     </label>
     <label>
       PIN
-      <input bind:value={pin} inputmode="numeric" autocomplete="current-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+      <input
+        bind:value={pin}
+        inputmode="numeric"
+        autocomplete="current-password"
+        pattern="[0-9][0-9][0-9][0-9]"
+        maxlength="4"
+        required
+      />
     </label>
     <fieldset>
       <legend>This device is…</legend>
@@ -77,11 +82,17 @@
       </label>
       <label class="choice">
         <input type="radio" bind:group={deviceMode} value="kiosk" />
-        <span><strong>Shared touch display</strong><small>Return to the invitation after each rating.</small></span>
+        <span
+          ><strong>Shared touch display</strong><small
+            >Return to the invitation after each rating.</small
+          ></span
+        >
       </label>
     </fieldset>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="primary" disabled={loading || !profileId}>{loading ? 'Signing in…' : 'Sign in'}</button>
+    <button class="primary" disabled={loading || !profileId}
+      >{loading ? 'Signing in…' : 'Sign in'}</button
+    >
   </form>
 </div>
 
@@ -101,10 +112,21 @@
     border-radius: 13px;
     cursor: pointer;
   }
-  .choice input { width: 20px; min-height: 20px; }
-  .choice span { display: grid; gap: 2px; }
-  .choice small { color: var(--muted); font-weight: 500; }
+  .choice input {
+    width: 20px;
+    min-height: 20px;
+  }
+  .choice span {
+    display: grid;
+    gap: 2px;
+  }
+  .choice small {
+    color: var(--muted);
+    font-weight: 500;
+  }
   @media (max-width: 760px) {
-    .login-layout { grid-template-columns: 1fr; }
+    .login-layout {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
