@@ -1,0 +1,302 @@
+from __future__ import annotations
+
+import io
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
+
+from app.config import Settings
+from app.main import create_app
+from app.models import Profile
+from app.security import _attempts
+from fastapi.testclient import TestClient
+
+
+def build_client(tmp_path: Path) -> TestClient:
+    settings = Settings(
+        data_dir=tmp_path,
+        database_url=f"sqlite:///{tmp_path / 'test.sqlite3'}",
+        frontend_dir=tmp_path / "missing-frontend",
+        public_base_url="http://fcc.test",
+    )
+    return TestClient(create_app(settings))
+
+
+def bootstrap(client: TestClient) -> tuple[dict, dict[str, str]]:
+    response = client.post("/api/v1/auth/bootstrap", json={"display_name": "Ada", "pin": "1234"})
+    assert response.status_code == 200, response.text
+    session = response.json()
+    return session, {"X-CSRF-Token": session["csrf_token"]}
+
+
+def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": True}
+        session, _headers = bootstrap(client)
+        assert session["profile"]["role"] == "admin"
+        assert session["device_mode"] == "personal"
+        assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": False}
+        expires_at = datetime.fromisoformat(session["expires_at"])
+        remaining_hours = (expires_at - datetime.now(UTC)).total_seconds() / 3600
+        assert 83.99 < remaining_hours <= 84
+        with client.app.state.session_factory() as db:
+            assert db.get(Profile, 1).pin_hash.startswith("$argon2")
+
+        grinders = client.get("/api/v1/grinders").json()
+        assert grinders[0]["manufacturer"] == "Comandante"
+        assert grinders[0]["model"] == "C40"
+        assert len(client.get("/api/v1/presets").json()) == 7
+        tags = client.get("/api/v1/flavor-tags").json()
+        assert any(item["name"] == "Fruity" and item["parent_id"] is None for item in tags)
+
+
+def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        member = client.post(
+            "/api/v1/people",
+            headers=headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "PSI Roasters", "name": "Collider Blend"},
+        ).json()
+        dripper = client.post(
+            "/api/v1/drippers",
+            headers=headers,
+            json={"manufacturer": "Hario", "model": "V60", "notes": None},
+        ).json()
+        brew_filter = client.post(
+            "/api/v1/filters",
+            headers=headers,
+            json={"name": "V60 paper 02", "notes": None},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+
+        brew = client.post(
+            "/api/v1/brews",
+            headers=headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dripper_id": dripper["id"],
+                "filter_id": brew_filter["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+                "servings": 2,
+                "target_flow_g_s": 4.5,
+                "bloom_water_g": 45,
+                "bloom_time_s": 30,
+                "pour_count": 3,
+            },
+        ).json()
+        assert brew["ratio"] == 16
+        finalized_response = client.post(
+            f"/api/v1/brews/{brew['id']}/finalize",
+            headers=headers,
+            json={"total_brew_time_s": 180, "water_g": 242},
+        )
+        assert finalized_response.status_code == 200, finalized_response.text
+        finalized = finalized_response.json()
+        assert finalized["status"] == "completed"
+        assert finalized["rating_token"]
+        assert finalized["overall_throughput_g_s"] == 1.34
+
+        link = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
+        assert link["active"] is True
+        qr = client.get(f"/api/v1/brews/{brew['id']}/qr.svg")
+        assert qr.status_code == 200
+        assert qr.headers["content-type"].startswith("image/svg+xml")
+        assert b'width="328"' in qr.content
+        assert client.get("/api/v1/settings").json()["public_base_url"] == "http://fcc.test"
+
+        client.post("/api/v1/auth/logout", headers=headers)
+        assert client.get("/api/v1/auth/me").status_code == 401
+        assert client.get(f"/api/v1/rating-links/{finalized['rating_token']}").status_code == 200
+        assert client.get("/api/v1/rating-links/not-a-token").status_code == 404
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+        )
+        assert login.status_code == 200
+        member_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+        updated_grinder = client.put(
+            f"/api/v1/grinders/{grinder['id']}",
+            headers=member_headers,
+            json={
+                "manufacturer": grinder["manufacturer"],
+                "model": grinder["model"],
+                "setting_unit": grinder["setting_unit"],
+                "setting_step": grinder["setting_step"],
+                "soft_min": grinder["soft_min"],
+                "soft_max": grinder["soft_max"],
+                "guidance": "Member-corrected guidance",
+            },
+        )
+        assert updated_grinder.status_code == 200
+        assert (
+            client.post(
+                f"/api/v1/grinders/{grinder['id']}/archive", headers=member_headers
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(f"/api/v1/brews/{brew['id']}/void", headers=member_headers).status_code
+            == 403
+        )
+
+        hidden = client.get(f"/api/v1/brews/{brew['id']}/ratings").json()
+        assert hidden == {
+            "can_view": False,
+            "own_rating": None,
+            "ratings": [],
+            "count": 0,
+            "averages": {},
+            "flavor_counts": {},
+        }
+        fruity = next(
+            item
+            for item in client.get("/api/v1/flavor-tags").json()
+            if item["name"] == "Fruity" and item["parent_id"] is None
+        )
+        too_many_tags = client.post(
+            f"/api/v1/brews/{brew['id']}/ratings",
+            headers=member_headers,
+            json={
+                "liking": 8,
+                "acidity": 3,
+                "bitterness": 1,
+                "sweetness": 4,
+                "body": 3,
+                "flavor_tag_ids": [
+                    item["id"] for item in client.get("/api/v1/flavor-tags").json()[:6]
+                ],
+            },
+        )
+        assert too_many_tags.status_code == 422
+        rated = client.post(
+            f"/api/v1/brews/{brew['id']}/ratings",
+            headers=member_headers,
+            json={
+                "liking": 8,
+                "acidity": 3,
+                "bitterness": 1,
+                "sweetness": 4,
+                "body": 3,
+                "flavor_tag_ids": [fruity["id"]],
+            },
+        )
+        assert rated.status_code == 200, rated.text
+        assert rated.json()["can_view"] is True
+        assert rated.json()["averages"]["liking"] == 8
+        updated = client.post(
+            f"/api/v1/brews/{brew['id']}/ratings",
+            headers=member_headers,
+            json={
+                "liking": 9,
+                "acidity": 2,
+                "bitterness": 1,
+                "sweetness": 5,
+                "body": 3,
+                "flavor_tag_ids": [],
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["count"] == 1
+        assert updated.json()["averages"]["liking"] == 9
+
+        client.post("/api/v1/auth/logout", headers=member_headers)
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        corrected = client.put(
+            f"/api/v1/brews/{brew['id']}/correction",
+            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dripper_id": dripper["id"],
+                "filter_id": brew_filter["id"],
+                "source_preset_id": None,
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 93,
+                "grinder_setting": 31,
+                "servings": 2,
+                "target_flow_g_s": 4.5,
+                "bloom_water_g": 45,
+                "bloom_time_s": 30,
+                "pour_count": 3,
+                "technique_note": None,
+                "total_brew_time_s": 181,
+            },
+        )
+        assert corrected.status_code == 200
+        assert corrected.json()["temperature_c"] == 93
+        voided = client.post(
+            f"/api/v1/brews/{brew['id']}/void",
+            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+        )
+        assert voided.status_code == 200
+        inactive = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
+        assert inactive == {"active": False, "brew": None}
+
+
+def test_export_omits_auth_secrets(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        response = client.get("/api/v1/exports/json")
+        assert response.status_code == 200
+        body = response.text
+        assert "pin_hash" not in body
+        assert "rating_token" not in body
+        csv_response = client.get("/api/v1/exports/csv")
+        assert csv_response.status_code == 200
+        assert csv_response.headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(io.BytesIO(csv_response.content)) as archive:
+            combined = "".join(archive.read(name).decode() for name in archive.namelist())
+        assert "pin_hash" not in combined
+        assert "rating_token" not in combined
+
+
+def test_kiosk_session_is_fixed_and_logout_revokes_it(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        client.post("/api/v1/auth/logout", headers=headers)
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "kiosk"},
+        )
+        assert login.status_code == 200
+        session = login.json()
+        remaining_hours = (
+            datetime.fromisoformat(session["expires_at"]) - datetime.now(UTC)
+        ).total_seconds() / 3600
+        assert 3.99 < remaining_hours <= 4
+        kiosk_headers = {"X-CSRF-Token": session["csrf_token"]}
+        assert client.post("/api/v1/auth/logout", headers=kiosk_headers).status_code == 204
+        assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_failed_logins_are_rate_limited(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        bootstrap(client)
+        try:
+            for _ in range(8):
+                response = client.post(
+                    "/api/v1/auth/login",
+                    json={"profile_id": 1, "pin": "9999", "device_mode": "personal"},
+                )
+                assert response.status_code == 401
+            blocked = client.post(
+                "/api/v1/auth/login",
+                json={"profile_id": 1, "pin": "9999", "device_mode": "personal"},
+            )
+            assert blocked.status_code == 429
+        finally:
+            _attempts.clear()

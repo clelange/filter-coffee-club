@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+data
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+frontend/test-results
+frontend/playwright-report
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.ruff_cache

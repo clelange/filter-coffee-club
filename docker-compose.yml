@@ -1,0 +1,16 @@
+services:
+  filter-coffee-club:
+    build: .
+    image: filter-coffee-club:local
+    restart: unless-stopped
+    environment:
+      FCC_PUBLIC_BASE_URL: ${FCC_PUBLIC_BASE_URL:-http://filter-coffee-club.local}
+      FCC_COOKIE_SECURE: ${FCC_COOKIE_SECURE:-false}
+      FCC_ALLOWED_ORIGINS: ${FCC_ALLOWED_ORIGINS:-}
+    volumes:
+      - fcc-data:/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  fcc-data:
