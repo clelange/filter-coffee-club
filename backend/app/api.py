@@ -906,6 +906,16 @@ def _change_brew_status(
     if action not in {"cancel", "void"}:
         raise HTTPException(status_code=404, detail="Unknown action")
     brew = load_brew(db, brew_id)
+    expected_status = "completed" if action == "void" else "draft"
+    if brew.status != expected_status:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only completed brews can be voided"
+                if action == "void"
+                else "Only draft brews can be cancelled"
+            ),
+        )
     if action == "void" and login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
     if (

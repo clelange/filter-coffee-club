@@ -12,14 +12,17 @@
   let finalSeconds = $state(0);
   let actualWater = $state(0);
   let copied = $state(false);
+  let statusAction: 'cancel' | 'void' | null = $state(null);
+  let changingStatus = $state(false);
   let wakeLock: WakeLockSentinel | null = null;
 
   const id = $derived(Number($page.params.id));
 
   onMount(async () => {
     await load();
+    const session = await ensureSession();
     if (brew?.status === 'draft') {
-      if (!(await ensureSession())) {
+      if (!session) {
         await goto(`/login?next=/brews/${id}&mode=kiosk`);
         return;
       }
@@ -73,6 +76,36 @@
       ? ratingPath
       : `/login?next=${encodeURIComponent(ratingPath)}&mode=kiosk`;
   }
+
+  function canManageDraft(): boolean {
+    return Boolean(
+      brew &&
+      $sessionStore &&
+      ($sessionStore.profile.id === brew.operator_id || $sessionStore.profile.role === 'admin')
+    );
+  }
+
+  async function changeStatus() {
+    if (!brew || !statusAction) return;
+    const action = statusAction;
+    changingStatus = true;
+    error = '';
+    try {
+      brew = await api<Brew>(`/brews/${brew.id}/${action}`, {
+        method: 'POST', body: jsonBody({})
+      });
+      statusAction = null;
+      await wakeLock?.release();
+      if (action === 'cancel') {
+        const session = await ensureSession();
+        if (session?.device_mode === 'kiosk') await logout();
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : `Could not ${action} the brew.`;
+    } finally {
+      changingStatus = false;
+    }
+  }
 </script>
 
 <svelte:head><title>{brew ? `${brew.coffee_name} · Brew` : 'Brew'} · Filter Coffee Club</title></svelte:head>
@@ -108,8 +141,11 @@
     {#if brew.technique_note}<p class="technique">{brew.technique_note}</p>{/if}
     {#if error}<p class="error">{error}</p>{/if}
     <div class="actions brew-actions">
-      <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
-      <button class="primary" onclick={() => (finishing = true)}>Finish brew</button>
+      {#if canManageDraft()}
+        <button class="danger" onclick={() => (statusAction = 'cancel')}>Cancel brew</button>
+        <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
+        <button class="primary" onclick={() => (finishing = true)}>Finish brew</button>
+      {/if}
     </div>
   </section>
   {#if finishing}
@@ -138,6 +174,10 @@
       <div class="actions">
         <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
+        {#if $sessionStore?.profile.role === 'admin'}
+          <a class="button secondary" href={`/brews/new?correct=${brew.id}`}>Correct brew</a>
+          <button class="danger" onclick={() => (statusAction = 'void')}>Void brew</button>
+        {/if}
       </div>
       <p class="hint">The QR opens this brew only. Each taster still signs in with their own PIN.</p>
     </div>
@@ -145,6 +185,29 @@
   </section>
 {:else}
   <div class="panel"><p class="eyebrow">Brew #{brew.id}</p><h1>This brew is {brew.status}.</h1><p class="lede">It is kept in the log but cannot be rated.</p><a class="button secondary" href="/">Return home</a></div>
+{/if}
+
+{#if statusAction && brew}
+  <div class="modal-backdrop" role="presentation">
+    <div class="modal panel" role="dialog" aria-modal="true" aria-labelledby="status-title" tabindex="-1">
+      <div class="modal-heading">
+        <p class="eyebrow">Keep the record</p>
+        <h2 id="status-title">{statusAction === 'cancel' ? 'Cancel this draft?' : 'Void this completed brew?'}</h2>
+        <p class="muted">
+          {statusAction === 'cancel'
+            ? 'The brew will remain in the log as cancelled and cannot be completed or rated.'
+            : 'The brew and its ratings will remain stored, but its rating link will close and it will be excluded from analytics.'}
+        </p>
+      </div>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <div class="actions">
+        <button class="danger" onclick={changeStatus} disabled={changingStatus}>
+          {changingStatus ? 'Saving…' : statusAction === 'cancel' ? 'Cancel draft' : 'Void completed brew'}
+        </button>
+        <button class="secondary" onclick={() => (statusAction = null)} disabled={changingStatus}>Keep brew</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>

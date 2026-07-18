@@ -81,6 +81,29 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert preset_response.status_code == 422
         assert preset_response.json()["detail"] == "Preset click ranges must use whole numbers"
 
+        created_preset = client.post(
+            "/api/v1/presets",
+            headers=headers,
+            json={
+                "name": "Club balanced",
+                "ratio": 16.5,
+                "temperature_min_c": 92,
+                "temperature_max_c": 95,
+                "active": True,
+                "sort_order": 8,
+                "grinder_ranges": [
+                    {
+                        "grinder_id": grinders[0]["id"],
+                        "setting_min": 24,
+                        "setting_max": 28,
+                    }
+                ],
+            },
+        )
+        assert created_preset.status_code == 200
+        assert created_preset.json()["name"] == "Club balanced"
+        assert len(client.get("/api/v1/presets").json()) == 8
+
 
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
@@ -142,6 +165,18 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             },
         ).json()
         assert brew["ratio"] == 16
+
+        abandoned = client.post(f"/api/v1/brews/{brew['id']}/clone", headers=headers).json()
+        cancelled = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        repeat_cancel = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        assert repeat_cancel.status_code == 409
+        assert repeat_cancel.json()["detail"] == "Only draft brews can be cancelled"
+        assert (
+            client.post(f"/api/v1/brews/{abandoned['id']}/void", headers=headers).status_code == 409
+        )
+
         finalized_response = client.post(
             f"/api/v1/brews/{brew['id']}/finalize",
             headers=headers,
@@ -152,6 +187,9 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert finalized["status"] == "completed"
         assert finalized["rating_token"]
         assert finalized["overall_throughput_g_s"] == 1.34
+        cancel_completed = client.post(f"/api/v1/brews/{brew['id']}/cancel", headers=headers)
+        assert cancel_completed.status_code == 409
+        assert cancel_completed.json()["detail"] == "Only draft brews can be cancelled"
 
         link = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
         assert link["active"] is True
@@ -298,6 +336,12 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             headers={"X-CSRF-Token": admin_login["csrf_token"]},
         )
         assert voided.status_code == 200
+        repeat_void = client.post(
+            f"/api/v1/brews/{brew['id']}/void",
+            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+        )
+        assert repeat_void.status_code == 409
+        assert repeat_void.json()["detail"] == "Only completed brews can be voided"
         inactive = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
         assert inactive == {"active": False, "brew": None}
 

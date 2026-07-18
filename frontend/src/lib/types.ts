@@ -78,8 +78,7 @@ export interface PresetRange {
   setting_max: number;
 }
 
-export interface Preset {
-  id: number;
+export interface PresetInput {
   name: string;
   ratio: number;
   temperature_min_c: number;
@@ -87,6 +86,10 @@ export interface Preset {
   active: boolean;
   sort_order: number;
   grinder_ranges: PresetRange[];
+}
+
+export interface Preset extends PresetInput {
+  id: number;
 }
 
 export interface BrewInput {

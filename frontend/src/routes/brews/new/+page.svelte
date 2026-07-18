@@ -13,6 +13,9 @@
   let presets: Preset[] = $state([]);
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
+  let correctionId = $state<number | null>(null);
+  let correctionMinutes = $state(3);
+  let correctionSeconds = $state(0);
   let selectedRatio = $state(16);
   let showCoffeeForm = $state(false);
   let coffeeError = $state('');
@@ -55,6 +58,14 @@
       await goto(`/login?next=${encodeURIComponent($page.url.pathname + $page.url.search)}`);
       return;
     }
+    correctionId = Number($page.url.searchParams.get('correct')) || null;
+    if (correctionId) {
+      const session = await ensureSession();
+      if (session?.profile.role !== 'admin') {
+        await goto(`/brews/${correctionId}`);
+        return;
+      }
+    }
     try {
       [coffees, grinders, drippers, filters, presets] = await Promise.all([
         api<Coffee[]>('/coffees'), api<Grinder[]>('/grinders'), api<Dripper[]>('/drippers'), api<BrewFilter[]>('/filters'), api<Preset[]>('/presets')
@@ -63,9 +74,13 @@
       form.grinder_id = grinders[0]?.id ?? 0;
       editId = Number($page.url.searchParams.get('edit')) || null;
       const repeatId = Number($page.url.searchParams.get('repeat')) || null;
-      if (editId || repeatId) {
-        const source = await api<Brew>(`/brews/${editId || repeatId}`);
+      if (editId || repeatId || correctionId) {
+        const source = await api<Brew>(`/brews/${editId || repeatId || correctionId}`);
         copyBrew(source);
+        if (correctionId && source.total_brew_time_s) {
+          correctionMinutes = Math.floor(source.total_brew_time_s / 60);
+          correctionSeconds = source.total_brew_time_s % 60;
+        }
       }
       await loadHistory();
     } catch (caught) {
@@ -144,8 +159,12 @@
     saving = true;
     error = '';
     try {
-      const brew = await api<Brew>(editId ? `/brews/${editId}` : '/brews', {
-        method: editId ? 'PUT' : 'POST', body: jsonBody(form)
+      const path = correctionId ? `/brews/${correctionId}/correction` : editId ? `/brews/${editId}` : '/brews';
+      const brew = await api<Brew>(path, {
+        method: editId || correctionId ? 'PUT' : 'POST',
+        body: jsonBody(correctionId
+          ? { ...form, total_brew_time_s: correctionMinutes * 60 + correctionSeconds }
+          : form)
       });
       await goto(`/brews/${brew.id}`);
     } catch (caught) {
@@ -159,11 +178,11 @@
   }
 </script>
 
-<svelte:head><title>{editId ? 'Edit brew' : 'New brew'} · Filter Coffee Club</title></svelte:head>
+<svelte:head><title>{correctionId ? 'Correct brew' : editId ? 'Edit brew' : 'New brew'} · Filter Coffee Club</title></svelte:head>
 
-<p class="eyebrow">Operator console</p>
-<h1>{editId ? 'Adjust the recipe.' : 'Prepare the next brew.'}</h1>
-<p class="lede">Start from club experience, an FCC preset, or your own settings. Everything remains editable.</p>
+<p class="eyebrow">{correctionId ? 'Administrator correction' : 'Operator console'}</p>
+<h1>{correctionId ? 'Correct the recorded brew.' : editId ? 'Adjust the recipe.' : 'Prepare the next brew.'}</h1>
+<p class="lede">{correctionId ? 'Update an incorrect measurement while preserving the brew, invitation, and ratings.' : 'Start from club experience, an FCC preset, or your own settings. Everything remains editable.'}</p>
 
 {#if !ready}
   <div class="empty section">Loading the equipment rack…</div>
@@ -236,8 +255,17 @@
           <label>Technique note<textarea bind:value={form.technique_note} maxlength="1000"></textarea></label>
         </div>
       </details>
+      {#if correctionId}
+        <fieldset>
+          <legend>Recorded result</legend>
+          <div class="field-grid correction-time">
+            <label>Minutes<input type="number" bind:value={correctionMinutes} min="0" max="59" inputmode="numeric" /></label>
+            <label>Seconds<input type="number" bind:value={correctionSeconds} min="0" max="59" inputmode="numeric" /></label>
+          </div>
+        </fieldset>
+      {/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <div class="actions"><button class="primary" disabled={saving || !form.coffee_id || !form.grinder_id}>{saving ? 'Saving…' : editId ? 'Save and return to brew mode' : 'Save and open brew mode'}</button><a class="button secondary" href="/">Cancel</a></div>
+      <div class="actions"><button class="primary" disabled={saving || !form.coffee_id || !form.grinder_id || Boolean(correctionId && correctionMinutes * 60 + correctionSeconds <= 0)}>{saving ? 'Saving…' : correctionId ? 'Save correction' : editId ? 'Save and return to brew mode' : 'Save and open brew mode'}</button><a class="button secondary" href={correctionId ? `/brews/${correctionId}` : '/'}>Cancel</a></div>
     </form>
 
     <aside class="stack">
@@ -260,6 +288,7 @@
   .preset.chosen { border-color:var(--cyan); background:color-mix(in srgb,var(--cyan) 9%,var(--surface)); }
   .preset span,.preset strong { display:block; }.preset span { margin-top:4px; color:var(--muted); font-size:.76rem; }
   .calculator { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .correction-time { max-width:360px; }
   .big-inputs { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:end; }
   .ratio-readout { display:grid; padding-bottom:8px; text-align:center; }.ratio-readout span { color:var(--muted); font-size:.7rem; text-transform:uppercase; }.ratio-readout strong { font-size:1.4rem; }
   .warning { color:#8a4a00; font-size:.78rem; }
