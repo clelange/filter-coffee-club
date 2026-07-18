@@ -228,6 +228,17 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+
+  const invitationPath = new URL(page.url()).pathname;
+  await page.goto(`/login?next=${encodeURIComponent(invitationPath)}`);
+  await page.getByLabel('PIN').fill('1234');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  const personalRatingPath = await page.getByRole('link', { name: 'Rate on this screen' }).getAttribute('href');
+  expect(personalRatingPath).toMatch(/^\/rate\//);
+  await page.getByRole('link', { name: 'Rate on this screen' }).click();
+  await expect(page).toHaveURL(/\/rate\//);
+  await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
   await page.setViewportSize({ width: 768, height: 1024 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
