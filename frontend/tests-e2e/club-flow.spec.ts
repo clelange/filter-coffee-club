@@ -34,6 +34,17 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.keyboard.press('ArrowLeft');
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
 
+  await page.getByRole('tab', { name: 'Presets & flavors' }).click();
+  const presetCreator = page.locator('.preset-creator');
+  await presetCreator.getByLabel('Name').fill('Club balanced');
+  await presetCreator.getByLabel('Ratio').fill('16.5');
+  await presetCreator.getByLabel('Minimum setting').fill('24');
+  await presetCreator.getByLabel('Maximum setting').fill('28');
+  await presetCreator.getByRole('button', { name: 'Add preset' }).click();
+  await expect(page.getByText('Preset added.')).toBeVisible();
+  await expect(page.getByLabel('Preset name').last()).toHaveValue('Club balanced');
+  await peopleTab.click();
+
   await page.setViewportSize({ width: 393, height: 851 });
   const menuButton = page.getByRole('button', { name: 'Menu' });
   const mainNavigation = page.getByRole('navigation', { name: 'Main navigation' });
@@ -244,6 +255,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
   await page.goto(invitationPath);
+  await page.getByRole('link', { name: 'Correct brew' }).click();
+  await expect(page.getByRole('heading', { name: 'Correct the recorded brew.' })).toBeVisible();
+  await page.getByRole('spinbutton', { name: 'Temperature' }).fill('93');
+  await page.getByLabel('Seconds').fill('6');
+  await page.getByRole('button', { name: 'Save correction' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  await expect(page.getByText('93 °C', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Void brew' }).click();
   const voidDialog = page.getByRole('dialog', { name: 'Void this completed brew?' });
   await expect(voidDialog).toBeVisible();

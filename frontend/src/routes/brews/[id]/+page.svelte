@@ -175,6 +175,7 @@
         <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
         {#if $sessionStore?.profile.role === 'admin'}
+          <a class="button secondary" href={`/brews/new?correct=${brew.id}`}>Correct brew</a>
           <button class="danger" onclick={() => (statusAction = 'void')}>Void brew</button>
         {/if}
       </div>

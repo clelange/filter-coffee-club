@@ -81,6 +81,29 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert preset_response.status_code == 422
         assert preset_response.json()["detail"] == "Preset click ranges must use whole numbers"
 
+        created_preset = client.post(
+            "/api/v1/presets",
+            headers=headers,
+            json={
+                "name": "Club balanced",
+                "ratio": 16.5,
+                "temperature_min_c": 92,
+                "temperature_max_c": 95,
+                "active": True,
+                "sort_order": 8,
+                "grinder_ranges": [
+                    {
+                        "grinder_id": grinders[0]["id"],
+                        "setting_min": 24,
+                        "setting_max": 28,
+                    }
+                ],
+            },
+        )
+        assert created_preset.status_code == 200
+        assert created_preset.json()["name"] == "Club balanced"
+        assert len(client.get("/api/v1/presets").json()) == 8
+
 
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
