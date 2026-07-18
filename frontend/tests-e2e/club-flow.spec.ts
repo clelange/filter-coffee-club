@@ -23,6 +23,36 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Create administrator' }).click();
   await expect(page).toHaveURL(/\/admin$/);
 
+  const peopleTab = page.getByRole('tab', { name: 'People' });
+  await expect(page.getByRole('tab')).toHaveCount(5);
+  await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
+  await peopleTab.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Equipment' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
+
+  await page.setViewportSize({ width: 393, height: 851 });
+  const menuButton = page.getByRole('button', { name: 'Menu' });
+  const mainNavigation = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(menuButton).toBeVisible();
+  await expect(mainNavigation).toBeHidden();
+  await menuButton.click();
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ada · Sign out' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
+  await expect(menuButton).toBeFocused();
+  const adminSectionSelect = page.getByRole('combobox', { name: 'Admin section', exact: true });
+  await expect(adminSectionSelect).toBeVisible();
+  await adminSectionSelect.selectOption('equipment');
+  await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
+  await adminSectionSelect.selectOption('people');
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1024, height: 600 });
+
   await page.getByLabel('New member display name').fill('Bob');
   await page.getByLabel('Four-digit PIN').fill('2468');
   await page.getByRole('button', { name: 'Add member' }).click();
@@ -36,12 +66,36 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('heading', { name: 'Collider Blend' })).toBeVisible();
 
   await page.goto('/brews/new');
+  await page.getByRole('button', { name: '+ Coffee' }).click();
+  const inlineRoaster = page.getByLabel('Roaster / brand');
+  const inlineCoffeeName = page.getByLabel('Coffee name');
+  const inlineSave = page.getByRole('button', { name: 'Save coffee' });
+  await inlineSave.click();
+  await expect(inlineRoaster).toBeFocused();
+  await inlineRoaster.fill('Responsive Layout Review Roastery');
+  await inlineCoffeeName.fill('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
+  let failInlineCoffee = true;
+  await page.route('**/api/v1/coffees', async (route) => {
+    if (route.request().method() === 'POST' && failInlineCoffee) {
+      failInlineCoffee = false;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'Temporary coffee failure' }) });
+      return;
+    }
+    await route.continue();
+  });
+  await inlineSave.click();
+  await expect(page.getByRole('alert')).toHaveText('Temporary coffee failure');
+  await expect(inlineRoaster).toHaveValue('Responsive Layout Review Roastery');
+  await expect(inlineCoffeeName).toHaveValue('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
+  await page.unroute('**/api/v1/coffees');
+  await inlineSave.click();
+  await expect(page.getByLabel('Coffee').locator('option:checked')).toHaveText('Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name');
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
   await page.getByRole('spinbutton', { name: 'Coffee dose' }).fill('40');
   await page.getByRole('spinbutton', { name: 'Total water' }).fill('600');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page.getByText('settings locked on screen')).toBeVisible();
-  await expect(page.getByText('Collider Blend')).toBeVisible();
+  await expect(page.getByText('Ethiopia Guji Hambela Buku Abel Extended Lot Name')).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
     const metric = document.querySelector<HTMLElement>('.hero-metric');
     const value = metric?.querySelector<HTMLElement>('strong');
@@ -98,6 +152,27 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await phone.getByLabel('PIN').fill('2468');
   await phone.getByRole('button', { name: 'Sign in' }).click();
   await expect(phone.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
+  for (const sliderName of ['Overall liking', 'Acidity', 'Bitterness', 'Sweetness', 'Body']) {
+    await expect(phone.getByRole('slider', { name: sliderName, exact: true })).toBeVisible();
+  }
+  const flavorDisclosures = phone.locator('.flavor-disclosure');
+  await expect(flavorDisclosures).toHaveCount(8);
+  for (let index = 0; index < await flavorDisclosures.count(); index += 1) {
+    await expect(flavorDisclosures.nth(index)).toHaveAttribute('aria-expanded', 'false');
+  }
+  const fruityDisclosure = phone.locator('.flavor-disclosure').filter({ hasText: 'Fruity' });
+  await expect(phone.getByRole('button', { name: 'Berry' })).toBeHidden();
+  await fruityDisclosure.click();
+  await expect(phone.getByRole('button', { name: 'Berry' })).toBeVisible();
+  for (const flavor of ['Fruity · general', 'Berry', 'Grape', 'Citrus', 'Stone fruit']) {
+    await phone.getByRole('button', { name: flavor, exact: true }).click();
+  }
+  await expect(fruityDisclosure).toContainText('5 selected');
+  await expect(phone.getByRole('button', { name: 'Tropical fruit' })).toBeDisabled();
+  await expect(phone.getByRole('button', { name: 'Berry' })).toBeEnabled();
+  await phone.getByRole('button', { name: 'Berry' }).click();
+  await expect(fruityDisclosure).toContainText('4 selected');
+  await expect(phone.getByRole('button', { name: 'Tropical fruit' })).toBeEnabled();
   const ratingScaleLayout = await phone.evaluate(() => {
     const name = document.querySelector<HTMLElement>('.scale-name');
     const score = document.querySelector<HTMLElement>('.scale-title output');
@@ -118,6 +193,24 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect.poll(() => phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await phone.getByRole('button', { name: 'Submit rating' }).click();
   await expect(phone.getByRole('heading', { name: 'Thanks, Bob.' })).toBeVisible();
+  await phone.goto('/analytics');
+  await expect(phone.getByRole('heading', { name: 'Find the useful signal.' })).toBeVisible();
+  const coffeeFilter = phone.getByRole('combobox', { name: 'Coffee', exact: true });
+  const axisFilter = phone.getByRole('combobox', { name: 'Horizontal axis', exact: true });
+  const mobileCoffeeBox = await coffeeFilter.boundingBox();
+  const mobileAxisBox = await axisFilter.boundingBox();
+  expect(mobileCoffeeBox).not.toBeNull();
+  expect(mobileAxisBox).not.toBeNull();
+  expect(Math.abs(mobileCoffeeBox!.x - mobileAxisBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(mobileCoffeeBox!.width - mobileAxisBox!.width)).toBeLessThanOrEqual(1);
+  expect(mobileAxisBox!.y).toBeGreaterThan(mobileCoffeeBox!.y + mobileCoffeeBox!.height);
+  await phone.setViewportSize({ width: 768, height: 1024 });
+  const tabletCoffeeBox = await coffeeFilter.boundingBox();
+  const tabletAxisBox = await axisFilter.boundingBox();
+  expect(tabletCoffeeBox).not.toBeNull();
+  expect(tabletAxisBox).not.toBeNull();
+  expect(Math.abs(tabletCoffeeBox!.y - tabletAxisBox!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(tabletCoffeeBox!.width - tabletAxisBox!.width)).toBeLessThanOrEqual(1);
   await phoneContext.close();
 
   await page.getByRole('link', { name: 'Rate on this screen' }).click();

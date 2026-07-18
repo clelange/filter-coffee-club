@@ -4,6 +4,15 @@
   import { api, ensureSession, jsonBody } from '$lib/api';
   import type { AppSettings, Dripper, FlavorTag, Grinder, Preset, Profile } from '$lib/types';
 
+  type AdminTab = 'people'|'equipment'|'presets'|'branding'|'data';
+  const adminSections: { id: AdminTab; label: string }[] = [
+    { id: 'people', label: 'People' },
+    { id: 'equipment', label: 'Equipment' },
+    { id: 'presets', label: 'Presets & flavors' },
+    { id: 'branding', label: 'Branding' },
+    { id: 'data', label: 'Data' }
+  ];
+
   let people: Profile[] = $state([]);
   let grinders: Grinder[] = $state([]);
   let drippers: Dripper[] = $state([]);
@@ -11,7 +20,8 @@
   let presets: Preset[] = $state([]);
   let tags: FlavorTag[] = $state([]);
   let settings: AppSettings | null = $state(null);
-  let activeTab: 'people'|'equipment'|'presets'|'branding'|'data' = $state('people');
+  let activeTab: AdminTab = $state('people');
+  let tabButtons: Partial<Record<AdminTab, HTMLButtonElement>> = {};
   let message = $state('');
   let error = $state('');
   let personForm = $state({display_name:'',pin:'',role:'member'});
@@ -20,6 +30,7 @@
   let dripperForm = $state({manufacturer:'',model:'',notes:''});
   let filterForm = $state({name:'',notes:''});
   let tagForm = $state({name:'',parent_id:null as number|null,active:true,sort_order:0});
+  const activeTabLabel = $derived(adminSections.find((section) => section.id === activeTab)?.label ?? 'Admin section');
 
   function isClickUnit(unit:string){return ['click','clicks'].includes(unit.trim().toLowerCase());}
 
@@ -48,18 +59,50 @@
   async function archiveEquipment(kind:'grinders'|'drippers'|'filters',id:number){await run(()=>api(`/${kind}/${id}/archive`,{method:'POST',body:jsonBody({})}),'Equipment archived.');}
   async function saveSettings(event:SubmitEvent){event.preventDefault();if(!settings)return;await run(()=>api('/settings',{method:'PUT',body:jsonBody(settings)}),'Branding saved.');}
   async function uploadLogo(event:Event){const input=event.currentTarget as HTMLInputElement;const file=input.files?.[0];if(!file)return;const body=new FormData();body.set('logo',file);await run(()=>api('/settings/logo',{method:'POST',body}),'Logo uploaded.');}
+
+  function selectTab(tab: AdminTab) { activeTab = tab; }
+  function handleTabKeydown(event: KeyboardEvent, index: number) {
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % adminSections.length;
+    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + adminSections.length) % adminSections.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = adminSections.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = adminSections[nextIndex].id;
+    activeTab = nextTab;
+    requestAnimationFrame(() => tabButtons[nextTab]?.focus());
+  }
 </script>
 
 <svelte:head><title>Admin · Filter Coffee Club</title></svelte:head>
 <p class="eyebrow">Club controls</p><h1>Configure the experiment.</h1><p class="lede">Manage identities, shared equipment, starting points, branding, and portable data.</p>
 
+<label class="admin-section-select section" for="admin-section-select">
+  Admin section
+  <select id="admin-section-select" bind:value={activeTab}>
+    {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
+  </select>
+</label>
 <div class="tabs section" role="tablist" aria-label="Admin sections">
-  {#each [['people','People'],['equipment','Equipment'],['presets','Presets & flavors'],['branding','Branding'],['data','Data']] as item}
-    <button class:active={activeTab===item[0]} onclick={() => (activeTab=item[0] as typeof activeTab)}>{item[1]}</button>
+  {#each adminSections as section, index}
+    <button
+      id={`admin-tab-${section.id}`}
+      type="button"
+      role="tab"
+      bind:this={tabButtons[section.id]}
+      class:active={activeTab === section.id}
+      aria-selected={activeTab === section.id}
+      aria-controls="admin-panel"
+      tabindex={activeTab === section.id ? 0 : -1}
+      onclick={() => selectTab(section.id)}
+      onkeydown={(event) => handleTabKeydown(event, index)}
+    >{section.label}</button>
   {/each}
 </div>
 {#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p class="error" role="alert">{error}</p>{/if}
 
+<div id="admin-panel" class="admin-panel" role="tabpanel" aria-labelledby={`admin-tab-${activeTab}`} tabindex="0">
 {#if activeTab==='people'}
   <div class="admin-grid"><form class="panel" onsubmit={addPerson}><h2>Add a member</h2><label>New member display name<input bind:value={personForm.display_name} required /></label><label>Four-digit PIN<input bind:value={personForm.pin} inputmode="numeric" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required /></label><label>Role<select bind:value={personForm.role}><option value="member">Member</option><option value="admin">Administrator</option></select></label><button class="primary">Add member</button></form>
     <section class="panel"><h2>Profiles</h2><div class="item-list">{#each people as person}<article><input aria-label="Display name" bind:value={person.display_name} /><select aria-label={`Role for ${person.display_name}`} bind:value={person.role}><option value="member">Member</option><option value="admin">Administrator</option></select><input aria-label={`New PIN for ${person.display_name}`} bind:value={pinResets[person.id]} inputmode="numeric" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" placeholder="New PIN" /><button class="secondary" onclick={()=>savePerson(person)}>Save</button><button class="secondary" onclick={() => togglePerson(person)}>{person.active?'Deactivate':'Activate'}</button></article>{/each}</div></section></div>
@@ -76,13 +119,15 @@
 {:else if activeTab==='data'}
   <div class="admin-grid"><section class="panel"><p class="eyebrow">Portable data</p><h2>Exports</h2><p class="muted">Exports contain catalog, brew, and rating data, but never PIN hashes, sessions, or QR tokens.</p><div class="actions"><a class="button" href="/api/v1/exports/json">Download JSON</a><a class="button secondary" href="/api/v1/exports/csv">Download CSV ZIP</a></div></section><section class="panel"><p class="eyebrow">Database safety</p><h2>Backups</h2><p>Back up the mounted SQLite file using the documented SQLite backup command or during a stopped container. Restore remains an infrastructure operation.</p><code>sqlite3 /data/fcc.sqlite3 ".backup '/backup/fcc.sqlite3'"</code></section></div>
 {/if}
+</div>
 
 <style>
+  .admin-section-select { display:none; }
   .tabs { display:flex; gap:6px; overflow-x:auto; padding:6px; border:1px solid var(--line); border-radius:999px; background:var(--surface); }.tabs button { min-height:48px; padding:9px 16px; border:0; border-radius:999px; background:transparent; color:var(--ink); cursor:pointer; white-space:nowrap; }.tabs button.active { background:var(--coffee); color:white; }
   .admin-grid { display:grid; grid-template-columns:minmax(280px,.7fr) minmax(0,1.3fr); gap:18px; margin-top:18px; align-items:start; }.equipment-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:18px; align-items:start; }
   .item-list,.rack>div { display:grid; gap:7px; }.item-list article {display:grid;grid-template-columns:1fr 130px 110px auto auto;gap:7px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.rack article { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }.rack { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }.rack span { padding:8px 0; }
   .preset-list { display:grid; gap:10px; }.preset-list article { display:grid; grid-template-columns:minmax(180px,2fr) repeat(6,82px) 90px auto; gap:8px; align-items:end; padding:10px; border:1px solid var(--line); border-radius:13px; }.preset-list label { font-size:.72rem; }.check { display:flex; align-items:center; min-height:50px; }.check input { width:20px; min-height:20px; }
   .tag-editor{display:grid;gap:7px}.tag-editor article{display:grid;grid-template-columns:1fr 84px 95px auto;gap:7px;align-items:end}.tag-editor label{font-size:.72rem}.brand-form { display:grid; grid-template-columns:1fr 1fr; gap:30px; margin-top:18px; }.colors { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.colors label { grid-template-columns:1fr 60px; align-items:center; }.colors input { padding:4px; }
   code { display:block; overflow:auto; padding:12px; border-radius:10px; background:var(--ink); color:var(--cream); }
-  @media(max-width:900px){.equipment-grid{grid-template-columns:1fr 1fr}.preset-list article{grid-template-columns:1fr 1fr 1fr}.brand-form{grid-template-columns:1fr}.tag-editor article{grid-template-columns:1fr 80px auto}.item-list article{grid-template-columns:1fr 1fr}}@media(max-width:650px){.admin-grid,.equipment-grid{grid-template-columns:1fr}.rack{grid-template-columns:1fr}.preset-list article{grid-template-columns:1fr 1fr}.tag-editor article,.item-list article{grid-template-columns:1fr 1fr}}
+  @media(max-width:900px){.equipment-grid{grid-template-columns:1fr 1fr}.preset-list article{grid-template-columns:1fr 1fr 1fr}.brand-form{grid-template-columns:1fr}.tag-editor article{grid-template-columns:1fr 80px auto}.item-list article{grid-template-columns:1fr 1fr}}@media(max-width:650px){.tabs{display:none}.admin-section-select{display:grid}.admin-grid,.equipment-grid{grid-template-columns:1fr}.rack{grid-template-columns:1fr}.preset-list article{grid-template-columns:1fr 1fr}.tag-editor article,.item-list article{grid-template-columns:1fr 1fr}}
 </style>

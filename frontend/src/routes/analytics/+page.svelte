@@ -56,9 +56,9 @@
 
 <style>
   .metric-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }.dashboard { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(280px,.7fr); gap:18px; align-items:start; }
-  .chart-heading { display:flex; justify-content:space-between; align-items:start; gap:20px; }.chart-filters{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}.chart-heading label { min-width:180px; }
+  .chart-heading { display:flex; justify-content:space-between; align-items:start; gap:20px; }.chart-filters{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}.chart-heading label { min-width:180px; }.chart-filters select{min-width:0}
   svg { width:100%; min-height:340px; }svg line { stroke:var(--line); stroke-width:2; }svg .grid { stroke-width:1; stroke-dasharray:3 5; }svg circle { fill:var(--cyan); fill-opacity:.72; stroke:var(--surface); stroke-width:2; }svg text { fill:var(--muted); font-size:11px; }svg .axis { text-anchor:middle; font-weight:700; }.axis.y { transform:rotate(-90deg); transform-origin:15px 175px; }
   .ranking { margin:0; padding-left:24px; }.ranking li { padding:10px 0;border-bottom:1px solid var(--line); }.ranking li,.ranking li>a,.ranking span,.operator-list span { display:flex; justify-content:space-between; gap:10px; }.ranking li>a{width:100%;color:inherit;text-decoration:none}.ranking span { display:grid; }.ranking small { color:var(--muted); }.ranking strong { font-size:1.4rem; }
   .bars { display:grid; gap:11px; }.bars div>span { display:flex; justify-content:space-between; font-size:.82rem; }.bars i { display:block; height:7px; margin-top:4px; border-radius:999px; background:var(--amber); }.operator-list { display:grid; gap:10px; }.operator-list b { color:var(--muted); font-size:.8rem; }
-  @media(max-width:840px){.dashboard{grid-template-columns:1fr}.metric-grid{grid-template-columns:1fr 1fr}.chart-heading{display:grid}.chart-heading label{min-width:0}}@media(max-width:500px){.metric-grid{grid-template-columns:1fr}}
+  @media(max-width:840px){.dashboard{grid-template-columns:1fr}.metric-grid{grid-template-columns:1fr 1fr}.chart-heading{display:grid}.chart-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));justify-content:stretch;width:100%}.chart-heading label{min-width:0}}@media(max-width:500px){.metric-grid,.chart-filters{grid-template-columns:1fr}}
 </style>
