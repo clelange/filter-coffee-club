@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { api, ensureSession, formatTime, jsonBody, logout } from '$lib/api';
+  import { api, ensureSession, formatTime, jsonBody, logout, sessionStore } from '$lib/api';
   import type { Brew } from '$lib/types';
 
   let brew: Brew | null = $state(null);
@@ -64,6 +64,14 @@
     await navigator.clipboard.writeText(`${settings.public_base_url}/rate/${brew.rating_token}`);
     copied = true;
     setTimeout(() => (copied = false), 1800);
+  }
+
+  function rateOnScreenHref(): string {
+    if (!brew?.rating_token) return '#';
+    const ratingPath = `/rate/${brew.rating_token}`;
+    return $sessionStore?.device_mode === 'personal'
+      ? ratingPath
+      : `/login?next=${encodeURIComponent(ratingPath)}&mode=kiosk`;
   }
 </script>
 
@@ -128,7 +136,7 @@
       <p class="lede"><strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by {brew.operator_name} in {formatTime(brew.total_brew_time_s)}.</p>
       <div class="brew-summary"><span>1:{brew.ratio}</span><span>{brew.grinder_setting} {brew.grinder_unit}</span><span>{brew.temperature_c} °C</span></div>
       <div class="actions">
-        <a class="button" href={`/login?next=${encodeURIComponent(`/rate/${brew.rating_token}`)}&mode=kiosk`}>Rate on this screen</a>
+        <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
       </div>
       <p class="hint">The QR opens this brew only. Each taster still signs in with their own PIN.</p>
