@@ -37,9 +37,18 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
 
   await page.goto('/brews/new');
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
+  await page.getByRole('spinbutton', { name: 'Coffee dose' }).fill('40');
+  await page.getByRole('spinbutton', { name: 'Total water' }).fill('600');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page.getByText('settings locked on screen')).toBeVisible();
   await expect(page.getByText('Collider Blend')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const metric = document.querySelector<HTMLElement>('.hero-metric');
+    const value = metric?.querySelector<HTMLElement>('strong');
+    const label = metric?.querySelector<HTMLElement>('span');
+    if (!value || !label) return -1;
+    return label.getBoundingClientRect().top - value.getBoundingClientRect().bottom;
+  })).toBeGreaterThanOrEqual(6);
   await expect.poll(() => page.evaluate(() => Boolean((globalThis as typeof globalThis & { __wakeLockRequested?: boolean }).__wakeLockRequested))).toBe(true);
   await page.evaluate(() => sessionStorage.setItem('wake-lock-fail', '1'));
   await page.reload();
@@ -50,6 +59,21 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   })).toBe(true);
 
   await page.getByRole('button', { name: 'Finish brew' }).click();
+  const modalLayout = await page.evaluate(() => {
+    const dialog = document.querySelector<HTMLElement>('.modal');
+    const fields = dialog?.querySelector<HTMLElement>('.field-grid');
+    const actions = dialog?.querySelector<HTMLElement>('.actions');
+    if (!dialog || !fields || !actions) return null;
+    const dialogBox = dialog.getBoundingClientRect();
+    return {
+      actionGap: actions.getBoundingClientRect().top - fields.getBoundingClientRect().bottom,
+      background: getComputedStyle(dialog).backgroundColor,
+      withinViewport: dialogBox.top >= 0 && dialogBox.bottom <= window.innerHeight
+    };
+  });
+  expect(modalLayout?.actionGap).toBeGreaterThanOrEqual(10);
+  expect(modalLayout?.background).toBe('rgb(255, 253, 252)');
+  expect(modalLayout?.withinViewport).toBe(true);
   await page.getByLabel('Minutes').fill('3');
   await page.getByLabel('Seconds').fill('5');
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
@@ -74,6 +98,23 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await phone.getByLabel('PIN').fill('2468');
   await phone.getByRole('button', { name: 'Sign in' }).click();
   await expect(phone.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
+  const ratingScaleLayout = await phone.evaluate(() => {
+    const name = document.querySelector<HTMLElement>('.scale-name');
+    const score = document.querySelector<HTMLElement>('.scale-title output');
+    const anchor = document.querySelector<HTMLElement>('.anchors span');
+    const intensityHint = document.querySelector<HTMLElement>('.intensity-grid .scale-hint');
+    if (!name || !score || !anchor || !intensityHint) return null;
+    return {
+      titleGap: score.getBoundingClientRect().left - name.getBoundingClientRect().right,
+      anchorSize: getComputedStyle(anchor).fontSize,
+      anchorWeight: getComputedStyle(anchor).fontWeight,
+      intensitySize: getComputedStyle(intensityHint).fontSize,
+      intensityWeight: getComputedStyle(intensityHint).fontWeight
+    };
+  });
+  expect(ratingScaleLayout?.titleGap).toBeGreaterThanOrEqual(16);
+  expect(ratingScaleLayout?.anchorSize).toBe(ratingScaleLayout?.intensitySize);
+  expect(ratingScaleLayout?.anchorWeight).toBe(ratingScaleLayout?.intensityWeight);
   await expect.poll(() => phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await phone.getByRole('button', { name: 'Submit rating' }).click();
   await expect(phone.getByRole('heading', { name: 'Thanks, Bob.' })).toBeVisible();

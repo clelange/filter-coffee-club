@@ -109,6 +109,36 @@ def get_settings(db: Session) -> AppSettings:
     return settings
 
 
+def uses_integer_clicks(grinder: Grinder) -> bool:
+    return grinder.setting_unit.strip().lower() in {"click", "clicks"}
+
+
+def validate_grinder_setting(db: Session, grinder_id: int, setting: float) -> None:
+    grinder = db.get(Grinder, grinder_id)
+    if grinder is None:
+        raise HTTPException(status_code=422, detail="Grinder not found")
+    if uses_integer_clicks(grinder) and not float(setting).is_integer():
+        raise HTTPException(
+            status_code=422,
+            detail="Grinder click settings must be whole numbers",
+        )
+
+
+def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
+    for grinder_range in payload.grinder_ranges:
+        grinder = db.get(Grinder, grinder_range.grinder_id)
+        if grinder is None:
+            raise HTTPException(status_code=422, detail="Grinder not found")
+        if uses_integer_clicks(grinder) and not (
+            float(grinder_range.setting_min).is_integer()
+            and float(grinder_range.setting_max).is_integer()
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Preset click ranges must use whole numbers",
+            )
+
+
 def effective_public_url(request: Request, db: Session) -> str:
     row = get_settings(db)
     configured = (row.public_base_url or request.app.state.settings.public_base_url or "").strip()
@@ -634,6 +664,7 @@ def update_preset(
     item = db.get(RecipePreset, preset_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Preset not found")
+    validate_preset_grinder_ranges(db, payload)
     for key, value in payload.model_dump(exclude={"grinder_ranges"}).items():
         setattr(item, key, value)
     item.grinder_ranges.clear()
@@ -655,6 +686,7 @@ def create_preset(
 ) -> RecipePreset:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    validate_preset_grinder_ranges(db, payload)
     item = RecipePreset(**payload.model_dump(exclude={"grinder_ranges"}))
     item.grinder_ranges = [
         PresetGrinderRange(**grinder_range.model_dump()) for grinder_range in payload.grinder_ranges
@@ -720,6 +752,7 @@ def create_brew(
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
+    validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     brew = Brew(**payload.model_dump(), operator_id=login_session.profile_id)
     db.add(brew)
     db.commit()
@@ -769,6 +802,7 @@ def update_brew(
         raise HTTPException(status_code=409, detail="Only draft brews can be edited")
     if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Only the operator may edit this draft")
+    validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     for key, value in payload.model_dump().items():
         setattr(brew, key, value)
     db.commit()
@@ -787,6 +821,7 @@ def correct_completed_brew(
     brew = load_brew(db, brew_id)
     if brew.status != "completed":
         raise HTTPException(status_code=409, detail="Only completed brews need correction")
+    validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     for key, value in payload.model_dump().items():
         setattr(brew, key, value)
     db.commit()

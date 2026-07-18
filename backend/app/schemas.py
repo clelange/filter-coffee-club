@@ -117,6 +117,10 @@ class GrinderInput(BaseModel):
             and self.soft_min > self.soft_max
         ):
             raise ValueError("Soft minimum must not exceed soft maximum")
+        if self.setting_unit.strip().lower() in {"click", "clicks"}:
+            click_values = (self.setting_step, self.soft_min, self.soft_max)
+            if any(value is not None and not float(value).is_integer() for value in click_values):
+                raise ValueError("Click-based grinder settings must use whole numbers")
         return self
 
 

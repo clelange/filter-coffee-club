@@ -39,9 +39,14 @@
 
   const ratio = $derived(form.dose_g ? Math.round((form.water_g / form.dose_g) * 10) / 10 : 0);
   const grinder = $derived(grinders.find((item) => item.id === Number(form.grinder_id)));
+  const clickGrinder = $derived(isClickGrinder(grinder));
   const settingWarning = $derived(
     grinder && ((grinder.soft_min !== null && form.grinder_setting < grinder.soft_min) || (grinder.soft_max !== null && form.grinder_setting > grinder.soft_max))
   );
+
+  function isClickGrinder(item: Grinder | undefined): boolean {
+    return ['click', 'clicks'].includes(item?.setting_unit.trim().toLowerCase() ?? '');
+  }
 
   onMount(async () => {
     if (!(await ensureSession())) {
@@ -89,7 +94,10 @@
     selectedRatio = preset.ratio;
     form.temperature_c = Math.round((preset.temperature_min_c + preset.temperature_max_c) / 2);
     const range = preset.grinder_ranges.find((item) => item.grinder_id === Number(form.grinder_id));
-    if (range) form.grinder_setting = Math.round(((range.setting_min + range.setting_max) / 2) * 10) / 10;
+    if (range) {
+      const midpoint = (range.setting_min + range.setting_max) / 2;
+      form.grinder_setting = clickGrinder ? Math.round(midpoint) : Math.round(midpoint * 10) / 10;
+    }
     useCoffeeBasis();
   }
 
@@ -196,7 +204,7 @@
         <NumberStepper label="Temperature" bind:value={form.temperature_c} min={50} max={100} step={1} unit="°C" inputmode="numeric" />
         <label>Target flow g/s<input type="number" bind:value={form.target_flow_g_s} min="0.1" max="50" step="0.1" inputmode="decimal" /></label>
         <label>Grinder<select bind:value={form.grinder_id}>{#each grinders as item}<option value={item.id}>{item.manufacturer} {item.model}</option>{/each}</select></label>
-        <div><NumberStepper label="Grinder setting" bind:value={form.grinder_setting} min={0} max={1000} step={grinder?.setting_step ?? 1} unit={grinder?.setting_unit ?? 'setting'} />{#if settingWarning}<span class="warning">Outside this grinder’s usual range; it will still be saved.</span>{/if}</div>
+        <div><NumberStepper label="Grinder setting" bind:value={form.grinder_setting} min={0} max={1000} step={clickGrinder ? 1 : (grinder?.setting_step ?? 1)} unit={grinder?.setting_unit ?? 'setting'} inputmode={clickGrinder ? 'numeric' : 'decimal'} />{#if settingWarning}<span class="warning">Outside this grinder’s usual range; it will still be saved.</span>{/if}</div>
         <label>Dripper<select bind:value={form.dripper_id}><option value={null}>Not recorded</option>{#each drippers as item}<option value={item.id}>{item.manufacturer ?? ''} {item.model}</option>{/each}</select></label>
         <label>Filter<select bind:value={form.filter_id}><option value={null}>Not recorded</option>{#each filters as item}<option value={item.id}>{item.name}</option>{/each}</select></label>
       </div>

@@ -32,7 +32,7 @@ def bootstrap(client: TestClient) -> tuple[dict, dict[str, str]]:
 def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": True}
-        session, _headers = bootstrap(client)
+        session, headers = bootstrap(client)
         assert session["profile"]["role"] == "admin"
         assert session["device_mode"] == "personal"
         assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": False}
@@ -45,9 +45,41 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         grinders = client.get("/api/v1/grinders").json()
         assert grinders[0]["manufacturer"] == "Comandante"
         assert grinders[0]["model"] == "C40"
-        assert len(client.get("/api/v1/presets").json()) == 7
+        presets = client.get("/api/v1/presets").json()
+        assert len(presets) == 7
         tags = client.get("/api/v1/flavor-tags").json()
         assert any(item["name"] == "Fruity" and item["parent_id"] is None for item in tags)
+
+        invalid_grinder = client.post(
+            "/api/v1/grinders",
+            headers=headers,
+            json={
+                "manufacturer": "Test",
+                "model": "Fractional Clicks",
+                "setting_unit": "clicks",
+                "setting_step": 0.5,
+                "soft_min": 0,
+                "soft_max": 50,
+            },
+        )
+        assert invalid_grinder.status_code == 422
+
+        invalid_preset = {
+            key: value for key, value in presets[0].items() if key not in {"id", "grinder_ranges"}
+        }
+        invalid_preset["grinder_ranges"] = [
+            {
+                **presets[0]["grinder_ranges"][0],
+                "setting_min": 28.5,
+            }
+        ]
+        preset_response = client.put(
+            f"/api/v1/presets/{presets[0]['id']}",
+            headers=headers,
+            json=invalid_preset,
+        )
+        assert preset_response.status_code == 422
+        assert preset_response.json()["detail"] == "Preset click ranges must use whole numbers"
 
 
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
@@ -74,6 +106,21 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             json={"name": "V60 paper 02", "notes": None},
         ).json()
         grinder = client.get("/api/v1/grinders").json()[0]
+
+        fractional_clicks = client.post(
+            "/api/v1/brews",
+            headers=headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 94,
+                "grinder_setting": 30.5,
+            },
+        )
+        assert fractional_clicks.status_code == 422
+        assert fractional_clicks.json()["detail"] == "Grinder click settings must be whole numbers"
 
         brew = client.post(
             "/api/v1/brews",

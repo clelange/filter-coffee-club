@@ -25,7 +25,7 @@ jobs:
       - run: uv run ruff check backend tests scripts migrations
       - run: uv run ruff format --check backend tests scripts migrations
       - run: uv run pytest --cov=app --cov-report=term-missing
-      - run: pnpm --dir frontend exec svelte-check --tsconfig ./tsconfig.json
+      - run: pnpm --dir frontend check
       - run: uv run python scripts/export_openapi.py openapi.json
       - run: pnpm --dir frontend exec openapi-typescript ../openapi.json -o src/lib/generated-api.d.ts
       - run: git diff --exit-code -- frontend/src/lib/generated-api.d.ts

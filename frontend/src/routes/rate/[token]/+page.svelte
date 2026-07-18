@@ -93,10 +93,10 @@
   <div class="rating-layout">
     <aside><p class="eyebrow">Brew #{brew.id}</p><h1>How did it land?</h1><p class="lede"><strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />1:{brew.ratio} · {brew.grinder_setting} {brew.grinder_unit} · {brew.temperature_c} °C</p><p class="muted">Existing ratings stay hidden until you submit yours.</p></aside>
     <form class="panel" onsubmit={submit}>
-      <fieldset><legend>Overall liking <output>{rating.liking} / 9</output></legend><input type="range" bind:value={rating.liking} min="1" max="9" step="1" /><div class="anchors"><span>Strongly dislike</span><span>Love it</span></div></fieldset>
+      <fieldset class="liking-scale"><legend><span class="scale-title"><span class="scale-name">Overall liking</span><output>{rating.liking} / 9</output></span></legend><input type="range" bind:value={rating.liking} min="1" max="9" step="1" /><div class="anchors scale-hint"><span>Strongly dislike</span><span>Love it</span></div></fieldset>
       <div class="intensity-grid">
         {#each ['acidity','bitterness','sweetness','body'] as key}
-          <label><span>{key} <output>{rating[key as keyof RatingInput]}</output></span><input type="range" bind:value={rating[key as 'acidity']} min="0" max="5" step="1" /><small>not perceived → very intense</small></label>
+          <label><span>{key} <output>{rating[key as keyof RatingInput]}</output></span><input type="range" bind:value={rating[key as 'acidity']} min="0" max="5" step="1" /><small class="scale-hint">not perceived → very intense</small></label>
         {/each}
       </div>
       <fieldset><legend>Tasting notes <small>{rating.flavor_tag_ids.length} / 5</small></legend>
@@ -110,9 +110,10 @@
 
 <style>
   .rating-layout,.results-layout { display:grid; grid-template-columns:minmax(0,.8fr) minmax(340px,1.2fr); gap:clamp(30px,7vw,90px); align-items:start; }
-  output { float:right; color:var(--coffee); font-size:1.1rem; }
-  .anchors { display:flex; justify-content:space-between; color:var(--muted); font-size:.72rem; font-weight:500; }
-  .intensity-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }.intensity-grid label>span { text-transform:capitalize; }.intensity-grid output { float:none; margin-left:auto; }.intensity-grid label>span { display:flex; }.intensity-grid small { color:var(--muted); font-weight:500; }
+  output { color:var(--coffee); font-size:1.1rem; font-weight:800; }
+  .liking-scale legend { width:100%; }.scale-title { display:flex; align-items:baseline; justify-content:space-between; gap:16px; width:100%; }.scale-name { min-width:0; }
+  .anchors { display:flex; justify-content:space-between; gap:16px; }.scale-hint { color:var(--muted); font-size:.82rem; font-weight:500; line-height:1.4; }
+  .intensity-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }.intensity-grid label>span { display:flex; text-transform:capitalize; }.intensity-grid output { margin-left:auto; }.intensity-grid small { display:block; }
   fieldset legend small { margin-left:8px; color:var(--muted); }
   .flavor-groups { display:grid; gap:14px; }.flavor-groups section { padding:12px; border:1px solid var(--line); border-radius:14px; }.flavor-groups h3 { margin-bottom:8px; }
   .tag-picker { display:flex; flex-wrap:wrap; gap:7px; }.tag-picker button { min-height:48px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); cursor:pointer; }.tag-picker button.selected { border-color:var(--cyan); background:var(--cyan); color:white; }
