@@ -170,7 +170,15 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
         )
         assert login.status_code == 200
+        assert login.json()["profile"]["pin_change_required"] is True
         member_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+        pin_change = client.post(
+            "/api/v1/auth/pin",
+            headers=member_headers,
+            json={"current_pin": "5678", "new_pin": "6789"},
+        )
+        assert pin_change.status_code == 204
+        assert client.get("/api/v1/auth/me").json()["profile"]["pin_change_required"] is False
         updated_grinder = client.put(
             f"/api/v1/grinders/{grinder['id']}",
             headers=member_headers,
@@ -328,6 +336,102 @@ def test_kiosk_session_is_fixed_and_logout_revokes_it(tmp_path: Path) -> None:
         kiosk_headers = {"X-CSRF-Token": session["csrf_token"]}
         assert client.post("/api/v1/auth/logout", headers=kiosk_headers).status_code == 204
         assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_new_profiles_must_replace_temporary_pin_and_admin_can_toggle_requirement(
+    tmp_path: Path,
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        member_response = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        )
+        assert member_response.status_code == 200
+        member = member_response.json()
+        assert member["pin_change_required"] is True
+
+        assert client.post("/api/v1/auth/logout", headers=admin_headers).status_code == 204
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+        )
+        assert login.status_code == 200
+        assert login.json()["profile"]["pin_change_required"] is True
+        member_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+
+        blocked = client.post(
+            "/api/v1/coffees",
+            headers=member_headers,
+            json={"roaster": "PSI Roasters", "name": "Blocked Blend"},
+        )
+        assert blocked.status_code == 403
+        assert blocked.json()["detail"] == "PIN change required"
+
+        wrong_current = client.post(
+            "/api/v1/auth/pin",
+            headers=member_headers,
+            json={"current_pin": "9999", "new_pin": "6789"},
+        )
+        assert wrong_current.status_code == 400
+        assert wrong_current.json()["detail"] == "Current PIN is incorrect"
+        unchanged = client.post(
+            "/api/v1/auth/pin",
+            headers=member_headers,
+            json={"current_pin": "5678", "new_pin": "5678"},
+        )
+        assert unchanged.status_code == 400
+
+        changed = client.post(
+            "/api/v1/auth/pin",
+            headers=member_headers,
+            json={"current_pin": "5678", "new_pin": "6789"},
+        )
+        assert changed.status_code == 204
+        assert client.get("/api/v1/auth/me").json()["profile"]["pin_change_required"] is False
+        allowed = client.post(
+            "/api/v1/coffees",
+            headers=member_headers,
+            json={"roaster": "PSI Roasters", "name": "Allowed Blend"},
+        )
+        assert allowed.status_code == 200
+
+        assert client.post("/api/v1/auth/logout", headers=member_headers).status_code == 204
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+            ).status_code
+            == 401
+        )
+        relogin = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "6789", "device_mode": "personal"},
+        )
+        assert relogin.status_code == 200
+        relogin_headers = {"X-CSRF-Token": relogin.json()["csrf_token"]}
+        assert client.post("/api/v1/auth/logout", headers=relogin_headers).status_code == 204
+
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
+        required = client.put(
+            f"/api/v1/people/{member['id']}",
+            headers=admin_headers,
+            json={"pin_change_required": True},
+        )
+        assert required.status_code == 200
+        assert required.json()["pin_change_required"] is True
+        not_required = client.put(
+            f"/api/v1/people/{member['id']}",
+            headers=admin_headers,
+            json={"pin_change_required": False},
+        )
+        assert not_required.status_code == 200
+        assert not_required.json()["pin_change_required"] is False
 
 
 def test_failed_logins_are_rate_limited(tmp_path: Path) -> None:

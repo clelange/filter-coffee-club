@@ -4,7 +4,8 @@ A small, touch-first pour-over tracker for the High-Energy Physics coffee breaks
 
 ## What is included
 
-- First-run administrator setup; Argon2-hashed four-digit PINs; CSRF-protected, server-side sessions.
+- First-run administrator setup; Argon2-hashed four-digit PINs; self-service PIN changes; CSRF-protected, server-side sessions.
+- Temporary PINs for new accounts, enforced replacement on first sign-in, and administrator-controlled PIN-change requirements.
 - Kiosk sign-in for the shared Raspberry Pi and personal sessions that expire exactly 84 hours after login.
 - Coffee bag/lot catalog, extensible grinders/drippers/filters, editable FCC starting presets, and reference-sheet serving calculators.
 - Draft recipe, high-contrast brew mode with Screen Wake Lock when available, final scale values, permanent QR invitation, and on-device rating handoff.

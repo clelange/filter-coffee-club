@@ -70,6 +70,7 @@ from .security import (
     record_login_failure,
     require_admin,
     require_csrf,
+    require_csrf_token,
     require_login_session,
     require_user,
     verify_pin,
@@ -258,7 +259,10 @@ def bootstrap(
     if (db.scalar(select(func.count(Profile.id))) or 0) > 0:
         raise HTTPException(status_code=409, detail="Initial setup is already complete")
     profile = Profile(
-        display_name=payload.display_name.strip(), pin_hash=hash_pin(payload.pin), role="admin"
+        display_name=payload.display_name.strip(),
+        pin_hash=hash_pin(payload.pin),
+        role="admin",
+        pin_change_required=False,
     )
     db.add(profile)
     db.commit()
@@ -315,7 +319,7 @@ def logout(
     request: Request,
     response: Response,
     db: Session = Depends(session_dependency),
-    login_session: LoginSession = Depends(require_csrf),
+    login_session: LoginSession = Depends(require_csrf_token),
 ) -> None:
     db.delete(login_session)
     db.commit()
@@ -326,9 +330,17 @@ def logout(
 def change_pin(
     payload: PinChange,
     db: Session = Depends(session_dependency),
-    login_session: LoginSession = Depends(require_csrf),
+    login_session: LoginSession = Depends(require_csrf_token),
 ) -> None:
-    login_session.profile.pin_hash = hash_pin(payload.pin)
+    profile = login_session.profile
+    if not verify_pin(profile.pin_hash, payload.current_pin):
+        raise HTTPException(status_code=400, detail="Current PIN is incorrect")
+    if verify_pin(profile.pin_hash, payload.new_pin):
+        raise HTTPException(
+            status_code=400, detail="New PIN must be different from the current PIN"
+        )
+    profile.pin_hash = hash_pin(payload.new_pin)
+    profile.pin_change_required = False
     db.commit()
 
 
@@ -348,7 +360,10 @@ def create_person(
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
     profile = Profile(
-        display_name=payload.display_name.strip(), pin_hash=hash_pin(payload.pin), role=payload.role
+        display_name=payload.display_name.strip(),
+        pin_hash=hash_pin(payload.pin),
+        role=payload.role,
+        pin_change_required=True,
     )
     db.add(profile)
     try:

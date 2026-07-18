@@ -41,6 +41,7 @@ class Profile(TimestampMixin, Base):
     pin_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="member")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    pin_change_required: Mapped[bool] = mapped_column(Boolean, default=False)
 
     sessions: Mapped[list[LoginSession]] = relationship(back_populates="profile")
 

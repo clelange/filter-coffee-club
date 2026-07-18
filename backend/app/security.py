@@ -100,7 +100,14 @@ def require_login_session(
     return login_session
 
 
+def require_pin_change_complete(login_session: LoginSession) -> LoginSession:
+    if login_session.profile.pin_change_required:
+        raise HTTPException(status_code=403, detail="PIN change required")
+    return login_session
+
+
 def require_user(login_session: LoginSession = Depends(require_login_session)) -> Profile:
+    require_pin_change_complete(login_session)
     return login_session.profile
 
 
@@ -110,7 +117,7 @@ def require_admin(profile: Profile = Depends(require_user)) -> Profile:
     return profile
 
 
-def require_csrf(
+def require_csrf_token(
     request: Request,
     login_session: LoginSession = Depends(require_login_session),
 ) -> LoginSession:
@@ -132,3 +139,9 @@ def require_csrf(
         ):
             raise HTTPException(status_code=403, detail="Untrusted request origin")
     return login_session
+
+
+def require_csrf(
+    login_session: LoginSession = Depends(require_csrf_token),
+) -> LoginSession:
+    return require_pin_change_complete(login_session)

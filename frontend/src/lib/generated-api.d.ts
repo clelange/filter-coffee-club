@@ -1156,8 +1156,10 @@ export interface components {
         };
         /** PinChange */
         PinChange: {
-            /** Pin */
-            pin: string;
+            /** Current Pin */
+            current_pin: string;
+            /** New Pin */
+            new_pin: string;
         };
         /** PresetResponse */
         PresetResponse: {
@@ -1230,6 +1232,8 @@ export interface components {
             role: string;
             /** Active */
             active: boolean;
+            /** Pin Change Required */
+            pin_change_required: boolean;
         };
         /** ProfileUpdate */
         ProfileUpdate: {
@@ -1239,6 +1243,8 @@ export interface components {
             role?: ("member" | "admin") | null;
             /** Active */
             active?: boolean | null;
+            /** Pin Change Required */
+            pin_change_required?: boolean | null;
             /** Pin */
             pin?: string | null;
         };

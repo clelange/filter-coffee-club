@@ -57,6 +57,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Four-digit PIN').fill('2468');
   await page.getByRole('button', { name: 'Add member' }).click();
   await expect(page.getByText('Member added.')).toBeVisible();
+  await expect(page.getByLabel('Require PIN change for Bob')).toBeChecked();
 
   await page.goto('/coffees');
   await page.getByRole('button', { name: '+ Add coffee' }).click();
@@ -151,6 +152,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await phone.getByLabel('Profile').selectOption({ label: 'Bob' });
   await phone.getByLabel('PIN').fill('2468');
   await phone.getByRole('button', { name: 'Sign in' }).click();
+  await expect(phone).toHaveURL(/\/account\/pin\?next=/);
+  await phone.getByLabel('Current PIN').fill('2468');
+  await phone.getByLabel('New PIN', { exact: true }).fill('1357');
+  await phone.getByLabel('Repeat new PIN').fill('1357');
+  await phone.getByRole('button', { name: 'Change PIN and continue' }).click();
   await expect(phone.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
   for (const sliderName of ['Overall liking', 'Acidity', 'Bitterness', 'Sweetness', 'Body']) {
     await expect(phone.getByRole('slider', { name: sliderName, exact: true })).toBeVisible();
