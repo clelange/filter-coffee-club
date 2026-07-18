@@ -11,7 +11,7 @@ hooks:
 check:
 	uv run ruff check backend tests scripts migrations
 	uv run ruff format --check backend tests scripts migrations
-	pnpm --dir frontend exec svelte-check --tsconfig ./tsconfig.json
+	pnpm --dir frontend check
 
 test:
 	uv run pytest

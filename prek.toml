@@ -52,7 +52,7 @@ stages = ["pre-commit"]
 [[repos.hooks]]
 id = "svelte-check"
 name = "svelte check"
-entry = "pnpm --dir frontend exec svelte-check --tsconfig ./tsconfig.json"
+entry = "pnpm --dir frontend check"
 language = "system"
 files = '^frontend/'
 pass_filenames = false
