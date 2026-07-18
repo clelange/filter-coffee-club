@@ -142,6 +142,18 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             },
         ).json()
         assert brew["ratio"] == 16
+
+        abandoned = client.post(f"/api/v1/brews/{brew['id']}/clone", headers=headers).json()
+        cancelled = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        repeat_cancel = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        assert repeat_cancel.status_code == 409
+        assert repeat_cancel.json()["detail"] == "Only draft brews can be cancelled"
+        assert (
+            client.post(f"/api/v1/brews/{abandoned['id']}/void", headers=headers).status_code == 409
+        )
+
         finalized_response = client.post(
             f"/api/v1/brews/{brew['id']}/finalize",
             headers=headers,
@@ -152,6 +164,9 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert finalized["status"] == "completed"
         assert finalized["rating_token"]
         assert finalized["overall_throughput_g_s"] == 1.34
+        cancel_completed = client.post(f"/api/v1/brews/{brew['id']}/cancel", headers=headers)
+        assert cancel_completed.status_code == 409
+        assert cancel_completed.json()["detail"] == "Only draft brews can be cancelled"
 
         link = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
         assert link["active"] is True
@@ -298,6 +313,12 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             headers={"X-CSRF-Token": admin_login["csrf_token"]},
         )
         assert voided.status_code == 200
+        repeat_void = client.post(
+            f"/api/v1/brews/{brew['id']}/void",
+            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+        )
+        assert repeat_void.status_code == 409
+        assert repeat_void.json()["detail"] == "Only completed brews can be voided"
         inactive = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
         assert inactive == {"active": False, "brew": None}
 

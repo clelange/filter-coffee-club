@@ -71,7 +71,7 @@
             <span><b>{formatTime(brew.total_brew_time_s)}</b> time</span>
           </div>
           <div class="actions">
-            <a class="button small" href={`/brews/${brew.id}`}>{brew.status === 'completed' ? 'Open invitation' : 'Continue brew'}</a>
+            <a class="button small" href={`/brews/${brew.id}`}>{brew.status === 'completed' ? 'Open invitation' : brew.status === 'draft' ? 'Continue brew' : 'View record'}</a>
             {#if $sessionStore && brew.status === 'completed'}
               <button class="secondary" onclick={() => repeat(brew)}>Repeat</button>
             {/if}
@@ -98,4 +98,3 @@
   .mini-metrics b { color: var(--ink); font-size: 1.05rem; }
   @media (max-width: 760px) { .hero { grid-template-columns: 1fr; min-height: auto; } .orbit-art { display:none; } }
 </style>
-
