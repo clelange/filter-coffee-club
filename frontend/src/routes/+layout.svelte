@@ -126,4 +126,4 @@
   {/if}
 </main>
 
-<footer>Filter Coffee Club · Brew gently, measure carefully.</footer>
+<footer>Filter Coffee Club · Measure carefully, brew gently.</footer>

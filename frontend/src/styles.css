@@ -106,6 +106,9 @@ textarea:focus-visible {
 
 .site-header nav a,
 .nav-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 48px;
   padding: 12px 14px;
   border: 0;
@@ -114,6 +117,7 @@ textarea:focus-visible {
   color: var(--ink);
   cursor: pointer;
   font-weight: 650;
+  line-height: 1.2;
   text-decoration: none;
 }
 
