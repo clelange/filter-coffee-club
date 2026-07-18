@@ -5,27 +5,67 @@ default_install_hook_types = ["pre-commit", "commit-msg", "pre-push"]
 repo = "builtin"
 
 [[repos.hooks]]
+id = "trailing-whitespace"
+priority = 0
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+priority = 1
+stages = ["pre-commit"]
+
+[[repos.hooks]]
 id = "check-added-large-files"
+priority = 2
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-case-conflict"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
 id = "check-json"
+priority = 2
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-shebang-scripts-are-executable"
+priority = 2
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-symlinks"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
 id = "check-toml"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
 id = "check-yaml"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
 id = "check-merge-conflict"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
 id = "detect-private-key"
+priority = 2
+stages = ["pre-commit"]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+
+[[repos.hooks]]
+id = "actionlint"
+priority = 2
 stages = ["pre-commit"]
 
 [[repos]]
@@ -38,6 +78,7 @@ entry = "uv run ruff check backend tests scripts migrations"
 language = "system"
 files = '^(backend|tests|scripts|migrations)/.*\.py$|^pyproject\.toml$'
 pass_filenames = false
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
@@ -47,6 +88,17 @@ entry = "uv run ruff format --check backend tests scripts migrations"
 language = "system"
 files = '^(backend|tests|scripts|migrations)/.*\.py$|^pyproject\.toml$'
 pass_filenames = false
+priority = 2
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "prettier"
+name = "prettier check"
+entry = "pnpm --dir frontend format:check"
+language = "system"
+files = '^frontend/'
+pass_filenames = false
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]
@@ -56,6 +108,17 @@ entry = "pnpm --dir frontend check"
 language = "system"
 files = '^frontend/'
 pass_filenames = false
+priority = 2
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "uv-lock"
+name = "uv lock check"
+entry = "uv lock --check"
+language = "system"
+files = '^pyproject\.toml$|^uv\.lock$'
+pass_filenames = false
+priority = 2
 stages = ["pre-commit"]
 
 [[repos.hooks]]

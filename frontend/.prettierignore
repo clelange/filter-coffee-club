@@ -1,0 +1,7 @@
+.svelte-kit/
+build/
+node_modules/
+playwright-report/
+pnpm-lock.yaml
+src/lib/generated-api.d.ts
+test-results/

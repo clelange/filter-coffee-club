@@ -61,4 +61,3 @@
     fill: var(--coffee);
   }
 </style>
-

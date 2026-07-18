@@ -15,7 +15,12 @@
 
   function nextPath(): string {
     const requested = $page.url.searchParams.get('next');
-    if (!requested?.startsWith('/') || requested.startsWith('//') || requested.startsWith('/account/pin')) return '/';
+    if (
+      !requested?.startsWith('/') ||
+      requested.startsWith('//') ||
+      requested.startsWith('/account/pin')
+    )
+      return '/';
     return requested;
   }
 
@@ -83,21 +88,46 @@
     <form class="panel" onsubmit={submit}>
       <label>
         Current PIN
-        <input bind:value={currentPin} inputmode="numeric" autocomplete="current-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+        <input
+          bind:value={currentPin}
+          inputmode="numeric"
+          autocomplete="current-password"
+          pattern="[0-9][0-9][0-9][0-9]"
+          maxlength="4"
+          required
+        />
       </label>
       <label>
         New PIN
-        <input bind:value={newPin} inputmode="numeric" autocomplete="new-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+        <input
+          bind:value={newPin}
+          inputmode="numeric"
+          autocomplete="new-password"
+          pattern="[0-9][0-9][0-9][0-9]"
+          maxlength="4"
+          required
+        />
       </label>
       <label>
         Repeat new PIN
-        <input bind:value={confirmPin} inputmode="numeric" autocomplete="new-password" pattern="[0-9][0-9][0-9][0-9]" maxlength="4" required />
+        <input
+          bind:value={confirmPin}
+          inputmode="numeric"
+          autocomplete="new-password"
+          pattern="[0-9][0-9][0-9][0-9]"
+          maxlength="4"
+          required
+        />
       </label>
       {#if message}<p class="success" role="status">{message}</p>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="actions">
-        <button class="primary" disabled={saving}>{saving ? 'Changing…' : required ? 'Change PIN and continue' : 'Change PIN'}</button>
-        {#if required}<button class="secondary" type="button" onclick={signOut}>Sign out instead</button>{/if}
+        <button class="primary" disabled={saving}
+          >{saving ? 'Changing…' : required ? 'Change PIN and continue' : 'Change PIN'}</button
+        >
+        {#if required}<button class="secondary" type="button" onclick={signOut}
+            >Sign out instead</button
+          >{/if}
       </div>
     </form>
   {:else}
@@ -114,6 +144,8 @@
     min-height: 66vh;
   }
   @media (max-width: 760px) {
-    .pin-layout { grid-template-columns: 1fr; }
+    .pin-layout {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

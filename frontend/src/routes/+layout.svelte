@@ -117,26 +117,56 @@
     bind:this={navToggle}
     aria-expanded={navOpen}
     aria-controls="main-navigation"
-    onclick={() => (navOpen = !navOpen)}
-  >Menu</button>
+    onclick={() => (navOpen = !navOpen)}>Menu</button
+  >
   <nav id="main-navigation" class:open={navOpen} aria-label="Main navigation" bind:this={navPanel}>
     {#if ready}
       {#if $sessionStore}
         {#if $sessionStore.profile.pin_change_required}
-          <a class:active={$page.url.pathname === '/account/pin'} href="/account/pin" onclick={closeNav}>Change PIN</a>
+          <a
+            class:active={$page.url.pathname === '/account/pin'}
+            href="/account/pin"
+            onclick={closeNav}>Change PIN</a
+          >
         {:else}
-          <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
-          <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment" onclick={closeNav}>Equipment</a>
-          <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics" onclick={closeNav}>Analytics</a>
+          <a
+            class:active={$page.url.pathname.startsWith('/coffees')}
+            href="/coffees"
+            onclick={closeNav}>Coffees</a
+          >
+          <a
+            class:active={$page.url.pathname.startsWith('/equipment')}
+            href="/equipment"
+            onclick={closeNav}>Equipment</a
+          >
+          <a
+            class:active={$page.url.pathname.startsWith('/analytics')}
+            href="/analytics"
+            onclick={closeNav}>Analytics</a
+          >
           {#if $sessionStore.profile.role === 'admin'}
-            <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin" onclick={closeNav}>Admin</a>
+            <a
+              class:active={$page.url.pathname.startsWith('/admin')}
+              href="/admin"
+              onclick={closeNav}>Admin</a
+            >
           {/if}
-          <a class:active={$page.url.pathname === '/account/pin'} href="/account/pin" onclick={closeNav}>Change PIN</a>
+          <a
+            class:active={$page.url.pathname === '/account/pin'}
+            href="/account/pin"
+            onclick={closeNav}>Change PIN</a
+          >
         {/if}
-        <button class="nav-action" onclick={signOut}>{$sessionStore.profile.display_name} · Sign out</button>
+        <button class="nav-action" onclick={signOut}
+          >{$sessionStore.profile.display_name} · Sign out</button
+        >
       {:else}
         <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
-        <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
+        <a
+          class:active={$page.url.pathname.startsWith('/coffees')}
+          href="/coffees"
+          onclick={closeNav}>Coffees</a
+        >
         <a class="button small" href="/login" onclick={closeNav}>Sign in</a>
       {/if}
     {/if}
@@ -144,7 +174,8 @@
 </header>
 
 {#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin' && !$sessionStore.profile.pin_change_required}
-  <a class="config-warning" href="/admin">Set the public URL before printing or sharing QR codes.</a>
+  <a class="config-warning" href="/admin">Set the public URL before printing or sharing QR codes.</a
+  >
 {/if}
 
 <main class:loading={!ready}>
