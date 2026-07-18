@@ -12,6 +12,11 @@
   let error = $state('');
   let loading = $state(false);
 
+  function safeNext(): string {
+    const requested = $page.url.searchParams.get('next');
+    return requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/';
+  }
+
   onMount(async () => {
     profiles = await api<Profile[]>('/auth/profiles');
     profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;
@@ -28,8 +33,12 @@
         body: jsonBody({ profile_id: profileId, pin, device_mode: deviceMode })
       });
       setSession(session);
-      const next = $page.url.searchParams.get('next') || '/';
-      await goto(next.startsWith('/') ? next : '/');
+      const next = safeNext();
+      await goto(
+        session.profile.pin_change_required
+          ? `/account/pin?next=${encodeURIComponent(next)}`
+          : next
+      );
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Sign-in failed.';
       pin = '';

@@ -37,6 +37,15 @@
     document.title = value.app_name;
   }
 
+  function pinChangePath(url: URL): string {
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    return `/account/pin?next=${encodeURIComponent(next)}`;
+  }
+
+  function allowsRequiredPinChange(pathname: string): boolean {
+    return pathname === '/account/pin' || pathname === '/login' || pathname === '/setup';
+  }
+
   onMount(async () => {
     try {
       settings = await api<AppSettings>('/settings');
@@ -45,7 +54,10 @@
       if (bootstrap.required && $page.url.pathname !== '/setup') {
         await goto('/setup');
       } else {
-        await ensureSession();
+        const session = await ensureSession();
+        if (session?.profile.pin_change_required && !allowsRequiredPinChange($page.url.pathname)) {
+          await goto(pinChangePath($page.url));
+        }
       }
     } finally {
       ready = true;
@@ -72,6 +84,17 @@
     const target = event.target as Node;
     if (navOpen && !navToggle?.contains(target) && !navPanel?.contains(target)) navOpen = false;
   }
+
+  $effect(() => {
+    const currentUrl = $page.url;
+    if (
+      ready &&
+      $sessionStore?.profile.pin_change_required &&
+      !allowsRequiredPinChange(currentUrl.pathname)
+    ) {
+      void goto(pinChangePath(currentUrl));
+    }
+  });
 </script>
 
 <svelte:window onkeydown={handleNavKeydown} onclick={handleOutsideClick} />
@@ -97,24 +120,31 @@
     onclick={() => (navOpen = !navOpen)}
   >Menu</button>
   <nav id="main-navigation" class:open={navOpen} aria-label="Main navigation" bind:this={navPanel}>
-    <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
-    <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
     {#if ready}
       {#if $sessionStore}
-        <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment" onclick={closeNav}>Equipment</a>
-        <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics" onclick={closeNav}>Analytics</a>
-        {#if $sessionStore.profile.role === 'admin'}
-          <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin" onclick={closeNav}>Admin</a>
+        {#if $sessionStore.profile.pin_change_required}
+          <a class:active={$page.url.pathname === '/account/pin'} href="/account/pin" onclick={closeNav}>Change PIN</a>
+        {:else}
+          <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
+          <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
+          <a class:active={$page.url.pathname.startsWith('/equipment')} href="/equipment" onclick={closeNav}>Equipment</a>
+          <a class:active={$page.url.pathname.startsWith('/analytics')} href="/analytics" onclick={closeNav}>Analytics</a>
+          {#if $sessionStore.profile.role === 'admin'}
+            <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin" onclick={closeNav}>Admin</a>
+          {/if}
+          <a class:active={$page.url.pathname === '/account/pin'} href="/account/pin" onclick={closeNav}>Change PIN</a>
         {/if}
         <button class="nav-action" onclick={signOut}>{$sessionStore.profile.display_name} · Sign out</button>
       {:else}
+        <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
+        <a class:active={$page.url.pathname.startsWith('/coffees')} href="/coffees" onclick={closeNav}>Coffees</a>
         <a class="button small" href="/login" onclick={closeNav}>Sign in</a>
       {/if}
     {/if}
   </nav>
 </header>
 
-{#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin'}
+{#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin' && !$sessionStore.profile.pin_change_required}
   <a class="config-warning" href="/admin">Set the public URL before printing or sharing QR codes.</a>
 {/if}
 

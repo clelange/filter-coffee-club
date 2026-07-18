@@ -3,6 +3,7 @@ export interface Profile {
   display_name: string;
   role: 'member' | 'admin';
   active: boolean;
+  pin_change_required: boolean;
 }
 
 export interface Session {
@@ -157,4 +158,3 @@ export interface RatingSummary {
   averages: Record<string, number>;
   flavor_counts: Record<string, number>;
 }
-

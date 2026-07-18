@@ -15,6 +15,7 @@ class ProfilePublic(ORMModel):
     display_name: str
     role: str
     active: bool
+    pin_change_required: bool
 
 
 class BootstrapInput(BaseModel):
@@ -44,9 +45,10 @@ class LoginInput(BaseModel):
 
 
 class PinChange(BaseModel):
-    pin: str
+    current_pin: str
+    new_pin: str
 
-    @field_validator("pin")
+    @field_validator("current_pin", "new_pin")
     @classmethod
     def validate_pin(cls, value: str) -> str:
         if len(value) != 4 or not value.isdigit():
@@ -62,6 +64,7 @@ class ProfileUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     role: Literal["member", "admin"] | None = None
     active: bool | None = None
+    pin_change_required: bool | None = None
     pin: str | None = None
 
     @field_validator("pin")
