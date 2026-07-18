@@ -1,0 +1,75 @@
+minimum_prek_version = "0.4.8"
+default_install_hook_types = ["pre-commit", "commit-msg", "pre-push"]
+
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-json"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-toml"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-yaml"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "detect-private-key"
+stages = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff-check"
+name = "ruff check"
+entry = "uv run ruff check backend tests scripts migrations"
+language = "system"
+files = '^(backend|tests|scripts|migrations)/.*\.py$|^pyproject\.toml$'
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "ruff-format"
+name = "ruff format check"
+entry = "uv run ruff format --check backend tests scripts migrations"
+language = "system"
+files = '^(backend|tests|scripts|migrations)/.*\.py$|^pyproject\.toml$'
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "svelte-check"
+name = "svelte check"
+entry = "pnpm --dir frontend exec svelte-check --tsconfig ./tsconfig.json"
+language = "system"
+files = '^frontend/'
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "conventional-commit"
+name = "conventional commit message"
+entry = "uv run conventional-pre-commit"
+language = "system"
+stages = ["commit-msg"]
+
+[[repos.hooks]]
+id = "verify"
+name = "non-Docker CI suite"
+entry = "make verify"
+language = "system"
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]

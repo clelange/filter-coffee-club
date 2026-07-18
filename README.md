@@ -55,7 +55,7 @@ Maintainers publish a release from GitHub Actions by opening the **Release** wor
 
 GitHub Container Registry creates a new package as private. After the first successful release, a package owner must open the package settings and change its visibility to **Public** once; public GHCR images can then be pulled by deployments without registry credentials.
 
-GitHub generates the changelog from merged pull requests. Use the `breaking-change`, `enhancement`, `bug`, `deployment`, or `dependencies` labels to categorize entries; use `skip-changelog` only for changes that should not appear in release notes. Pull request titles should describe the user-visible change.
+GitHub generates the changelog from merged pull requests. Use the `breaking-change`, `enhancement`, `bug`, `deployment`, or `dependencies` labels to categorize entries; use `skip-changelog` only for changes that should not appear in release notes. Pull request titles use Conventional Commits syntax, such as `feat: add brew comparison` or `fix(ratings): preserve the active session`, and should describe the user-visible change.
 
 ## Configuration
 
@@ -80,13 +80,13 @@ Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), and pnpm are expected.
 
 ```sh
 uv sync
-corepack pnpm --dir frontend install --frozen-lockfile
-corepack pnpm --dir frontend build
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend build
 uv run alembic upgrade head
 uv run uvicorn app.main:app --app-dir backend --reload
 ```
 
-SvelteKit's development server can be run separately with `corepack pnpm --dir frontend dev`; API calls are same-origin in production, so the normal integrated check uses the static build served by FastAPI.
+SvelteKit's development server can be run separately with `pnpm --dir frontend dev`; API calls are same-origin in production, so the normal integrated check uses the static build served by FastAPI.
 
 Regenerate the checked-in TypeScript API declaration after changing FastAPI schemas:
 
@@ -96,11 +96,29 @@ make types
 
 ## Tests and quality checks
 
+Install the project dependencies and Git hooks once per checkout:
+
+```sh
+make install
+make hooks
+```
+
+`make hooks` installs Chromium for Playwright and configures `prek` to run fast static checks before commits, validate Conventional Commit messages, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
+
+```text
+feat: add brew comparison
+fix(ratings): preserve the active session
+feat(api)!: remove the legacy export shape
+```
+
+Run individual checks or the same suite used by the pre-push hook:
+
 ```sh
 make check
 make test
-corepack pnpm --dir frontend exec playwright install chromium
+make types-check
 make e2e
+make verify
 ```
 
 The Playwright flow covers a 1024×600 Pi operator journey and a touch-enabled 393×851 phone rating opened through the same path as a QR scan. The production build is route-split and reports compressed JavaScript chunks far below the 150 KiB initial-route budget.

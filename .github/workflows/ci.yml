@@ -5,6 +5,11 @@ on:
     branches:
       - "**"
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   workflow_call:
 
 jobs:
@@ -24,16 +29,17 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: uv sync --frozen
+      - name: Validate conventional PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/pr-title"
+          uv run conventional-pre-commit --strict "$RUNNER_TEMP/pr-title"
       - run: pnpm --dir frontend install --frozen-lockfile
-      - run: uv run ruff check backend tests scripts migrations
-      - run: uv run ruff format --check backend tests scripts migrations
+      - run: uv run prek run --all-files
       - run: uv run pytest --cov=app --cov-report=term-missing
-      - run: pnpm --dir frontend check
-      - run: uv run python scripts/export_openapi.py openapi.json
-      - run: pnpm --dir frontend exec openapi-typescript ../openapi.json -o src/lib/generated-api.d.ts
-      - run: git diff --exit-code -- frontend/src/lib/generated-api.d.ts
-      - run: pnpm --dir frontend build
-      - run: uv run python scripts/check_bundle.py
+      - run: make types-check
       - run: pnpm --dir frontend exec playwright install --with-deps chromium
-      - run: pnpm --dir frontend exec playwright test
+      - run: make e2e
       - run: docker build -t filter-coffee-club:test .
