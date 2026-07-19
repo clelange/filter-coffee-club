@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: filter-coffee-club-demo
+    runtime: docker
+    region: frankfurt
+    plan: free
+    healthCheckPath: /health/ready
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: FCC_DEMO_MODE
+        value: "true"
+      - key: FCC_COOKIE_SECURE
+        value: "true"
+      - key: FCC_PUBLIC_BASE_URL
+        sync: false
+      - key: FCC_DATA_DIR
+        value: /data

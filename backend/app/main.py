@@ -10,9 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from .api import router
 from .config import Settings
 from .db import build_engine, build_session_factory
+from .demo import capture_demo_protected_ids
 from .migrations import run_migrations
 from .observability import configure_logging, install_request_logging
-from .seeds import seed_database
+from .seeds import seed_database, seed_demo_database
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -26,6 +27,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         run_migrations(app_settings)
         with session_factory() as db:
             seed_database(db)
+            if app_settings.demo_mode:
+                seed_demo_database(db)
+                _app.state.demo_protected_ids = capture_demo_protected_ids(db)
         yield
         engine.dispose()
 
@@ -33,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = app_settings
     app.state.engine = engine
     app.state.session_factory = session_factory
+    app.state.demo_protected_ids = {}
     install_request_logging(app)
     app.include_router(router)
 

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import Settings
+from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
 from app.models import Profile
 from app.security import _attempts
@@ -18,6 +19,17 @@ def build_client(tmp_path: Path) -> TestClient:
         database_url=f"sqlite:///{tmp_path / 'test.sqlite3'}",
         frontend_dir=tmp_path / "missing-frontend",
         public_base_url="http://fcc.test",
+    )
+    return TestClient(create_app(settings))
+
+
+def build_demo_client(tmp_path: Path) -> TestClient:
+    settings = Settings(
+        data_dir=tmp_path,
+        database_url=f"sqlite:///{tmp_path / 'demo.sqlite3'}",
+        frontend_dir=tmp_path / "missing-frontend",
+        public_base_url="http://demo.fcc.test",
+        demo_mode=True,
     )
     return TestClient(create_app(settings))
 
@@ -103,6 +115,112 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert created_preset.status_code == 200
         assert created_preset.json()["name"] == "Club balanced"
         assert len(client.get("/api/v1/presets").json()) == 8
+
+
+def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> None:
+    try:
+        with build_demo_client(tmp_path) as client:
+            assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": False}
+            assert (
+                client.post(
+                    "/api/v1/auth/bootstrap",
+                    json={"display_name": "Takeover", "pin": "9999"},
+                ).status_code
+                == 403
+            )
+
+            profiles = client.get("/api/v1/auth/profiles").json()
+            assert [item["display_name"] for item in profiles] == sorted(DEMO_PROFILE_NAMES)
+            coffees = client.get("/api/v1/coffees").json()
+            assert len(coffees) == 4
+            assert len(client.get("/api/v1/brews").json()) == 12
+
+            settings = client.get("/api/v1/settings").json()
+            assert settings["demo_mode"] is True
+            assert settings["demo_pin"] == "1234"
+            assert settings["demo_profile_names"] == list(DEMO_PROFILE_NAMES)
+            assert settings["public_base_url"] == "http://demo.fcc.test"
+            assert "Do not enter personal" in settings["demo_notice"]
+
+            admin = next(item for item in profiles if item["display_name"] == "Demo Admin")
+            login = client.post(
+                "/api/v1/auth/login",
+                json={"profile_id": admin["id"], "pin": "1234", "device_mode": "personal"},
+            )
+            assert login.status_code == 200
+            headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+            analytics = client.get("/api/v1/analytics").json()
+            assert analytics["counts"] == {"brews": 12, "ratings": 36, "coffees": 4}
+
+            pin_change = client.post(
+                "/api/v1/auth/pin",
+                headers=headers,
+                json={"current_pin": "1234", "new_pin": "5678"},
+            )
+            assert pin_change.status_code == 403
+            assert pin_change.json()["detail"] == "Demo profile credentials are fixed"
+
+            profile_change = client.put(
+                f"/api/v1/people/{admin['id']}",
+                headers=headers,
+                json={"active": False},
+            )
+            assert profile_change.status_code == 403
+
+            seeded_coffee_change = client.put(
+                f"/api/v1/coffees/{coffees[0]['id']}",
+                headers=headers,
+                json={"roaster": "Vandal", "name": "Changed"},
+            )
+            assert seeded_coffee_change.status_code == 403
+            assert seeded_coffee_change.json()["detail"].startswith(
+                "Seeded demo records are read-only"
+            )
+
+            new_coffee = client.post(
+                "/api/v1/coffees",
+                headers=headers,
+                json={"roaster": "Visitor", "name": "Experiment"},
+            ).json()
+            editable_coffee = client.put(
+                f"/api/v1/coffees/{new_coffee['id']}",
+                headers=headers,
+                json={"roaster": "Visitor", "name": "Edited experiment"},
+            )
+            assert editable_coffee.status_code == 200
+
+            settings_update = client.put(
+                "/api/v1/settings",
+                headers=headers,
+                json={
+                    "app_name": settings["app_name"],
+                    "subtitle": settings["subtitle"],
+                    "public_base_url": "https://vandal.invalid",
+                    "color_cream": settings["color_cream"],
+                    "color_surface": settings["color_surface"],
+                    "color_ink": settings["color_ink"],
+                    "color_coffee": settings["color_coffee"],
+                    "color_cyan": settings["color_cyan"],
+                    "color_amber": settings["color_amber"],
+                },
+            )
+            assert settings_update.status_code == 403
+            assert settings_update.json()["detail"] == "Branding is read-only in demo mode"
+            assert (
+                client.get("/api/v1/settings").json()["public_base_url"] == "http://demo.fcc.test"
+            )
+
+            upload = client.post(
+                "/api/v1/settings/logo",
+                headers=headers,
+                files={"logo": ("logo.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+            )
+            assert upload.status_code == 403
+
+        with build_demo_client(tmp_path) as client:
+            assert len(client.get("/api/v1/brews").json()) == 12
+    finally:
+        _write_attempts.clear()
 
 
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:

@@ -25,6 +25,10 @@ export interface AppSettings {
   color_cyan: string;
   color_amber: string;
   public_url_needs_configuration: boolean;
+  demo_mode: boolean;
+  demo_notice: string | null;
+  demo_pin: string | null;
+  demo_profile_names: string[];
 }
 
 export interface Coffee {

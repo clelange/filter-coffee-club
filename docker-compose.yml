@@ -7,6 +7,7 @@ services:
       FCC_PUBLIC_BASE_URL: ${FCC_PUBLIC_BASE_URL:-http://filter-coffee-club.local}
       FCC_COOKIE_SECURE: ${FCC_COOKIE_SECURE:-false}
       FCC_ALLOWED_ORIGINS: ${FCC_ALLOWED_ORIGINS:-}
+      FCC_DEMO_MODE: ${FCC_DEMO_MODE:-false}
     volumes:
       - fcc-data:/data
     ports:

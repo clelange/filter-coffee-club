@@ -3,9 +3,10 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { api, jsonBody, setSession } from '$lib/api';
-  import type { Profile, Session } from '$lib/types';
+  import type { AppSettings, Profile, Session } from '$lib/types';
 
   let profiles: Profile[] = $state([]);
+  let settings: AppSettings | null = $state(null);
   let profileId = $state(0);
   let pin = $state('');
   let deviceMode: 'kiosk' | 'personal' = $state('personal');
@@ -18,7 +19,10 @@
   }
 
   onMount(async () => {
-    profiles = await api<Profile[]>('/auth/profiles');
+    [profiles, settings] = await Promise.all([
+      api<Profile[]>('/auth/profiles'),
+      api<AppSettings>('/settings')
+    ]);
     profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;
     deviceMode = $page.url.searchParams.get('mode') === 'kiosk' ? 'kiosk' : 'personal';
   });
@@ -55,6 +59,16 @@
     <p class="lede">Choose your profile and enter your four-digit PIN.</p>
   </section>
   <form class="panel" onsubmit={submit}>
+    {#if settings?.demo_mode}
+      <div class="demo-login" role="note">
+        <strong>Demo access</strong>
+        <span>Every seeded profile uses PIN <code>{settings.demo_pin}</code>.</span>
+        <span>Choose Demo Admin to explore administration.</span>
+        <button class="secondary" type="button" onclick={() => (pin = settings?.demo_pin ?? '')}
+          >Use demo PIN</button
+        >
+      </div>
+    {/if}
     <label>
       Profile
       <select bind:value={profileId} required>
@@ -111,6 +125,23 @@
     border: 1px solid var(--line);
     border-radius: 13px;
     cursor: pointer;
+  }
+  .demo-login {
+    display: grid;
+    gap: 7px;
+    padding: 14px;
+    border: 1px solid color-mix(in srgb, var(--cyan) 35%, var(--line));
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+  }
+  .demo-login code {
+    font-size: 1rem;
+    font-weight: 850;
+  }
+  .demo-login button {
+    justify-self: start;
+    min-height: 42px;
+    padding: 8px 15px;
   }
   .choice input {
     width: 20px;

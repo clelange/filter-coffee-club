@@ -17,6 +17,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from .calculations import brew_ratio, overall_throughput
 from .db import session_dependency, utcnow
+from .demo import (
+    DEMO_NOTICE,
+    DEMO_PIN,
+    DEMO_PROFILE_NAMES,
+    enforce_demo_capacity,
+    enforce_demo_seed_protection,
+    enforce_demo_write_rate_limit,
+    is_protected_demo_profile,
+    prune_demo_sessions,
+)
 from .models import (
     AppSettings,
     Brew,
@@ -142,7 +152,8 @@ def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
 
 def effective_public_url(request: Request, db: Session) -> str:
     row = get_settings(db)
-    configured = (row.public_base_url or request.app.state.settings.public_base_url or "").strip()
+    stored_url = None if request.app.state.settings.demo_mode else row.public_base_url
+    configured = (stored_url or request.app.state.settings.public_base_url or "").strip()
     return configured.rstrip("/") or f"{request.url.scheme}://{request.url.netloc}"
 
 
@@ -245,7 +256,11 @@ def rating_summary(brew: Brew, viewer: Profile) -> RatingSummary:
 
 
 @router.get("/auth/bootstrap-status")
-def bootstrap_status(db: Session = Depends(session_dependency)) -> dict[str, bool]:
+def bootstrap_status(
+    request: Request, db: Session = Depends(session_dependency)
+) -> dict[str, bool]:
+    if request.app.state.settings.demo_mode:
+        return {"required": False}
     return {"required": (db.scalar(select(func.count(Profile.id))) or 0) == 0}
 
 
@@ -256,6 +271,8 @@ def bootstrap(
     response: Response,
     db: Session = Depends(session_dependency),
 ) -> SessionResponse:
+    if request.app.state.settings.demo_mode:
+        raise HTTPException(status_code=403, detail="First-run setup is disabled in demo mode")
     if (db.scalar(select(func.count(Profile.id))) or 0) > 0:
         raise HTTPException(status_code=409, detail="Initial setup is already complete")
     profile = Profile(
@@ -291,6 +308,7 @@ def login(
     response: Response,
     db: Session = Depends(session_dependency),
 ) -> SessionResponse:
+    enforce_demo_write_rate_limit(request)
     client_ip = request.client.host if request.client else "unknown"
     key = f"{client_ip}:{payload.profile_id}"
     enforce_login_rate_limit(key)
@@ -299,6 +317,7 @@ def login(
         record_login_failure(key)
         raise HTTPException(status_code=401, detail="Invalid profile or PIN")
     clear_login_failures(key)
+    prune_demo_sessions(request, db)
     hours = (
         request.app.state.settings.personal_session_hours
         if payload.device_mode == "personal"
@@ -329,10 +348,13 @@ def logout(
 @router.post("/auth/pin", status_code=204)
 def change_pin(
     payload: PinChange,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf_token),
 ) -> None:
     profile = login_session.profile
+    if request.app.state.settings.demo_mode and is_protected_demo_profile(profile):
+        raise HTTPException(status_code=403, detail="Demo profile credentials are fixed")
     if not verify_pin(profile.pin_hash, payload.current_pin):
         raise HTTPException(status_code=400, detail="Current PIN is incorrect")
     if verify_pin(profile.pin_hash, payload.new_pin):
@@ -354,11 +376,13 @@ def list_people(
 @router.post("/people", response_model=ProfilePublic)
 def create_person(
     payload: ProfileCreate,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Profile:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_capacity(request, db, Profile)
     profile = Profile(
         display_name=payload.display_name.strip(),
         pin_hash=hash_pin(payload.pin),
@@ -379,6 +403,7 @@ def create_person(
 def update_person(
     profile_id: int,
     payload: ProfileUpdate,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Profile:
@@ -387,6 +412,8 @@ def update_person(
     profile = db.get(Profile, profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if request.app.state.settings.demo_mode and is_protected_demo_profile(profile):
+        raise HTTPException(status_code=403, detail="Seeded demo profiles cannot be changed")
     for key, value in payload.model_dump(exclude_unset=True, exclude={"pin"}).items():
         setattr(profile, key, value)
     if payload.pin:
@@ -409,9 +436,11 @@ def list_coffees(
 @router.post("/coffees", response_model=CoffeeResponse)
 def create_coffee(
     payload: CoffeeInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
+    enforce_demo_capacity(request, db, Coffee)
     coffee = Coffee(**payload.model_dump(), created_by_id=login_session.profile_id)
     db.add(coffee)
     db.commit()
@@ -431,9 +460,11 @@ def get_coffee(coffee_id: int, db: Session = Depends(session_dependency)) -> Cof
 def update_coffee(
     coffee_id: int,
     payload: CoffeeInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
+    enforce_demo_seed_protection(request, Coffee, coffee_id)
     coffee = db.get(Coffee, coffee_id)
     if coffee is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
@@ -447,11 +478,13 @@ def update_coffee(
 @router.post("/coffees/{coffee_id}/archive", response_model=CoffeeResponse)
 def archive_coffee(
     coffee_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, Coffee, coffee_id)
     coffee = db.get(Coffee, coffee_id)
     if coffee is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
@@ -464,9 +497,11 @@ def archive_coffee(
 @router.post("/coffees/{coffee_id}/clone", response_model=CoffeeResponse)
 def clone_coffee(
     coffee_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
+    enforce_demo_capacity(request, db, Coffee)
     source = db.get(Coffee, coffee_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
@@ -499,9 +534,11 @@ def list_grinders(db: Session = Depends(session_dependency)) -> list[Grinder]:
 @router.post("/grinders", response_model=GrinderResponse)
 def create_grinder(
     payload: GrinderInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Grinder:
+    enforce_demo_capacity(request, db, Grinder)
     item = Grinder(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -513,9 +550,11 @@ def create_grinder(
 def update_grinder(
     item_id: int,
     payload: GrinderInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Grinder:
+    enforce_demo_seed_protection(request, Grinder, item_id)
     item = db.get(Grinder, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Grinder not found")
@@ -529,11 +568,13 @@ def update_grinder(
 @router.post("/grinders/{item_id}/archive", response_model=GrinderResponse)
 def archive_grinder(
     item_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Grinder:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, Grinder, item_id)
     item = db.get(Grinder, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Grinder not found")
@@ -553,9 +594,11 @@ def list_drippers(db: Session = Depends(session_dependency)) -> list[Dripper]:
 @router.post("/drippers", response_model=DripperResponse)
 def create_dripper(
     payload: EquipmentInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Dripper:
+    enforce_demo_capacity(request, db, Dripper)
     item = Dripper(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -567,9 +610,11 @@ def create_dripper(
 def update_dripper(
     item_id: int,
     payload: EquipmentInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Dripper:
+    enforce_demo_seed_protection(request, Dripper, item_id)
     item = db.get(Dripper, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Dripper not found")
@@ -583,11 +628,13 @@ def update_dripper(
 @router.post("/drippers/{item_id}/archive", response_model=DripperResponse)
 def archive_dripper(
     item_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Dripper:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, Dripper, item_id)
     item = db.get(Dripper, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Dripper not found")
@@ -609,9 +656,11 @@ def list_filters(db: Session = Depends(session_dependency)) -> list[BrewFilter]:
 @router.post("/filters", response_model=FilterResponse)
 def create_filter(
     payload: FilterInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> BrewFilter:
+    enforce_demo_capacity(request, db, BrewFilter)
     item = BrewFilter(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -623,9 +672,11 @@ def create_filter(
 def update_filter(
     item_id: int,
     payload: FilterInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> BrewFilter:
+    enforce_demo_seed_protection(request, BrewFilter, item_id)
     item = db.get(BrewFilter, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Filter not found")
@@ -639,11 +690,13 @@ def update_filter(
 @router.post("/filters/{item_id}/archive", response_model=FilterResponse)
 def archive_filter(
     item_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewFilter:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, BrewFilter, item_id)
     item = db.get(BrewFilter, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Filter not found")
@@ -671,11 +724,13 @@ def list_presets(
 def update_preset(
     preset_id: int,
     payload: PresetUpdate,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> RecipePreset:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, RecipePreset, preset_id)
     item = db.get(RecipePreset, preset_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Preset not found")
@@ -696,11 +751,13 @@ def update_preset(
 @router.post("/presets", response_model=PresetResponse)
 def create_preset(
     payload: PresetUpdate,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> RecipePreset:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_capacity(request, db, RecipePreset)
     validate_preset_grinder_ranges(db, payload)
     item = RecipePreset(**payload.model_dump(exclude={"grinder_ranges"}))
     item.grinder_ranges = [
@@ -728,11 +785,13 @@ def list_flavor_tags(
 @router.post("/flavor-tags", response_model=FlavorTagResponse)
 def create_flavor_tag(
     payload: FlavorTagInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> FlavorTag:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_capacity(request, db, FlavorTag)
     item = FlavorTag(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -744,11 +803,13 @@ def create_flavor_tag(
 def update_flavor_tag(
     tag_id: int,
     payload: FlavorTagInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> FlavorTag:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, FlavorTag, tag_id)
     item = db.get(FlavorTag, tag_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Flavor tag not found")
@@ -764,9 +825,11 @@ def update_flavor_tag(
 @router.post("/brews", response_model=BrewResponse)
 def create_brew(
     payload: BrewInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
+    enforce_demo_capacity(request, db, Brew)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     brew = Brew(**payload.model_dump(), operator_id=login_session.profile_id)
     db.add(brew)
@@ -809,9 +872,11 @@ def get_brew(brew_id: int, db: Session = Depends(session_dependency)) -> BrewRes
 def update_brew(
     brew_id: int,
     payload: BrewInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
+    enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
     if brew.status != "draft":
         raise HTTPException(status_code=409, detail="Only draft brews can be edited")
@@ -828,11 +893,13 @@ def update_brew(
 def correct_completed_brew(
     brew_id: int,
     payload: BrewCorrection,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
     if brew.status != "completed":
         raise HTTPException(status_code=409, detail="Only completed brews need correction")
@@ -847,9 +914,11 @@ def correct_completed_brew(
 def finalize_brew(
     brew_id: int,
     payload: BrewFinalize,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
+    enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
     if brew.status != "draft":
         raise HTTPException(status_code=409, detail="Only draft brews can be finalized")
@@ -868,9 +937,11 @@ def finalize_brew(
 @router.post("/brews/{brew_id}/clone", response_model=BrewResponse)
 def clone_brew(
     brew_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
+    enforce_demo_capacity(request, db, Brew)
     source = load_brew(db, brew_id)
     clone = Brew(
         coffee_id=source.coffee_id,
@@ -900,9 +971,11 @@ def clone_brew(
 def _change_brew_status(
     brew_id: int,
     action: str,
+    request: Request,
     db: Session,
     login_session: LoginSession,
 ) -> BrewResponse:
+    enforce_demo_seed_protection(request, Brew, brew_id)
     if action not in {"cancel", "void"}:
         raise HTTPException(status_code=404, detail="Unknown action")
     brew = load_brew(db, brew_id)
@@ -932,19 +1005,21 @@ def _change_brew_status(
 @router.post("/brews/{brew_id}/cancel", response_model=BrewResponse)
 def cancel_brew(
     brew_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
-    return _change_brew_status(brew_id, "cancel", db, login_session)
+    return _change_brew_status(brew_id, "cancel", request, db, login_session)
 
 
 @router.post("/brews/{brew_id}/void", response_model=BrewResponse)
 def void_brew(
     brew_id: int,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
-    return _change_brew_status(brew_id, "void", db, login_session)
+    return _change_brew_status(brew_id, "void", request, db, login_session)
 
 
 @router.get("/rating-links/{token}", response_model=RatingLinkResponse)
@@ -991,9 +1066,11 @@ def get_ratings(
 def submit_rating(
     brew_id: int,
     payload: RatingInput,
+    request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> RatingSummary:
+    enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
     if brew.status != "completed":
         raise HTTPException(status_code=409, detail="Only completed brews can be rated")
@@ -1013,6 +1090,7 @@ def submit_rating(
     )
     values = payload.model_dump(exclude={"flavor_tag_ids"})
     if rating is None:
+        enforce_demo_capacity(request, db, Rating)
         rating = Rating(brew_id=brew.id, profile_id=login_session.profile_id, **values)
         db.add(rating)
     else:
@@ -1117,6 +1195,11 @@ def public_settings(
         "http://filter-coffee-club.local",
         "http://localhost:8000",
     }
+    if request.app.state.settings.demo_mode:
+        result.demo_mode = True
+        result.demo_notice = DEMO_NOTICE
+        result.demo_pin = DEMO_PIN
+        result.demo_profile_names = list(DEMO_PROFILE_NAMES)
     return result
 
 
@@ -1129,9 +1212,17 @@ def update_settings(
 ) -> AppSettingsResponse:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    if request.app.state.settings.demo_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Branding is read-only in demo mode",
+        )
     item = get_settings(db)
-    for key, value in payload.model_dump().items():
+    excluded = {"public_base_url"} if request.app.state.settings.demo_mode else set()
+    for key, value in payload.model_dump(exclude=excluded).items():
         setattr(item, key, value.rstrip("/") if key == "public_base_url" and value else value)
+    if request.app.state.settings.demo_mode:
+        item.public_base_url = None
     db.commit()
     return public_settings(request, db)
 
@@ -1145,6 +1236,8 @@ async def upload_logo(
 ) -> AppSettingsResponse:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    if request.app.state.settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Logo uploads are disabled in demo mode")
     allowed = {"image/png": ".png", "image/webp": ".webp"}
     if logo.content_type not in allowed:
         raise HTTPException(status_code=415, detail="Logo must be PNG or WebP")

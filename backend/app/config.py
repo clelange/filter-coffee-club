@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     max_logo_bytes: int = 2 * 1024 * 1024
     app_name: str = "Filter Coffee Club"
     log_level: str = Field(default="info")
+    demo_mode: bool = False
 
     @property
     def resolved_database_url(self) -> str:

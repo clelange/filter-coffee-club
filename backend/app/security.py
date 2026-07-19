@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import session_dependency, utcnow
+from .demo import enforce_demo_write_rate_limit
 from .models import LoginSession, Profile
 
 password_hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
@@ -138,6 +139,7 @@ def require_csrf_token(
             and origin.rstrip("/") != host_origin
         ):
             raise HTTPException(status_code=403, detail="Untrusted request origin")
+    enforce_demo_write_rate_limit(request)
     return login_session
 
 

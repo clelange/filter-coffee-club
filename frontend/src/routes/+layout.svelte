@@ -19,7 +19,11 @@
     color_coffee: '#6B3F2A',
     color_cyan: '#007F9E',
     color_amber: '#D88700',
-    public_url_needs_configuration: false
+    public_url_needs_configuration: false,
+    demo_mode: false,
+    demo_notice: null,
+    demo_pin: null,
+    demo_profile_names: []
   });
   let ready = $state(false);
   let navOpen = $state(false);
@@ -101,6 +105,7 @@
 
 <svelte:head>
   <meta name="theme-color" content={settings.color_cream} />
+  {#if settings.demo_mode}<meta name="robots" content="noindex, nofollow, noarchive" />{/if}
 </svelte:head>
 
 <header class="site-header">
@@ -123,11 +128,13 @@
     {#if ready}
       {#if $sessionStore}
         {#if $sessionStore.profile.pin_change_required}
-          <a
-            class:active={$page.url.pathname === '/account/pin'}
-            href="/account/pin"
-            onclick={closeNav}>Change PIN</a
-          >
+          {#if !settings.demo_mode}
+            <a
+              class:active={$page.url.pathname === '/account/pin'}
+              href="/account/pin"
+              onclick={closeNav}>Change PIN</a
+            >
+          {/if}
         {:else}
           <a
             class:active={$page.url.pathname.startsWith('/coffees')}
@@ -151,11 +158,13 @@
               onclick={closeNav}>Admin</a
             >
           {/if}
-          <a
-            class:active={$page.url.pathname === '/account/pin'}
-            href="/account/pin"
-            onclick={closeNav}>Change PIN</a
-          >
+          {#if !settings.demo_mode}
+            <a
+              class:active={$page.url.pathname === '/account/pin'}
+              href="/account/pin"
+              onclick={closeNav}>Change PIN</a
+            >
+          {/if}
         {/if}
         <button class="nav-action" onclick={signOut}
           >{$sessionStore.profile.display_name} · Sign out</button
@@ -176,6 +185,10 @@
 {#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin' && !$sessionStore.profile.pin_change_required}
   <a class="config-warning" href="/admin">Set the public URL before printing or sharing QR codes.</a
   >
+{/if}
+
+{#if settings.demo_mode && settings.demo_notice}
+  <div class="demo-banner" role="note">{settings.demo_notice}</div>
 {/if}
 
 <main class:loading={!ready}>

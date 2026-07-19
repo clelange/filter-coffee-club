@@ -744,6 +744,17 @@ export interface components {
              * @default false
              */
             public_url_needs_configuration: boolean;
+            /**
+             * Demo Mode
+             * @default false
+             */
+            demo_mode: boolean;
+            /** Demo Notice */
+            demo_notice?: string | null;
+            /** Demo Pin */
+            demo_pin?: string | null;
+            /** Demo Profile Names */
+            demo_profile_names?: string[];
         };
         /** AppSettingsUpdate */
         AppSettingsUpdate: {

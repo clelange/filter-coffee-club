@@ -36,6 +36,26 @@ docker compose up --build
 
 Traefik, TLS, VM provisioning, and scheduled host backups are intentionally outside this repository. When Traefik terminates HTTPS, set `FCC_COOKIE_SECURE=true`. Mounting `/data` persists the database and uploaded branding.
 
+## Public demo mode
+
+Set `FCC_DEMO_MODE=true` only for a disposable public demonstration. On an empty database, demo
+mode creates four fictional profiles, four coffees, shared equipment, twelve completed brews, and
+sample ratings. Every seeded profile uses PIN `1234`; **Demo Admin** can open the administration
+area.
+
+Demo mode also disables first-run administrator takeover, keeps branding under deployment control,
+protects all records present at startup and the seeded PIN, rate-limits mutations, and caps the
+number of records visitors can create. Visitors can create and edit their own new records. The
+interface identifies the site as a public demo and asks visitors not to enter personal or
+confidential information.
+
+The included `render.yaml` creates a free Docker web service backed by ephemeral SQLite storage.
+Render discards that storage whenever the free service sleeps, restarts, or redeploys, so the sample
+dataset is rebuilt on the next start. After creating the service, copy its deploy hook URL into a
+GitHub Actions repository secret named `RENDER_DEPLOY_HOOK_URL`. The `Reset demo` workflow triggers
+a fresh deployment daily at 03:17 UTC and can also be run manually. Until that secret exists, the
+scheduled workflow exits successfully without resetting anything.
+
 ## Upgrade and rollback
 
 Back up the SQLite database before every upgrade. Then change `FCC_IMAGE_TAG` in `.env` and replace the container:
@@ -61,14 +81,15 @@ GitHub generates the changelog from merged pull requests. Use the `breaking-chan
 
 All environment variables use the `FCC_` prefix. Important values are:
 
-| Variable | Default | Purpose |
-|---|---|---|
+| Variable              | Default                           | Purpose                                                                      |
+| --------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
 | `FCC_PUBLIC_BASE_URL` | `http://filter-coffee-club.local` | Absolute URL encoded into QR links. Can also be changed in Admin → Branding. |
-| `FCC_COOKIE_SECURE` | `false` | Send the session cookie only over HTTPS. |
-| `FCC_ALLOWED_ORIGINS` | empty | Optional comma-separated additional trusted origins. |
-| `FCC_DATA_DIR` | `data` locally, `/data` in Docker | SQLite and uploaded-logo storage. |
-| `FCC_DATABASE_URL` | derived SQLite URL | Override only for local/testing scenarios. |
-| `FCC_LOG_LEVEL` | `info` | Application and structured request log level. |
+| `FCC_COOKIE_SECURE`   | `false`                           | Send the session cookie only over HTTPS.                                     |
+| `FCC_ALLOWED_ORIGINS` | empty                             | Optional comma-separated additional trusted origins.                         |
+| `FCC_DATA_DIR`        | `data` locally, `/data` in Docker | SQLite and uploaded-logo storage.                                            |
+| `FCC_DATABASE_URL`    | derived SQLite URL                | Override only for local/testing scenarios.                                   |
+| `FCC_LOG_LEVEL`       | `info`                            | Application and structured request log level.                                |
+| `FCC_DEMO_MODE`       | `false`                           | Seed fictional data and enable public-demo protections.                      |
 
 If the public URL is blank, the API uses the current request origin. Administrators see a warning while the development placeholder is active.
 

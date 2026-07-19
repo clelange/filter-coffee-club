@@ -63,6 +63,10 @@
     return ['click', 'clicks'].includes(unit.trim().toLowerCase());
   }
 
+  function isSeededDemoProfile(person: Profile) {
+    return settings?.demo_mode && settings.demo_profile_names.includes(person.display_name);
+  }
+
   onMount(async () => {
     const session = await ensureSession();
     if (!session) {
@@ -321,6 +325,12 @@
 <p class="lede">
   Manage identities, shared equipment, starting points, branding, and portable data.
 </p>
+{#if settings?.demo_mode}
+  <p class="demo-admin-note" role="note">
+    Seeded records and branding are read-only. Create new records to try changes; everything is
+    discarded during the next demo reset.
+  </p>
+{/if}
 
 <label class="admin-section-select section" for="admin-section-select">
   Admin section
@@ -385,9 +395,14 @@
         <h2>Profiles</h2>
         <div class="item-list">
           {#each people as person}<article>
-              <input aria-label="Display name" bind:value={person.display_name} /><select
+              <input
+                aria-label="Display name"
+                bind:value={person.display_name}
+                disabled={isSeededDemoProfile(person)}
+              /><select
                 aria-label={`Role for ${person.display_name}`}
                 bind:value={person.role}
+                disabled={isSeededDemoProfile(person)}
                 ><option value="member">Member</option><option value="admin">Administrator</option
                 ></select
               ><input
@@ -398,12 +413,22 @@
                 pattern="[0-9][0-9][0-9][0-9]"
                 maxlength="4"
                 placeholder="New PIN"
+                disabled={isSeededDemoProfile(person)}
               /><label class="check pin-required"
-                ><input type="checkbox" bind:checked={person.pin_change_required} /> Require PIN
-                change for {person.display_name}</label
-              ><button class="secondary" onclick={() => savePerson(person)}>Save</button><button
+                ><input
+                  type="checkbox"
+                  bind:checked={person.pin_change_required}
+                  disabled={isSeededDemoProfile(person)}
+                />
+                Require PIN change for {person.display_name}</label
+              ><button
+                class="secondary"
+                onclick={() => savePerson(person)}
+                disabled={isSeededDemoProfile(person)}>Save</button
+              ><button
                 class="secondary"
                 onclick={() => togglePerson(person)}
+                disabled={isSeededDemoProfile(person)}
                 >{person.active ? 'Deactivate' : 'Activate'}</button
               >
             </article>{/each}
@@ -625,21 +650,27 @@
       <div>
         <h2>Filter Coffee Club identity</h2>
         <p class="muted">
-          The official PSI logo is not bundled. Upload an approved PNG or WebP if needed.
+          {settings.demo_mode
+            ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
+            : 'The official PSI logo is not bundled. Upload an approved PNG or WebP if needed.'}
         </p>
-        <label>Club name<input bind:value={settings.app_name} required /></label><label
-          >Subtitle<input bind:value={settings.subtitle} /></label
+        <label
+          >Club name<input bind:value={settings.app_name} required disabled={settings.demo_mode} />
+        </label><label
+          >Subtitle<input bind:value={settings.subtitle} disabled={settings.demo_mode} /></label
         ><label
           >Public URL<input
             type="url"
             bind:value={settings.public_base_url}
             placeholder="https://coffee.example.psi.ch"
+            disabled={settings.demo_mode}
           /><span class="hint">This exact origin is encoded in permanent QR links.</span></label
         ><label
           >Logo PNG/WebP<input
             type="file"
             accept="image/png,image/webp"
             onchange={uploadLogo}
+            disabled={settings.demo_mode}
           /></label
         >
       </div>
@@ -650,11 +681,12 @@
               >{color[1]}<input
                 type="color"
                 bind:value={settings[color[0] as keyof AppSettings] as string}
+                disabled={settings.demo_mode}
               /></label
             >{/each}
         </div>
       </div>
-      <button class="primary">Save branding</button>
+      <button class="primary" disabled={settings.demo_mode}>Save branding</button>
     </form>
   {:else if activeTab === 'data'}
     <div class="admin-grid">
@@ -674,18 +706,33 @@
       </section>
       <section class="panel">
         <p class="eyebrow">Database safety</p>
-        <h2>Backups</h2>
-        <p>
-          Back up the mounted SQLite file using the documented SQLite backup command or during a
-          stopped container. Restore remains an infrastructure operation.
-        </p>
-        <code>sqlite3 /data/fcc.sqlite3 ".backup '/backup/fcc.sqlite3'"</code>
+        {#if settings?.demo_mode}
+          <h2>Disposable demo data</h2>
+          <p>
+            This instance intentionally uses ephemeral SQLite storage. Visitor changes disappear
+            when the service restarts and during the scheduled daily reset.
+          </p>
+        {:else}
+          <h2>Backups</h2>
+          <p>
+            Back up the mounted SQLite file using the documented SQLite backup command or during a
+            stopped container. Restore remains an infrastructure operation.
+          </p>
+          <code>sqlite3 /data/fcc.sqlite3 ".backup '/backup/fcc.sqlite3'"</code>
+        {/if}
       </section>
     </div>
   {/if}
 </div>
 
 <style>
+  .demo-admin-note {
+    max-width: 72ch;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--cyan) 35%, var(--line));
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+  }
   .admin-section-select {
     display: none;
   }

@@ -1,0 +1,23 @@
+name: Reset demo
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start a fresh Render demo container
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL is not configured; skipping the daily demo reset."
+            exit 0
+          fi
+          curl --fail --silent --show-error --retry 3 \
+            -X POST "$RENDER_DEPLOY_HOOK_URL"

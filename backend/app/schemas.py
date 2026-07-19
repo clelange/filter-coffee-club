@@ -309,6 +309,10 @@ class AppSettingsResponse(ORMModel):
     color_cyan: str
     color_amber: str
     public_url_needs_configuration: bool = False
+    demo_mode: bool = False
+    demo_notice: str | None = None
+    demo_pin: str | None = None
+    demo_profile_names: list[str] = Field(default_factory=list)
 
 
 class AppSettingsUpdate(BaseModel):
