@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import PinPad from '$lib/PinPad.svelte';
+  import { deviceModeStore } from '$lib/device';
   import { api, jsonBody, setSession } from '$lib/api';
   import type { AppSettings, Profile, Session } from '$lib/types';
 
@@ -9,7 +11,6 @@
   let settings: AppSettings | null = $state(null);
   let profileId = $state(0);
   let pin = $state('');
-  let deviceMode: 'kiosk' | 'personal' = $state('personal');
   let error = $state('');
   let loading = $state(false);
 
@@ -24,7 +25,6 @@
       api<AppSettings>('/settings')
     ]);
     profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;
-    deviceMode = $page.url.searchParams.get('mode') === 'kiosk' ? 'kiosk' : 'personal';
   });
 
   async function submit(event: SubmitEvent) {
@@ -34,7 +34,7 @@
     try {
       const session = await api<Session>('/auth/login', {
         method: 'POST',
-        body: jsonBody({ profile_id: profileId, pin, device_mode: deviceMode })
+        body: jsonBody({ profile_id: profileId, pin, device_mode: $deviceModeStore })
       });
       setSession(session);
       const next = safeNext();
@@ -77,34 +77,27 @@
         {/each}
       </select>
     </label>
-    <label>
-      PIN
-      <input
-        bind:value={pin}
-        inputmode="numeric"
-        autocomplete="current-password"
-        pattern="[0-9][0-9][0-9][0-9]"
-        maxlength="4"
-        required
-      />
-    </label>
-    <fieldset>
-      <legend>This device is…</legend>
-      <label class="choice">
-        <input type="radio" bind:group={deviceMode} value="personal" />
-        <span><strong>My phone or tablet</strong><small>Stay signed in for 3.5 days.</small></span>
+    {#if $deviceModeStore === 'kiosk'}
+      <div class="kiosk-note" role="note">
+        <strong>Shared touch display</strong>
+        <span>You will be signed out when this activity is complete.</span>
+      </div>
+      <PinPad label="PIN" bind:value={pin} disabled={loading} />
+    {:else}
+      <label>
+        PIN
+        <input
+          bind:value={pin}
+          inputmode="numeric"
+          autocomplete="current-password"
+          pattern="[0-9][0-9][0-9][0-9]"
+          maxlength="4"
+          required
+        />
       </label>
-      <label class="choice">
-        <input type="radio" bind:group={deviceMode} value="kiosk" />
-        <span
-          ><strong>Shared touch display</strong><small
-            >Return to the invitation after each rating.</small
-          ></span
-        >
-      </label>
-    </fieldset>
+    {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="primary" disabled={loading || !profileId}
+    <button class="primary" disabled={loading || !profileId || pin.length !== 4}
       >{loading ? 'Signing in…' : 'Sign in'}</button
     >
   </form>
@@ -118,13 +111,13 @@
     align-items: center;
     min-height: 66vh;
   }
-  .choice {
-    grid-template-columns: 24px 1fr;
-    align-items: center;
-    padding: 12px;
+  .kiosk-note {
+    display: grid;
+    gap: 3px;
+    padding: 12px 14px;
     border: 1px solid var(--line);
     border-radius: 13px;
-    cursor: pointer;
+    background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
   }
   .demo-login {
     display: grid;
@@ -143,15 +136,7 @@
     min-height: 42px;
     padding: 8px 15px;
   }
-  .choice input {
-    width: 20px;
-    min-height: 20px;
-  }
-  .choice span {
-    display: grid;
-    gap: 2px;
-  }
-  .choice small {
+  .kiosk-note span {
     color: var(--muted);
     font-weight: 500;
   }

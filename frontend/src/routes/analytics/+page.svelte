@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { loginPath } from '$lib/device';
   import { api, ensureSession } from '$lib/api';
 
   interface Point {
@@ -92,7 +93,7 @@
 
   onMount(async () => {
     if (!(await ensureSession())) {
-      await goto('/login?next=/analytics');
+      await goto(loginPath('/analytics'));
       return;
     }
     try {

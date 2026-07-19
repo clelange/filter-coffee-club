@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { deviceModeStore, loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
   import type { Brew, BrewFilter, BrewInput, Coffee, Dripper, Grinder, Preset } from '$lib/types';
@@ -57,11 +58,15 @@
 
   onMount(async () => {
     if (!(await ensureSession())) {
-      await goto(`/login?next=${encodeURIComponent($page.url.pathname + $page.url.search)}`);
+      await goto(loginPath($page.url.pathname + $page.url.search));
       return;
     }
     correctionId = Number($page.url.searchParams.get('correct')) || null;
     if (correctionId) {
+      if ($deviceModeStore === 'kiosk') {
+        await goto(`/brews/${correctionId}`);
+        return;
+      }
       const session = await ensureSession();
       if (session?.profile.role !== 'admin') {
         await goto(`/brews/${correctionId}`);
@@ -114,7 +119,7 @@
       pour_count: source.pour_count,
       technique_note: source.technique_note
     };
-    selectedRatio = source.ratio;
+    selectedRatio = Math.round(source.ratio * 10) / 10;
   }
 
   async function loadHistory() {
@@ -233,6 +238,16 @@
 
 {#if !ready}
   <div class="empty section">Loading the equipment rack…</div>
+{:else if $deviceModeStore === 'kiosk' && (!coffees.length || !grinders.length)}
+  <section class="panel section kiosk-missing-data">
+    <p class="eyebrow">Personal device required</p>
+    <h2>Register the brewing setup first.</h2>
+    <p class="muted">
+      Add at least one coffee and grinder from a phone or computer, then return to this shared
+      display.
+    </p>
+    <a class="button secondary" href="/">Return home</a>
+  </section>
 {:else}
   <form id="coffee-form" onsubmit={addCoffee}></form>
   <div class="split section">
@@ -246,14 +261,16 @@
               >{/each}
           </select>
         </label>
-        <button
-          class="secondary compact"
-          type="button"
-          aria-expanded={showCoffeeForm}
-          onclick={toggleCoffeeForm}>+ Coffee</button
-        >
+        {#if $deviceModeStore !== 'kiosk'}
+          <button
+            class="secondary compact"
+            type="button"
+            aria-expanded={showCoffeeForm}
+            onclick={toggleCoffeeForm}>+ Coffee</button
+          >
+        {/if}
       </div>
-      {#if showCoffeeForm}
+      {#if showCoffeeForm && $deviceModeStore !== 'kiosk'}
         <div class="inline-form">
           <h3>Add this bag</h3>
           <div class="field-grid">
@@ -296,25 +313,21 @@
       </fieldset>
 
       <div class="calculator">
-        <label
-          >Servings<input
-            type="number"
-            bind:value={form.servings}
-            min="1"
-            max="30"
-            inputmode="numeric"
-          /></label
-        >
-        <label
-          >Target ratio<input
-            type="number"
-            bind:value={selectedRatio}
-            min="10"
-            max="25"
-            step="0.1"
-            inputmode="decimal"
-          /></label
-        >
+        <NumberStepper
+          label="Servings"
+          bind:value={form.servings}
+          min={1}
+          max={30}
+          step={1}
+          inputmode="numeric"
+        />
+        <NumberStepper
+          label="Target ratio"
+          bind:value={selectedRatio}
+          min={10}
+          max={25}
+          step={0.1}
+        />
         <button class="secondary" type="button" onclick={useWaterBasis}>120 g water/person</button>
         <button class="secondary" type="button" onclick={useCoffeeBasis}>8 g coffee/person</button>
       </div>
@@ -350,16 +363,15 @@
           unit="°C"
           inputmode="numeric"
         />
-        <label
-          >Target flow g/s<input
-            type="number"
-            bind:value={form.target_flow_g_s}
-            min="0.1"
-            max="50"
-            step="0.1"
-            inputmode="decimal"
-          /></label
-        >
+        <NumberStepper
+          label="Target flow"
+          bind:value={form.target_flow_g_s}
+          min={0.1}
+          max={50}
+          step={0.1}
+          unit="g/s"
+          nullable
+        />
         <label
           >Grinder<select bind:value={form.grinder_id}
             >{#each grinders as item}<option value={item.id}
@@ -399,37 +411,43 @@
       <details>
         <summary>More pour details</summary>
         <div class="field-grid">
-          <label
-            >Bloom water g<input
-              type="number"
-              bind:value={form.bloom_water_g}
-              min="0"
-              step="1"
-              inputmode="numeric"
-            /></label
-          >
-          <label
-            >Bloom time s<input
-              type="number"
-              bind:value={form.bloom_time_s}
-              min="0"
-              step="1"
-              inputmode="numeric"
-            /></label
-          >
-          <label
-            >Pour count<input
-              type="number"
-              bind:value={form.pour_count}
-              min="1"
-              max="30"
-              inputmode="numeric"
-            /></label
-          >
-          <label
-            >Technique note<textarea bind:value={form.technique_note} maxlength="1000"
-            ></textarea></label
-          >
+          <NumberStepper
+            label="Bloom water"
+            bind:value={form.bloom_water_g}
+            min={0}
+            step={1}
+            unit="g"
+            inputmode="numeric"
+            nullable
+          />
+          <NumberStepper
+            label="Bloom time"
+            bind:value={form.bloom_time_s}
+            min={0}
+            step={1}
+            unit="s"
+            inputmode="numeric"
+            nullable
+          />
+          <NumberStepper
+            label="Pour count"
+            bind:value={form.pour_count}
+            min={1}
+            max={30}
+            inputmode="numeric"
+            nullable
+          />
+          {#if $deviceModeStore === 'kiosk'}
+            {#if form.technique_note}<div class="readonly-note">
+                <span>Technique note</span>
+                <p>{form.technique_note}</p>
+              </div>{/if}
+          {:else}
+            <label
+              >Technique note<textarea bind:value={form.technique_note} maxlength="1000"
+              ></textarea></label
+            >
+          {/if}
         </div>
       </details>
       {#if correctionId}
@@ -517,6 +535,22 @@
   }
   .compact {
     min-height: 50px;
+  }
+  .kiosk-missing-data {
+    max-width: 720px;
+  }
+  .readonly-note {
+    display: grid;
+    gap: 7px;
+    font-weight: 750;
+  }
+  .readonly-note p {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    font-weight: 500;
   }
   .inline-form,
   .calculator {

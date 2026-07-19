@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { deviceModeStore, loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody } from '$lib/api';
   import type {
     AppSettings,
@@ -68,9 +69,10 @@
   }
 
   onMount(async () => {
+    if ($deviceModeStore === 'kiosk') return;
     const session = await ensureSession();
     if (!session) {
-      await goto('/login?next=/admin');
+      await goto(loginPath('/admin'));
       return;
     }
     if (session.profile.role !== 'admin') {
@@ -320,412 +322,444 @@
 </script>
 
 <svelte:head><title>Admin · Filter Coffee Club</title></svelte:head>
-<p class="eyebrow">Club controls</p>
-<h1>Configure the experiment.</h1>
-<p class="lede">
-  Manage identities, shared equipment, starting points, branding, and portable data.
-</p>
-{#if settings?.demo_mode}
-  <p class="demo-admin-note" role="note">
-    Seeded records and branding are read-only. Create new records to try changes; everything is
-    discarded during the next demo reset.
+{#if $deviceModeStore === 'kiosk'}
+  <section class="panel kiosk-unavailable">
+    <p class="eyebrow">Personal device required</p>
+    <h1>Administration is unavailable on this display.</h1>
+    <p class="lede">
+      Open the club on a phone or computer to manage people, equipment, presets, flavor tags,
+      branding, and exports.
+    </p>
+    <a class="button secondary" href="/">Return home</a>
+  </section>
+{:else}
+  <p class="eyebrow">Club controls</p>
+  <h1>Configure the experiment.</h1>
+  <p class="lede">
+    Manage identities, shared equipment, starting points, branding, and portable data.
   </p>
-{/if}
+  {#if settings?.demo_mode}
+    <p class="demo-admin-note" role="note">
+      Seeded records and branding are read-only. Create new records to try changes; everything is
+      discarded during the next demo reset.
+    </p>
+  {/if}
 
-<label class="admin-section-select section" for="admin-section-select">
-  Admin section
-  <select id="admin-section-select" bind:value={activeTab}>
-    {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
-  </select>
-</label>
-<div class="tabs section" role="tablist" aria-label="Admin sections">
-  {#each adminSections as section, index}
-    <button
-      id={`admin-tab-${section.id}`}
-      type="button"
-      role="tab"
-      bind:this={tabButtons[section.id]}
-      class:active={activeTab === section.id}
-      aria-selected={activeTab === section.id}
-      aria-controls="admin-panel"
-      tabindex={activeTab === section.id ? 0 : -1}
-      onclick={() => selectTab(section.id)}
-      onkeydown={(event) => handleTabKeydown(event, index)}>{section.label}</button
+  <label class="admin-section-select section" for="admin-section-select">
+    Admin section
+    <select id="admin-section-select" bind:value={activeTab}>
+      {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
+    </select>
+  </label>
+  <div class="tabs section" role="tablist" aria-label="Admin sections">
+    {#each adminSections as section, index}
+      <button
+        id={`admin-tab-${section.id}`}
+        type="button"
+        role="tab"
+        bind:this={tabButtons[section.id]}
+        class:active={activeTab === section.id}
+        aria-selected={activeTab === section.id}
+        aria-controls="admin-panel"
+        tabindex={activeTab === section.id ? 0 : -1}
+        onclick={() => selectTab(section.id)}
+        onkeydown={(event) => handleTabKeydown(event, index)}>{section.label}</button
+      >
+    {/each}
+  </div>
+  {#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
+      class="error"
+      role="alert"
     >
-  {/each}
-</div>
-{#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
-    class="error"
-    role="alert"
-  >
-    {error}
-  </p>{/if}
+      {error}
+    </p>{/if}
 
-<div
-  id="admin-panel"
-  class="admin-panel"
-  role="tabpanel"
-  aria-labelledby={`admin-tab-${activeTab}`}
-  tabindex="0"
->
-  {#if activeTab === 'people'}
-    <div class="admin-grid">
-      <form class="panel" onsubmit={addPerson}>
-        <h2>Add a member</h2>
-        <label>New member display name<input bind:value={personForm.display_name} required /></label
-        ><label
-          >Four-digit PIN<input
-            bind:value={personForm.pin}
-            inputmode="numeric"
-            autocomplete="new-password"
-            pattern="[0-9][0-9][0-9][0-9]"
-            maxlength="4"
-            required
-          /></label
-        >
-        <p class="hint">New accounts must replace this temporary PIN after their first sign-in.</p>
-        <label
-          >Role<select bind:value={personForm.role}
-            ><option value="member">Member</option><option value="admin">Administrator</option
-            ></select
-          ></label
-        ><button class="primary">Add member</button>
-      </form>
-      <section class="panel">
-        <h2>Profiles</h2>
-        <div class="item-list">
-          {#each people as person}<article>
-              <input
-                aria-label="Display name"
-                bind:value={person.display_name}
-                disabled={isSeededDemoProfile(person)}
-              /><select
-                aria-label={`Role for ${person.display_name}`}
-                bind:value={person.role}
-                disabled={isSeededDemoProfile(person)}
-                ><option value="member">Member</option><option value="admin">Administrator</option
-                ></select
-              ><input
-                aria-label={`New PIN for ${person.display_name}`}
-                bind:value={pinResets[person.id]}
-                inputmode="numeric"
-                autocomplete="new-password"
-                pattern="[0-9][0-9][0-9][0-9]"
-                maxlength="4"
-                placeholder="New PIN"
-                disabled={isSeededDemoProfile(person)}
-              /><label class="check pin-required"
-                ><input
-                  type="checkbox"
-                  bind:checked={person.pin_change_required}
-                  disabled={isSeededDemoProfile(person)}
-                />
-                Require PIN change for {person.display_name}</label
-              ><button
-                class="secondary"
-                onclick={() => savePerson(person)}
-                disabled={isSeededDemoProfile(person)}>Save</button
-              ><button
-                class="secondary"
-                onclick={() => togglePerson(person)}
-                disabled={isSeededDemoProfile(person)}
-                >{person.active ? 'Deactivate' : 'Activate'}</button
-              >
-            </article>{/each}
-        </div>
-      </section>
-    </div>
-  {:else if activeTab === 'equipment'}
-    <div class="equipment-grid">
-      <form class="panel" onsubmit={addGrinder}>
-        <h2>Grinder</h2>
-        <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label><label
-          >Model<input bind:value={grinderForm.model} required /></label
-        >
-        <div class="field-grid">
-          <label>Unit<input bind:value={grinderForm.setting_unit} required /></label><label
-            >Step<input
-              type="number"
-              bind:value={grinderForm.setting_step}
-              min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          ><label
-            >Soft min<input
-              type="number"
-              bind:value={grinderForm.soft_min}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          ><label
-            >Soft max<input
-              type="number"
-              bind:value={grinderForm.soft_max}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          >
-        </div>
-        <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label><button
-          class="primary">Add grinder</button
-        >
-      </form>
-      <form class="panel" onsubmit={addDripper}>
-        <h2>Dripper</h2>
-        <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
-          >Model<input bind:value={dripperForm.model} required /></label
-        ><label>Notes<textarea bind:value={dripperForm.notes}></textarea></label><button
-          class="primary">Add dripper</button
-        >
-      </form>
-      <form class="panel" onsubmit={addFilter}>
-        <h2>Filter</h2>
-        <label>Name<input bind:value={filterForm.name} required /></label><label
-          >Notes<textarea bind:value={filterForm.notes}></textarea></label
-        ><button class="primary">Add filter</button>
-      </form>
-    </div>
-    <section class="panel section">
-      <h2>Shared rack</h2>
-      <p class="muted">Members edit details from Equipment; archive retired items here.</p>
-      <div class="rack">
-        <div>
-          <h3>Grinders</h3>
-          {#each grinders as item}<article>
-              <span>{item.manufacturer} {item.model} · {item.setting_unit}</span><button
-                class="secondary"
-                onclick={() => archiveEquipment('grinders', item.id)}>Archive</button
-              >
-            </article>{/each}
-        </div>
-        <div>
-          <h3>Drippers</h3>
-          {#each drippers as item}<article>
-              <span>{item.manufacturer ?? ''} {item.model}</span><button
-                class="secondary"
-                onclick={() => archiveEquipment('drippers', item.id)}>Archive</button
-              >
-            </article>{/each}
-        </div>
-        <div>
-          <h3>Filters</h3>
-          {#each filters as item}<article>
-              <span>{item.name}</span><button
-                class="secondary"
-                onclick={() => archiveEquipment('filters', item.id)}>Archive</button
-              >
-            </article>{/each}
-        </div>
-      </div>
-    </section>
-  {:else if activeTab === 'presets'}
-    <div class="stack">
-      <form class="panel preset-creator" onsubmit={addPreset}>
-        <h2>Add recipe preset</h2>
-        <div class="preset-create-fields">
-          <label>Name<input bind:value={presetForm.name} required /></label><label
-            >Ratio<input
-              type="number"
-              bind:value={presetForm.ratio}
-              min="1.1"
-              max="30"
-              step="0.1"
-              required
-            /></label
-          ><label
-            >Min °C<input
-              type="number"
-              bind:value={presetForm.temperature_min_c}
-              min="50"
-              max="100"
-              required
-            /></label
-          ><label
-            >Max °C<input
-              type="number"
-              bind:value={presetForm.temperature_max_c}
-              min="50"
-              max="100"
-              required
-            /></label
-          ><label>Order<input type="number" bind:value={presetForm.sort_order} /></label><label
-            class="check"><input type="checkbox" bind:checked={presetForm.active} /> Active</label
-          >
-        </div>
-        <div class="preset-ranges">
-          <div class="section-heading">
-            <h3>Grinder ranges</h3>
-            <button
-              class="secondary"
-              type="button"
-              onclick={addPresetRange}
-              disabled={presetForm.grinder_ranges.length >= grinders.length}>+ Grinder range</button
-            >
-          </div>
-          {#each presetForm.grinder_ranges as range, index}<div class="preset-range">
-              <label
-                >Grinder<select bind:value={range.grinder_id}
-                  >{#each grinders as grinder}<option
-                      value={grinder.id}
-                      disabled={presetForm.grinder_ranges.some(
-                        (item, itemIndex) => itemIndex !== index && item.grinder_id === grinder.id
-                      )}>{grinder.manufacturer} {grinder.model}</option
-                    >{/each}</select
-                ></label
-              ><label
-                >Minimum setting<input
-                  type="number"
-                  bind:value={range.setting_min}
-                  step={rangeStep(range.grinder_id)}
-                  inputmode={rangeInputMode(range.grinder_id)}
-                  required
-                /></label
-              ><label
-                >Maximum setting<input
-                  type="number"
-                  bind:value={range.setting_max}
-                  step={rangeStep(range.grinder_id)}
-                  inputmode={rangeInputMode(range.grinder_id)}
-                  required
-                /></label
-              ><button class="secondary" type="button" onclick={() => removePresetRange(index)}
-                >Remove</button
-              >
-            </div>{/each}
-        </div>
-        <button class="primary">Add preset</button>
-      </form>
-      <section class="panel">
-        <h2>FCC starting points</h2>
-        <div class="preset-list">
-          {#each presets as preset}<article>
-              <input bind:value={preset.name} aria-label="Preset name" /><label
-                >Ratio<input type="number" bind:value={preset.ratio} step="0.1" /></label
-              ><label>Min °C<input type="number" bind:value={preset.temperature_min_c} /></label
-              ><label>Max °C<input type="number" bind:value={preset.temperature_max_c} /></label
-              >{#each preset.grinder_ranges as range}<label
-                  >Min clicks<input type="number" bind:value={range.setting_min} step="1" /></label
-                ><label
-                  >Max clicks<input type="number" bind:value={range.setting_max} step="1" /></label
-                >{/each}<label>Order<input type="number" bind:value={preset.sort_order} /></label
-              ><label class="check"
-                ><input type="checkbox" bind:checked={preset.active} /> Active</label
-              ><button class="secondary" onclick={() => savePreset(preset)}>Save</button>
-            </article>{/each}
-        </div>
-      </section>
+  <div
+    id="admin-panel"
+    class="admin-panel"
+    role="tabpanel"
+    aria-labelledby={`admin-tab-${activeTab}`}
+    tabindex="0"
+  >
+    {#if activeTab === 'people'}
       <div class="admin-grid">
-        <form class="panel" onsubmit={addTag}>
-          <h2>Add flavor tag</h2>
-          <label>Name<input bind:value={tagForm.name} required /></label><label
-            >Parent category<select bind:value={tagForm.parent_id}
-              ><option value={null}>New broad category</option
-              >{#each tags.filter((tag) => tag.parent_id === null) as tag}<option value={tag.id}
-                  >{tag.name}</option
-                >{/each}</select
+        <form class="panel" onsubmit={addPerson}>
+          <h2>Add a member</h2>
+          <label
+            >New member display name<input bind:value={personForm.display_name} required /></label
+          ><label
+            >Four-digit PIN<input
+              bind:value={personForm.pin}
+              inputmode="numeric"
+              autocomplete="new-password"
+              pattern="[0-9][0-9][0-9][0-9]"
+              maxlength="4"
+              required
+            /></label
+          >
+          <p class="hint">
+            New accounts must replace this temporary PIN after their first sign-in.
+          </p>
+          <label
+            >Role<select bind:value={personForm.role}
+              ><option value="member">Member</option><option value="admin">Administrator</option
+              ></select
             ></label
-          ><button class="primary">Add flavor tag</button>
+          ><button class="primary">Add member</button>
         </form>
         <section class="panel">
-          <h2>Current vocabulary</h2>
-          <div class="tag-editor">
-            {#each tags as tag}<article>
-                <input aria-label="Flavor tag name" bind:value={tag.name} /><label
-                  >Order<input
-                    aria-label="Flavor tag order"
-                    type="number"
-                    bind:value={tag.sort_order}
-                  /></label
-                ><label class="check"
-                  ><input type="checkbox" bind:checked={tag.active} /> Active</label
-                ><button class="secondary" onclick={() => saveTag(tag)}>Save</button>
+          <h2>Profiles</h2>
+          <div class="item-list">
+            {#each people as person}<article>
+                <input
+                  aria-label="Display name"
+                  bind:value={person.display_name}
+                  disabled={isSeededDemoProfile(person)}
+                /><select
+                  aria-label={`Role for ${person.display_name}`}
+                  bind:value={person.role}
+                  disabled={isSeededDemoProfile(person)}
+                  ><option value="member">Member</option><option value="admin">Administrator</option
+                  ></select
+                ><input
+                  aria-label={`New PIN for ${person.display_name}`}
+                  bind:value={pinResets[person.id]}
+                  inputmode="numeric"
+                  autocomplete="new-password"
+                  pattern="[0-9][0-9][0-9][0-9]"
+                  maxlength="4"
+                  placeholder="New PIN"
+                  disabled={isSeededDemoProfile(person)}
+                /><label class="check pin-required"
+                  ><input
+                    type="checkbox"
+                    bind:checked={person.pin_change_required}
+                    disabled={isSeededDemoProfile(person)}
+                  />
+                  Require PIN change for {person.display_name}</label
+                ><button
+                  class="secondary"
+                  onclick={() => savePerson(person)}
+                  disabled={isSeededDemoProfile(person)}>Save</button
+                ><button
+                  class="secondary"
+                  onclick={() => togglePerson(person)}
+                  disabled={isSeededDemoProfile(person)}
+                  >{person.active ? 'Deactivate' : 'Activate'}</button
+                >
               </article>{/each}
           </div>
         </section>
       </div>
-    </div>
-  {:else if activeTab === 'branding' && settings}
-    <form class="panel brand-form" onsubmit={saveSettings}>
-      <div>
-        <h2>Filter Coffee Club identity</h2>
-        <p class="muted">
-          {settings.demo_mode
-            ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
-            : 'The official PSI logo is not bundled. Upload an approved PNG or WebP if needed.'}
-        </p>
-        <label
-          >Club name<input bind:value={settings.app_name} required disabled={settings.demo_mode} />
-        </label><label
-          >Subtitle<input bind:value={settings.subtitle} disabled={settings.demo_mode} /></label
-        ><label
-          >Public URL<input
-            type="url"
-            bind:value={settings.public_base_url}
-            placeholder="https://coffee.example.psi.ch"
-            disabled={settings.demo_mode}
-          /><span class="hint">This exact origin is encoded in permanent QR links.</span></label
-        ><label
-          >Logo PNG/WebP<input
-            type="file"
-            accept="image/png,image/webp"
-            onchange={uploadLogo}
-            disabled={settings.demo_mode}
-          /></label
-        >
-      </div>
-      <div>
-        <h3>Palette</h3>
-        <div class="colors">
-          {#each [['color_cream', 'Background'], ['color_surface', 'Surface'], ['color_ink', 'Ink'], ['color_coffee', 'Coffee'], ['color_cyan', 'Collider'], ['color_amber', 'Accent']] as color}<label
-              >{color[1]}<input
-                type="color"
-                bind:value={settings[color[0] as keyof AppSettings] as string}
-                disabled={settings.demo_mode}
+    {:else if activeTab === 'equipment'}
+      <div class="equipment-grid">
+        <form class="panel" onsubmit={addGrinder}>
+          <h2>Grinder</h2>
+          <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label><label
+            >Model<input bind:value={grinderForm.model} required /></label
+          >
+          <div class="field-grid">
+            <label>Unit<input bind:value={grinderForm.setting_unit} required /></label><label
+              >Step<input
+                type="number"
+                bind:value={grinderForm.setting_step}
+                min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
               /></label
-            >{/each}
+            ><label
+              >Soft min<input
+                type="number"
+                bind:value={grinderForm.soft_min}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
+              /></label
+            ><label
+              >Soft max<input
+                type="number"
+                bind:value={grinderForm.soft_max}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
+              /></label
+            >
+          </div>
+          <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label><button
+            class="primary">Add grinder</button
+          >
+        </form>
+        <form class="panel" onsubmit={addDripper}>
+          <h2>Dripper</h2>
+          <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
+            >Model<input bind:value={dripperForm.model} required /></label
+          ><label>Notes<textarea bind:value={dripperForm.notes}></textarea></label><button
+            class="primary">Add dripper</button
+          >
+        </form>
+        <form class="panel" onsubmit={addFilter}>
+          <h2>Filter</h2>
+          <label>Name<input bind:value={filterForm.name} required /></label><label
+            >Notes<textarea bind:value={filterForm.notes}></textarea></label
+          ><button class="primary">Add filter</button>
+        </form>
+      </div>
+      <section class="panel section">
+        <h2>Shared rack</h2>
+        <p class="muted">Members edit details from Equipment; archive retired items here.</p>
+        <div class="rack">
+          <div>
+            <h3>Grinders</h3>
+            {#each grinders as item}<article>
+                <span>{item.manufacturer} {item.model} · {item.setting_unit}</span><button
+                  class="secondary"
+                  onclick={() => archiveEquipment('grinders', item.id)}>Archive</button
+                >
+              </article>{/each}
+          </div>
+          <div>
+            <h3>Drippers</h3>
+            {#each drippers as item}<article>
+                <span>{item.manufacturer ?? ''} {item.model}</span><button
+                  class="secondary"
+                  onclick={() => archiveEquipment('drippers', item.id)}>Archive</button
+                >
+              </article>{/each}
+          </div>
+          <div>
+            <h3>Filters</h3>
+            {#each filters as item}<article>
+                <span>{item.name}</span><button
+                  class="secondary"
+                  onclick={() => archiveEquipment('filters', item.id)}>Archive</button
+                >
+              </article>{/each}
+          </div>
+        </div>
+      </section>
+    {:else if activeTab === 'presets'}
+      <div class="stack">
+        <form class="panel preset-creator" onsubmit={addPreset}>
+          <h2>Add recipe preset</h2>
+          <div class="preset-create-fields">
+            <label>Name<input bind:value={presetForm.name} required /></label><label
+              >Ratio<input
+                type="number"
+                bind:value={presetForm.ratio}
+                min="1.1"
+                max="30"
+                step="0.1"
+                required
+              /></label
+            ><label
+              >Min °C<input
+                type="number"
+                bind:value={presetForm.temperature_min_c}
+                min="50"
+                max="100"
+                required
+              /></label
+            ><label
+              >Max °C<input
+                type="number"
+                bind:value={presetForm.temperature_max_c}
+                min="50"
+                max="100"
+                required
+              /></label
+            ><label>Order<input type="number" bind:value={presetForm.sort_order} /></label><label
+              class="check"><input type="checkbox" bind:checked={presetForm.active} /> Active</label
+            >
+          </div>
+          <div class="preset-ranges">
+            <div class="section-heading">
+              <h3>Grinder ranges</h3>
+              <button
+                class="secondary"
+                type="button"
+                onclick={addPresetRange}
+                disabled={presetForm.grinder_ranges.length >= grinders.length}
+                >+ Grinder range</button
+              >
+            </div>
+            {#each presetForm.grinder_ranges as range, index}<div class="preset-range">
+                <label
+                  >Grinder<select bind:value={range.grinder_id}
+                    >{#each grinders as grinder}<option
+                        value={grinder.id}
+                        disabled={presetForm.grinder_ranges.some(
+                          (item, itemIndex) => itemIndex !== index && item.grinder_id === grinder.id
+                        )}>{grinder.manufacturer} {grinder.model}</option
+                      >{/each}</select
+                  ></label
+                ><label
+                  >Minimum setting<input
+                    type="number"
+                    bind:value={range.setting_min}
+                    step={rangeStep(range.grinder_id)}
+                    inputmode={rangeInputMode(range.grinder_id)}
+                    required
+                  /></label
+                ><label
+                  >Maximum setting<input
+                    type="number"
+                    bind:value={range.setting_max}
+                    step={rangeStep(range.grinder_id)}
+                    inputmode={rangeInputMode(range.grinder_id)}
+                    required
+                  /></label
+                ><button class="secondary" type="button" onclick={() => removePresetRange(index)}
+                  >Remove</button
+                >
+              </div>{/each}
+          </div>
+          <button class="primary">Add preset</button>
+        </form>
+        <section class="panel">
+          <h2>FCC starting points</h2>
+          <div class="preset-list">
+            {#each presets as preset}<article>
+                <input bind:value={preset.name} aria-label="Preset name" /><label
+                  >Ratio<input type="number" bind:value={preset.ratio} step="0.1" /></label
+                ><label>Min °C<input type="number" bind:value={preset.temperature_min_c} /></label
+                ><label>Max °C<input type="number" bind:value={preset.temperature_max_c} /></label
+                >{#each preset.grinder_ranges as range}<label
+                    >Min clicks<input
+                      type="number"
+                      bind:value={range.setting_min}
+                      step="1"
+                    /></label
+                  ><label
+                    >Max clicks<input
+                      type="number"
+                      bind:value={range.setting_max}
+                      step="1"
+                    /></label
+                  >{/each}<label>Order<input type="number" bind:value={preset.sort_order} /></label
+                ><label class="check"
+                  ><input type="checkbox" bind:checked={preset.active} /> Active</label
+                ><button class="secondary" onclick={() => savePreset(preset)}>Save</button>
+              </article>{/each}
+          </div>
+        </section>
+        <div class="admin-grid">
+          <form class="panel" onsubmit={addTag}>
+            <h2>Add flavor tag</h2>
+            <label>Name<input bind:value={tagForm.name} required /></label><label
+              >Parent category<select bind:value={tagForm.parent_id}
+                ><option value={null}>New broad category</option
+                >{#each tags.filter((tag) => tag.parent_id === null) as tag}<option value={tag.id}
+                    >{tag.name}</option
+                  >{/each}</select
+              ></label
+            ><button class="primary">Add flavor tag</button>
+          </form>
+          <section class="panel">
+            <h2>Current vocabulary</h2>
+            <div class="tag-editor">
+              {#each tags as tag}<article>
+                  <input aria-label="Flavor tag name" bind:value={tag.name} /><label
+                    >Order<input
+                      aria-label="Flavor tag order"
+                      type="number"
+                      bind:value={tag.sort_order}
+                    /></label
+                  ><label class="check"
+                    ><input type="checkbox" bind:checked={tag.active} /> Active</label
+                  ><button class="secondary" onclick={() => saveTag(tag)}>Save</button>
+                </article>{/each}
+            </div>
+          </section>
         </div>
       </div>
-      <button class="primary" disabled={settings.demo_mode}>Save branding</button>
-    </form>
-  {:else if activeTab === 'data'}
-    <div class="admin-grid">
-      <section class="panel">
-        <p class="eyebrow">Portable data</p>
-        <h2>Exports</h2>
-        <p class="muted">
-          Exports contain catalog, brew, and rating data, but never PIN hashes, sessions, or QR
-          tokens.
-        </p>
-        <div class="actions">
-          <a class="button" href="/api/v1/exports/json">Download JSON</a><a
-            class="button secondary"
-            href="/api/v1/exports/csv">Download CSV ZIP</a
+    {:else if activeTab === 'branding' && settings}
+      <form class="panel brand-form" onsubmit={saveSettings}>
+        <div>
+          <h2>Filter Coffee Club identity</h2>
+          <p class="muted">
+            {settings.demo_mode
+              ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
+              : 'The official PSI logo is not bundled. Upload an approved PNG or WebP if needed.'}
+          </p>
+          <label
+            >Club name<input
+              bind:value={settings.app_name}
+              required
+              disabled={settings.demo_mode}
+            />
+          </label><label
+            >Subtitle<input bind:value={settings.subtitle} disabled={settings.demo_mode} /></label
+          ><label
+            >Public URL<input
+              type="url"
+              bind:value={settings.public_base_url}
+              placeholder="https://coffee.example.psi.ch"
+              disabled={settings.demo_mode}
+            /><span class="hint">This exact origin is encoded in permanent QR links.</span></label
+          ><label
+            >Logo PNG/WebP<input
+              type="file"
+              accept="image/png,image/webp"
+              onchange={uploadLogo}
+              disabled={settings.demo_mode}
+            /></label
           >
         </div>
-      </section>
-      <section class="panel">
-        <p class="eyebrow">Database safety</p>
-        {#if settings?.demo_mode}
-          <h2>Disposable demo data</h2>
-          <p>
-            This instance intentionally uses ephemeral SQLite storage. Visitor changes disappear
-            when the service restarts and during the scheduled daily reset.
+        <div>
+          <h3>Palette</h3>
+          <div class="colors">
+            {#each [['color_cream', 'Background'], ['color_surface', 'Surface'], ['color_ink', 'Ink'], ['color_coffee', 'Coffee'], ['color_cyan', 'Collider'], ['color_amber', 'Accent']] as color}<label
+                >{color[1]}<input
+                  type="color"
+                  bind:value={settings[color[0] as keyof AppSettings] as string}
+                  disabled={settings.demo_mode}
+                /></label
+              >{/each}
+          </div>
+        </div>
+        <button class="primary" disabled={settings.demo_mode}>Save branding</button>
+      </form>
+    {:else if activeTab === 'data'}
+      <div class="admin-grid">
+        <section class="panel">
+          <p class="eyebrow">Portable data</p>
+          <h2>Exports</h2>
+          <p class="muted">
+            Exports contain catalog, brew, and rating data, but never PIN hashes, sessions, or QR
+            tokens.
           </p>
-        {:else}
-          <h2>Backups</h2>
-          <p>
-            Back up the mounted SQLite file using the documented SQLite backup command or during a
-            stopped container. Restore remains an infrastructure operation.
-          </p>
-          <code>sqlite3 /data/fcc.sqlite3 ".backup '/backup/fcc.sqlite3'"</code>
-        {/if}
-      </section>
-    </div>
-  {/if}
-</div>
+          <div class="actions">
+            <a class="button" href="/api/v1/exports/json">Download JSON</a><a
+              class="button secondary"
+              href="/api/v1/exports/csv">Download CSV ZIP</a
+            >
+          </div>
+        </section>
+        <section class="panel">
+          <p class="eyebrow">Database safety</p>
+          {#if settings?.demo_mode}
+            <h2>Disposable demo data</h2>
+            <p>
+              This instance intentionally uses ephemeral SQLite storage. Visitor changes disappear
+              when the service restarts and during the scheduled daily reset.
+            </p>
+          {:else}
+            <h2>Backups</h2>
+            <p>
+              Back up the mounted SQLite file using the documented SQLite backup command or during a
+              stopped container. Restore remains an infrastructure operation.
+            </p>
+            <code>sqlite3 /data/fcc.sqlite3 ".backup '/backup/fcc.sqlite3'"</code>
+          {/if}
+        </section>
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <style>
+  .kiosk-unavailable {
+    max-width: 760px;
+    margin: 8vh auto 0;
+  }
   .demo-admin-note {
     max-width: 72ch;
     padding: 12px 14px;
