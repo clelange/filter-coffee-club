@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { deviceModeStore, loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody } from '$lib/api';
   import type { BrewFilter, Dripper, Grinder } from '$lib/types';
 
@@ -28,7 +29,7 @@
 
   onMount(async () => {
     if (!(await ensureSession())) {
-      await goto('/login?next=/equipment');
+      await goto(loginPath('/equipment'));
       return;
     }
     await load();
@@ -130,164 +131,208 @@
 </script>
 
 <svelte:head><title>Equipment · Filter Coffee Club</title></svelte:head>
-<div class="heading">
-  <div>
-    <p class="eyebrow">Shared equipment</p>
-    <h1>Keep the rack current.</h1>
-    <p class="lede">
-      Members can register and correct grinders, drippers, and filters. Administrators can archive
-      retired equipment.
-    </p>
+{#if $deviceModeStore === 'kiosk'}
+  <div class="heading">
+    <div>
+      <p class="eyebrow">Shared equipment</p>
+      <h1>The club rack.</h1>
+      <p class="lede">Equipment is read-only on this shared display.</p>
+    </div>
   </div>
-  <div class="actions">
-    <button class="primary" onclick={() => (adding = 'grinder')}>+ Grinder</button><button
-      class="secondary"
-      onclick={() => (adding = 'dripper')}>+ Dripper</button
-    ><button class="secondary" onclick={() => (adding = 'filter')}>+ Filter</button>
+  <div class="equipment-grid section kiosk-equipment">
+    <section class="panel">
+      <h2>Grinders</h2>
+      <div class="items">
+        {#each grinders as item}<article>
+            <h3>{item.manufacturer} {item.model}</h3>
+            <p class="muted">
+              {item.setting_unit} · step {item.setting_step} · usual range {item.soft_min ??
+                '—'}–{item.soft_max ?? '—'}
+            </p>
+            {#if item.guidance}<p>{item.guidance}</p>{/if}
+          </article>{:else}<p class="muted">No grinders registered.</p>{/each}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Drippers</h2>
+      <div class="items">
+        {#each drippers as item}<article>
+            <h3>{item.manufacturer ?? ''} {item.model}</h3>
+            {#if item.notes}<p>{item.notes}</p>{/if}
+          </article>{:else}<p class="muted">No drippers registered.</p>{/each}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Filters</h2>
+      <div class="items">
+        {#each filters as item}<article>
+            <h3>{item.name}</h3>
+            {#if item.notes}<p>{item.notes}</p>{/if}
+          </article>{:else}<p class="muted">No filters registered.</p>{/each}
+      </div>
+    </section>
   </div>
-</div>
-{#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
-    class="error"
-    role="alert"
-  >
-    {error}
-  </p>{/if}
+{:else}
+  <div class="heading">
+    <div>
+      <p class="eyebrow">Shared equipment</p>
+      <h1>Keep the rack current.</h1>
+      <p class="lede">
+        Members can register and correct grinders, drippers, and filters. Administrators can archive
+        retired equipment.
+      </p>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick={() => (adding = 'grinder')}>+ Grinder</button><button
+        class="secondary"
+        onclick={() => (adding = 'dripper')}>+ Dripper</button
+      ><button class="secondary" onclick={() => (adding = 'filter')}>+ Filter</button>
+    </div>
+  </div>
+  {#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
+      class="error"
+      role="alert"
+    >
+      {error}
+    </p>{/if}
 
-{#if adding}
-  <section class="panel section">
-    {#if adding === 'grinder'}<form onsubmit={addGrinder}>
-        <h2>Add a grinder</h2>
-        <div class="field-grid">
-          <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label><label
-            >Model<input bind:value={grinderForm.model} required /></label
-          ><label>Setting unit<input bind:value={grinderForm.setting_unit} required /></label><label
-            >Step<input
-              type="number"
-              bind:value={grinderForm.setting_step}
-              min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          ><label
-            >Soft minimum<input
-              type="number"
-              bind:value={grinderForm.soft_min}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          ><label
-            >Soft maximum<input
-              type="number"
-              bind:value={grinderForm.soft_max}
-              step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-              inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-            /></label
-          >
-        </div>
-        <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label>
-        <div class="actions">
-          <button class="primary">Save grinder</button><button
-            class="secondary"
-            type="button"
-            onclick={() => (adding = null)}>Cancel</button
-          >
-        </div>
-      </form>
-    {:else if adding === 'dripper'}<form onsubmit={addDripper}>
-        <h2>Add a dripper</h2>
-        <div class="field-grid">
-          <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
-            >Model<input bind:value={dripperForm.model} required /></label
-          >
-        </div>
-        <label>Notes<textarea bind:value={dripperForm.notes}></textarea></label>
-        <div class="actions">
-          <button class="primary">Save dripper</button><button
-            class="secondary"
-            type="button"
-            onclick={() => (adding = null)}>Cancel</button
-          >
-        </div>
-      </form>
-    {:else}<form onsubmit={addFilter}>
-        <h2>Add a filter</h2>
-        <label>Name<input bind:value={filterForm.name} required /></label><label
-          >Notes<textarea bind:value={filterForm.notes}></textarea></label
-        >
-        <div class="actions">
-          <button class="primary">Save filter</button><button
-            class="secondary"
-            type="button"
-            onclick={() => (adding = null)}>Cancel</button
-          >
-        </div>
-      </form>{/if}
-  </section>
-{/if}
-
-<div class="equipment-grid section">
-  <section class="panel">
-    <h2>Grinders</h2>
-    <div class="items">
-      {#each grinders as item}<article>
+  {#if adding}
+    <section class="panel section">
+      {#if adding === 'grinder'}<form onsubmit={addGrinder}>
+          <h2>Add a grinder</h2>
           <div class="field-grid">
-            <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
-              >Model<input bind:value={item.model} /></label
-            ><label>Unit<input bind:value={item.setting_unit} /></label><label
+            <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label
+            ><label>Model<input bind:value={grinderForm.model} required /></label><label
+              >Setting unit<input bind:value={grinderForm.setting_unit} required /></label
+            ><label
               >Step<input
                 type="number"
-                bind:value={item.setting_step}
-                min={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                bind:value={grinderForm.setting_step}
+                min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
               /></label
             ><label
-              >Soft min<input
+              >Soft minimum<input
                 type="number"
-                bind:value={item.soft_min}
-                step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                bind:value={grinderForm.soft_min}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
               /></label
             ><label
-              >Soft max<input
+              >Soft maximum<input
                 type="number"
-                bind:value={item.soft_max}
-                step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                bind:value={grinderForm.soft_max}
+                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
+                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
               /></label
             >
           </div>
-          <label>Guidance<textarea bind:value={item.guidance}></textarea></label><button
-            class="secondary"
-            onclick={() => saveGrinder(item)}>Save grinder</button
+          <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label>
+          <div class="actions">
+            <button class="primary">Save grinder</button><button
+              class="secondary"
+              type="button"
+              onclick={() => (adding = null)}>Cancel</button
+            >
+          </div>
+        </form>
+      {:else if adding === 'dripper'}<form onsubmit={addDripper}>
+          <h2>Add a dripper</h2>
+          <div class="field-grid">
+            <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
+              >Model<input bind:value={dripperForm.model} required /></label
+            >
+          </div>
+          <label>Notes<textarea bind:value={dripperForm.notes}></textarea></label>
+          <div class="actions">
+            <button class="primary">Save dripper</button><button
+              class="secondary"
+              type="button"
+              onclick={() => (adding = null)}>Cancel</button
+            >
+          </div>
+        </form>
+      {:else}<form onsubmit={addFilter}>
+          <h2>Add a filter</h2>
+          <label>Name<input bind:value={filterForm.name} required /></label><label
+            >Notes<textarea bind:value={filterForm.notes}></textarea></label
           >
-        </article>{/each}
-    </div>
-  </section>
-  <section class="panel">
-    <h2>Drippers</h2>
-    <div class="items">
-      {#each drippers as item}<article>
-          <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
-            >Model<input bind:value={item.model} /></label
-          ><label>Notes<textarea bind:value={item.notes}></textarea></label><button
-            class="secondary"
-            onclick={() => saveDripper(item)}>Save dripper</button
-          >
-        </article>{:else}<p class="muted">No drippers registered.</p>{/each}
-    </div>
-  </section>
-  <section class="panel">
-    <h2>Filters</h2>
-    <div class="items">
-      {#each filters as item}<article>
-          <label>Name<input bind:value={item.name} /></label><label
-            >Notes<textarea bind:value={item.notes}></textarea></label
-          ><button class="secondary" onclick={() => saveFilter(item)}>Save filter</button>
-        </article>{:else}<p class="muted">No filters registered.</p>{/each}
-    </div>
-  </section>
-</div>
+          <div class="actions">
+            <button class="primary">Save filter</button><button
+              class="secondary"
+              type="button"
+              onclick={() => (adding = null)}>Cancel</button
+            >
+          </div>
+        </form>{/if}
+    </section>
+  {/if}
+
+  <div class="equipment-grid section">
+    <section class="panel">
+      <h2>Grinders</h2>
+      <div class="items">
+        {#each grinders as item}<article>
+            <div class="field-grid">
+              <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
+                >Model<input bind:value={item.model} /></label
+              ><label>Unit<input bind:value={item.setting_unit} /></label><label
+                >Step<input
+                  type="number"
+                  bind:value={item.setting_step}
+                  min={isClickUnit(item.setting_unit) ? 1 : 0.01}
+                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
+                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                /></label
+              ><label
+                >Soft min<input
+                  type="number"
+                  bind:value={item.soft_min}
+                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
+                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                /></label
+              ><label
+                >Soft max<input
+                  type="number"
+                  bind:value={item.soft_max}
+                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
+                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
+                /></label
+              >
+            </div>
+            <label>Guidance<textarea bind:value={item.guidance}></textarea></label><button
+              class="secondary"
+              onclick={() => saveGrinder(item)}>Save grinder</button
+            >
+          </article>{/each}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Drippers</h2>
+      <div class="items">
+        {#each drippers as item}<article>
+            <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
+              >Model<input bind:value={item.model} /></label
+            ><label>Notes<textarea bind:value={item.notes}></textarea></label><button
+              class="secondary"
+              onclick={() => saveDripper(item)}>Save dripper</button
+            >
+          </article>{:else}<p class="muted">No drippers registered.</p>{/each}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Filters</h2>
+      <div class="items">
+        {#each filters as item}<article>
+            <label>Name<input bind:value={item.name} /></label><label
+              >Notes<textarea bind:value={item.notes}></textarea></label
+            ><button class="secondary" onclick={() => saveFilter(item)}>Save filter</button>
+          </article>{:else}<p class="muted">No filters registered.</p>{/each}
+      </div>
+    </section>
+  </div>
+{/if}
 
 <style>
   .heading {
@@ -315,6 +360,10 @@
   .items article:first-child {
     padding-top: 0;
     border-top: 0;
+  }
+  .kiosk-equipment article h3,
+  .kiosk-equipment article p {
+    margin-bottom: 5px;
   }
   .items textarea {
     min-height: 80px;

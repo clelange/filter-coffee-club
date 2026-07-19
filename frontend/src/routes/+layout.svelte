@@ -3,6 +3,12 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import Logo from '$lib/Logo.svelte';
+  import {
+    adoptSessionDeviceMode,
+    deviceModeStore,
+    initializeDeviceMode,
+    loginPath
+  } from '$lib/device';
   import { api, ensureSession, logout, sessionStore } from '$lib/api';
   import type { AppSettings } from '$lib/types';
   import '../styles.css';
@@ -52,6 +58,7 @@
 
   onMount(async () => {
     try {
+      const device = initializeDeviceMode($page.url);
       settings = await api<AppSettings>('/settings');
       applyTheme(settings);
       const bootstrap = await api<{ required: boolean }>('/auth/bootstrap-status');
@@ -59,7 +66,18 @@
         await goto('/setup');
       } else {
         const session = await ensureSession();
-        if (session?.profile.pin_change_required && !allowsRequiredPinChange($page.url.pathname)) {
+        let activeMode = device.mode;
+        if (session && !device.configured) {
+          adoptSessionDeviceMode(session.device_mode);
+          activeMode = session.device_mode;
+        } else if (session && session.device_mode !== device.mode) {
+          await logout();
+        }
+        if (
+          session?.device_mode === activeMode &&
+          session?.profile.pin_change_required &&
+          !allowsRequiredPinChange($page.url.pathname)
+        ) {
           await goto(pinChangePath($page.url));
         }
       }
@@ -71,7 +89,7 @@
   async function signOut() {
     navOpen = false;
     await logout();
-    await goto('/login');
+    await goto(loginPath());
   }
 
   function closeNav() {
@@ -151,7 +169,7 @@
             href="/analytics"
             onclick={closeNav}>Analytics</a
           >
-          {#if $sessionStore.profile.role === 'admin'}
+          {#if $sessionStore.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
             <a
               class:active={$page.url.pathname.startsWith('/admin')}
               href="/admin"
@@ -176,13 +194,13 @@
           href="/coffees"
           onclick={closeNav}>Coffees</a
         >
-        <a class="button small" href="/login" onclick={closeNav}>Sign in</a>
+        <a class="button small" href={loginPath()} onclick={closeNav}>Sign in</a>
       {/if}
     {/if}
   </nav>
 </header>
 
-{#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin' && !$sessionStore.profile.pin_change_required}
+{#if settings.public_url_needs_configuration && $sessionStore?.profile.role === 'admin' && !$sessionStore.profile.pin_change_required && $deviceModeStore !== 'kiosk'}
   <a class="config-warning" href="/admin">Set the public URL before printing or sharing QR codes.</a
   >
 {/if}

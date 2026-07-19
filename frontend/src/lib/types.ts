@@ -6,10 +6,12 @@ export interface Profile {
   pin_change_required: boolean;
 }
 
+export type DeviceMode = 'kiosk' | 'personal';
+
 export interface Session {
   profile: Profile;
   csrf_token: string;
-  device_mode: 'kiosk' | 'personal';
+  device_mode: DeviceMode;
   expires_at: string;
 }
 

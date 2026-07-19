@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody, logout } from '$lib/api';
   import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '$lib/types';
 
@@ -38,7 +39,7 @@
       brew = link.brew;
       session = await ensureSession();
       if (!session) {
-        await goto(`/login?next=${encodeURIComponent(`/rate/${token}`)}`);
+        await goto(loginPath(`/rate/${token}`));
         return;
       }
       tags = await api<FlavorTag[]>('/flavor-tags');

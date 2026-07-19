@@ -2,6 +2,8 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { deviceModeStore, loginPath } from '$lib/device';
+  import NumberStepper from '$lib/NumberStepper.svelte';
   import { api, ensureSession, formatTime, jsonBody, logout, sessionStore } from '$lib/api';
   import type { Brew } from '$lib/types';
 
@@ -23,7 +25,7 @@
     const session = await ensureSession();
     if (brew?.status === 'draft') {
       if (!session) {
-        await goto(`/login?next=/brews/${id}&mode=kiosk`);
+        await goto(loginPath(`/brews/${id}`));
         return;
       }
       await keepAwake();
@@ -84,9 +86,7 @@
   function rateOnScreenHref(): string {
     if (!brew?.rating_token) return '#';
     const ratingPath = `/rate/${brew.rating_token}`;
-    return $sessionStore?.device_mode === 'personal'
-      ? ratingPath
-      : `/login?next=${encodeURIComponent(ratingPath)}&mode=kiosk`;
+    return $sessionStore?.device_mode === 'personal' ? ratingPath : loginPath(ratingPath);
   }
 
   function canManageDraft(): boolean {
@@ -201,33 +201,28 @@
           <p class="muted">Enter the final TIMEMORE time and confirm the actual water weight.</p>
         </div>
         <div class="field-grid">
-          <label
-            >Minutes<input
-              type="number"
-              bind:value={finalMinutes}
-              min="0"
-              max="59"
-              inputmode="numeric"
-            /></label
-          >
-          <label
-            >Seconds<input
-              type="number"
-              bind:value={finalSeconds}
-              min="0"
-              max="59"
-              inputmode="numeric"
-            /></label
-          >
-          <label
-            >Actual water g<input
-              type="number"
-              bind:value={actualWater}
-              min="1"
-              max="5000"
-              inputmode="numeric"
-            /></label
-          >
+          <NumberStepper
+            label="Minutes"
+            bind:value={finalMinutes}
+            min={0}
+            max={59}
+            inputmode="numeric"
+          />
+          <NumberStepper
+            label="Seconds"
+            bind:value={finalSeconds}
+            min={0}
+            max={59}
+            inputmode="numeric"
+          />
+          <NumberStepper
+            label="Actual water"
+            bind:value={actualWater}
+            min={1}
+            max={5000}
+            unit="g"
+            inputmode="numeric"
+          />
         </div>
         <div class="actions">
           <button
@@ -256,7 +251,7 @@
       <div class="actions">
         <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
-        {#if $sessionStore?.profile.role === 'admin'}
+        {#if $sessionStore?.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
           <a class="button secondary" href={`/brews/new?correct=${brew.id}`}>Correct brew</a>
           <button class="danger" onclick={() => (statusAction = 'void')}>Void brew</button>
         {/if}

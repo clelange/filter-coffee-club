@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { loginPath } from '$lib/device';
   import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
   import type { Brew } from '$lib/types';
 
@@ -42,7 +43,7 @@
         <a class="button" href="/brews/new">Start a brew</a>
         <a class="button secondary" href="/analytics">Explore results</a>
       {:else}
-        <a class="button" href="/login?next=/brews/new">Sign in to brew</a>
+        <a class="button" href={loginPath('/brews/new')}>Sign in to brew</a>
       {/if}
     </div>
   </div>

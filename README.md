@@ -28,6 +28,21 @@ Open `http://localhost:8000` and create the first administrator. There are no de
 
 Images are published for `linux/amd64` and `linux/arm64`, so the same release can run on a conventional server or a 64-bit Raspberry Pi. Production deployments should pin `FCC_IMAGE_TAG` to an exact release; `latest` is provided as a convenience and moves whenever a stable release is published.
 
+### Raspberry Pi kiosk display
+
+Complete the first-run administrator setup from a phone or computer, then launch the Pi browser at
+the public application URL with `?kiosk=1`. For example:
+
+```sh
+chromium --kiosk 'https://coffee.example.psi.ch/?kiosk=1'
+```
+
+The browser remembers kiosk mode across navigation, reloads, sign-outs, and expired sessions. Kiosk
+mode uses button-based PIN and number entry and keeps coffee, equipment, and administration text
+editing on personal devices. Configure the startup URL with `?kiosk=1` so the preference is restored
+if Chromium storage is cleared. To turn that browser back into a personal client, open the same URL
+once with `?kiosk=0`.
+
 To build the current checkout locally instead of pulling a release, use:
 
 ```sh

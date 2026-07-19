@@ -1,4 +1,23 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+const keyboardCapableControls =
+  'input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), textarea';
+
+async function enterKioskPin(page: Page, pin: string, label = 'PIN') {
+  const pad = page.getByRole('group', { name: label, exact: true });
+  for (const digit of pin) await pad.getByRole('button', { name: digit, exact: true }).click();
+}
+
+async function setKioskNumber(page: Page, label: string, value: string) {
+  await page.getByRole('button', { name: new RegExp(`^Set ${label};`) }).click();
+  const dialog = page.getByRole('dialog', { name: label, exact: true });
+  const clear = dialog.getByRole('button', { name: /^(Clear|Clear value)$/ });
+  await clear.click();
+  for (const character of value) {
+    await dialog.getByRole('button', { name: character, exact: true }).click();
+  }
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+}
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
   test.setTimeout(60_000);
@@ -16,13 +35,20 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       }
     });
   });
-  await page.goto('/');
+  await page.goto('/?kiosk=1');
   await expect(page).toHaveURL(/\/setup$/);
+  await expect(
+    page.getByRole('heading', { name: 'Complete setup on a phone or computer.' })
+  ).toBeVisible();
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Check again' }).click();
+  await expect(page.getByRole('alert')).toContainText('Setup is not complete yet');
+
+  await page.goto('/setup?kiosk=0');
 
   await page.getByLabel('Your display name').fill('Ada');
   await page.getByLabel('Four-digit PIN').fill('1234');
   await page.getByLabel('Repeat PIN').fill('1234');
-  await page.getByText('Shared touch display').click();
   await page.getByRole('button', { name: 'Create administrator' }).click();
   await expect(page).toHaveURL(/\/admin$/);
 
@@ -31,10 +57,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
   await peopleTab.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'Equipment' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  );
+  const equipmentTab = page.getByRole('tab', { name: 'Equipment' });
+  await expect(equipmentTab).toHaveAttribute('aria-selected', 'true');
+  await expect(equipmentTab).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
@@ -117,12 +142,49 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(inlineCoffeeName).toHaveValue('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
   await page.unroute('**/api/v1/coffees');
   await inlineSave.click();
-  await expect(page.getByLabel('Coffee').locator('option:checked')).toHaveText(
+  await expect(
+    page.getByRole('combobox', { name: 'Coffee', exact: true }).locator('option:checked')
+  ).toHaveText(
     'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   );
+
+  await page.goto('/?kiosk=1');
+  await expect(page.getByRole('link', { name: 'Sign in to brew' })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('fcc-device-mode')))
+    .toBe('kiosk');
+  await page.reload();
+  await page.getByRole('link', { name: 'Sign in to brew' }).click();
+  await expect(page.getByText('Shared touch display')).toBeVisible();
+  await expect(page.locator('input[aria-label="PIN"]')).toHaveCount(0);
+  await enterKioskPin(page, '9999');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert')).toContainText('Invalid profile or PIN');
+  await enterKioskPin(page, '1234');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/brews\/new$/);
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ Coffee' })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Coffee', exact: true }).selectOption({
+    label: 'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+  });
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
-  await page.getByRole('spinbutton', { name: 'Coffee dose' }).fill('40');
-  await page.getByRole('spinbutton', { name: 'Total water' }).fill('600');
+  await page.getByRole('button', { name: /^Set Coffee dose;/ }).click();
+  const doseDialog = page.getByRole('dialog', { name: 'Coffee dose', exact: true });
+  await doseDialog.getByRole('button', { name: 'Clear value' }).click();
+  await doseDialog.getByRole('button', { name: '0', exact: true }).click();
+  await doseDialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(doseDialog.getByRole('alert')).toContainText('between 1 and 500');
+  await doseDialog.getByRole('button', { name: 'Clear value' }).click();
+  for (const character of '40.0') {
+    await doseDialog.getByRole('button', { name: character, exact: true }).click();
+  }
+  await doseDialog.getByRole('button', { name: 'Apply' }).click();
+  await page.getByRole('button', { name: /^Set Target flow;/ }).click();
+  const flowDialog = page.getByRole('dialog', { name: 'Target flow', exact: true });
+  await flowDialog.getByRole('button', { name: 'Unset value' }).click();
+  await flowDialog.getByRole('button', { name: 'Apply' }).click();
+  await setKioskNumber(page, 'Total water', '600');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page.getByText('settings locked on screen')).toBeVisible();
   await expect(page.getByText('Ethiopia Guji Hambela Buku Abel Extended Lot Name')).toBeVisible();
@@ -165,6 +227,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .toBe(true);
 
   await page.getByRole('button', { name: 'Finish brew' }).click();
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   const modalLayout = await page.evaluate(() => {
     const dialog = document.querySelector<HTMLElement>('.modal');
     const fields = dialog?.querySelector<HTMLElement>('.field-grid');
@@ -180,8 +243,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(modalLayout?.actionGap).toBeGreaterThanOrEqual(10);
   expect(modalLayout?.background).toBe('rgb(255, 253, 252)');
   expect(modalLayout?.withinViewport).toBe(true);
-  await page.getByLabel('Minutes').fill('3');
-  await page.getByLabel('Seconds').fill('5');
+  await setKioskNumber(page, 'Seconds', '5');
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByAltText(/QR code to rate/)).toBeVisible();
@@ -285,7 +347,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await phoneContext.close();
 
   await page.getByRole('link', { name: 'Rate on this screen' }).click();
-  await page.getByLabel('PIN').fill('1234');
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await enterKioskPin(page, '1234');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
   await page.getByRole('button', { name: 'Submit rating' }).click();
@@ -295,8 +358,33 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
 
   const invitationPath = new URL(page.url()).pathname;
-  await page.goto(`/login?next=${encodeURIComponent(invitationPath)}`);
-  await page.getByLabel('PIN').fill('1234');
+  await page.goto('/coffees');
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ Add coffee' })).toHaveCount(0);
+
+  await page.goto('/equipment');
+  await enterKioskPin(page, '1234');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'The club rack.' })).toBeVisible();
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await page.goto('/account/pin');
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await enterKioskPin(page, '1234', 'Current PIN');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await enterKioskPin(page, '4321', 'New PIN');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await enterKioskPin(page, '4321', 'Repeat new PIN');
+  await page.getByRole('button', { name: 'Change PIN' }).click();
+  await expect(page.getByText('Your PIN has been changed.')).toBeVisible();
+  await page.goto('/admin');
+  await expect(
+    page.getByRole('heading', { name: 'Administration is unavailable on this display.' })
+  ).toBeVisible();
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+
+  await page.goto(`/login?kiosk=0&next=${encodeURIComponent(invitationPath)}`);
+  await expect(page.getByLabel('PIN')).toBeVisible();
+  await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   const personalRatingPath = await page
@@ -336,4 +424,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(cancelDialog).toBeVisible();
   await cancelDialog.getByRole('button', { name: 'Cancel draft' }).click();
   await expect(page.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible();
+
+  await page.goto('/login?mode=kiosk');
+  await expect(page.locator('input[aria-label="PIN"]')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'PIN', exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('fcc-device-mode')))
+    .toBe('kiosk');
 });

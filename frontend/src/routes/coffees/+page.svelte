@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { deviceModeStore } from '$lib/device';
   import { api, jsonBody, sessionStore } from '$lib/api';
   import type { Coffee } from '$lib/types';
 
@@ -97,7 +98,7 @@
       Each entry represents a particular bag or lot, so roast and opening dates remain meaningful.
     </p>
   </div>
-  {#if $sessionStore}<button
+  {#if $sessionStore && $deviceModeStore !== 'kiosk'}<button
       class="primary"
       onclick={() => (showForm ? closeForm() : (showForm = true))}
       >{showForm ? 'Close' : '+ Add coffee'}</button
@@ -156,8 +157,9 @@
           {#if coffee.package_notes}<p class="notes">“{coffee.package_notes}”</p>{/if}
           <div class="actions">
             <a class="button small" href={`/brews/new?coffee=${coffee.id}`}>Brew this</a
-            >{#if $sessionStore}<button class="secondary" onclick={() => editCoffee(coffee)}
-                >Edit</button
+            >{#if $sessionStore && $deviceModeStore !== 'kiosk'}<button
+                class="secondary"
+                onclick={() => editCoffee(coffee)}>Edit</button
               ><button class="secondary" onclick={() => cloneCoffee(coffee.id)}>Clone bag</button
               >{#if $sessionStore.profile.role === 'admin'}<button
                   class="danger"
