@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import secrets
-from collections import defaultdict, deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from threading import Lock
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import case, or_, select, update
 from sqlalchemy.orm import Session
 
 from .db import session_dependency, utcnow
@@ -16,7 +19,14 @@ from .demo import enforce_demo_write_rate_limit
 from .models import LoginSession, Profile
 
 password_hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
-_attempts: dict[str, deque[datetime]] = defaultdict(deque)
+dummy_pin_hash = password_hasher.hash(secrets.token_urlsafe(32))
+
+LOGIN_BACKOFF_THRESHOLD = 3
+LOGIN_BACKOFF_BASE_SECONDS = 30
+LOGIN_BACKOFF_MAX_SECONDS = 15 * 60
+LOGIN_FAILURE_RESET_WINDOW = timedelta(hours=24)
+_login_locks: dict[int, Lock] = {}
+_login_locks_guard = Lock()
 
 
 def hash_pin(pin: str) -> str:
@@ -34,22 +44,82 @@ def token_hash(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
-def enforce_login_rate_limit(key: str) -> None:
-    now = datetime.now(UTC)
-    window = now - timedelta(minutes=5)
-    attempts = _attempts[key]
-    while attempts and attempts[0] < window:
-        attempts.popleft()
-    if len(attempts) >= 8:
-        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again shortly.")
+@contextmanager
+def login_attempt_guard(profile_id: int | None) -> Iterator[None]:
+    if profile_id is None:
+        yield
+        return
+    with _login_locks_guard:
+        lock = _login_locks.setdefault(profile_id, Lock())
+    with lock:
+        yield
 
 
-def record_login_failure(key: str) -> None:
-    _attempts[key].append(datetime.now(UTC))
+def _as_aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
-def clear_login_failures(key: str) -> None:
-    _attempts.pop(key, None)
+def login_retry_after(profile: Profile, now: datetime | None = None) -> int:
+    if profile.login_blocked_until is None:
+        return 0
+    current = now or utcnow()
+    remaining = (_as_aware(profile.login_blocked_until) - current).total_seconds()
+    return max(0, math.ceil(remaining))
+
+
+def record_login_failure(
+    db: Session, profile: Profile, now: datetime | None = None
+) -> tuple[int, int]:
+    current = now or utcnow()
+    reset_before = current - LOGIN_FAILURE_RESET_WINDOW
+    new_attempts = case(
+        (
+            or_(
+                Profile.last_failed_login_at.is_(None),
+                Profile.last_failed_login_at <= reset_before,
+            ),
+            1,
+        ),
+        else_=Profile.failed_login_attempts + 1,
+    )
+    attempts = db.scalar(
+        update(Profile)
+        .where(Profile.id == profile.id)
+        .values(
+            failed_login_attempts=new_attempts,
+            last_failed_login_at=current,
+        )
+        .returning(Profile.failed_login_attempts)
+    )
+    if attempts is None:
+        raise RuntimeError("Profile disappeared while recording a login failure")
+
+    delay = 0
+    if attempts >= LOGIN_BACKOFF_THRESHOLD:
+        delay = min(
+            LOGIN_BACKOFF_BASE_SECONDS * 2 ** (attempts - LOGIN_BACKOFF_THRESHOLD),
+            LOGIN_BACKOFF_MAX_SECONDS,
+        )
+    db.execute(
+        update(Profile)
+        .where(Profile.id == profile.id)
+        .values(login_blocked_until=current + timedelta(seconds=delay) if delay else None)
+    )
+    db.commit()
+    db.refresh(profile)
+    return attempts, delay
+
+
+def clear_login_failures(profile: Profile) -> None:
+    profile.failed_login_attempts = 0
+    profile.last_failed_login_at = None
+    profile.login_blocked_until = None
+
+
+def verify_profile_pin(profile: Profile | None, pin: str) -> bool:
+    pin_hash = profile.pin_hash if profile is not None and profile.active else dummy_pin_hash
+    verified = verify_pin(pin_hash, pin)
+    return verified and profile is not None and profile.active
 
 
 def create_login_session(
@@ -68,10 +138,6 @@ def create_login_session(
     db.refresh(login_session)
     login_session.profile = profile
     return raw_token, login_session
-
-
-def _as_aware(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def optional_login_session(

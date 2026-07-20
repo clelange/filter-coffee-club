@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import secrets
 import zipfile
 from collections import Counter, defaultdict
@@ -75,8 +76,9 @@ from .schemas import (
 from .security import (
     clear_login_failures,
     create_login_session,
-    enforce_login_rate_limit,
     hash_pin,
+    login_attempt_guard,
+    login_retry_after,
     record_login_failure,
     require_admin,
     require_csrf,
@@ -84,9 +86,11 @@ from .security import (
     require_login_session,
     require_user,
     verify_pin,
+    verify_profile_pin,
 )
 
 router = APIRouter(prefix="/api/v1")
+auth_logger = logging.getLogger("fcc.auth")
 
 
 def session_payload(login_session: LoginSession) -> SessionResponse:
@@ -301,7 +305,21 @@ def list_public_profiles(db: Session = Depends(session_dependency)) -> list[Prof
     )
 
 
-@router.post("/auth/login", response_model=SessionResponse)
+@router.post(
+    "/auth/login",
+    response_model=SessionResponse,
+    responses={
+        429: {
+            "description": "Login temporarily blocked after repeated failures",
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds until another login attempt is allowed",
+                    "schema": {"type": "integer"},
+                }
+            },
+        }
+    },
+)
 def login(
     payload: LoginInput,
     request: Request,
@@ -309,23 +327,68 @@ def login(
     db: Session = Depends(session_dependency),
 ) -> SessionResponse:
     enforce_demo_write_rate_limit(request)
-    client_ip = request.client.host if request.client else "unknown"
-    key = f"{client_ip}:{payload.profile_id}"
-    enforce_login_rate_limit(key)
     profile = db.get(Profile, payload.profile_id)
-    if profile is None or not profile.active or not verify_pin(profile.pin_hash, payload.pin):
-        record_login_failure(key)
-        raise HTTPException(status_code=401, detail="Invalid profile or PIN")
-    clear_login_failures(key)
-    prune_demo_sessions(request, db)
-    hours = (
-        request.app.state.settings.personal_session_hours
-        if payload.device_mode == "personal"
-        else request.app.state.settings.kiosk_session_hours
-    )
-    raw, login_session = create_login_session(db, profile, payload.device_mode, hours)
-    set_session_cookie(request, response, raw, hours)
-    return session_payload(login_session)
+    with login_attempt_guard(profile.id if profile is not None else None):
+        if profile is not None:
+            db.rollback()
+            profile = db.get(Profile, payload.profile_id)
+        throttle_exempt = bool(
+            profile and request.app.state.settings.demo_mode and is_protected_demo_profile(profile)
+        )
+        retry_after = (
+            0
+            if profile is None or not profile.active or throttle_exempt
+            else login_retry_after(profile)
+        )
+        if retry_after:
+            auth_logger.warning(
+                "login_backoff",
+                extra={
+                    "fields": {
+                        "profile_id": payload.profile_id,
+                        "failure_count": profile.failed_login_attempts,
+                        "retry_after_seconds": retry_after,
+                    }
+                },
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed attempts. Try again shortly.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        if not verify_profile_pin(profile, payload.pin):
+            attempts = 0
+            delay = 0
+            if profile is not None and profile.active and not throttle_exempt:
+                attempts, delay = record_login_failure(db, profile)
+            auth_logger.warning(
+                "login_failure",
+                extra={
+                    "fields": {
+                        "profile_id": payload.profile_id,
+                        "failure_count": attempts or None,
+                        "retry_after_seconds": delay,
+                    }
+                },
+            )
+            if delay:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many failed attempts. Try again shortly.",
+                    headers={"Retry-After": str(delay)},
+                )
+            raise HTTPException(status_code=401, detail="Invalid profile or PIN")
+        assert profile is not None
+        clear_login_failures(profile)
+        prune_demo_sessions(request, db)
+        hours = (
+            request.app.state.settings.personal_session_hours
+            if payload.device_mode == "personal"
+            else request.app.state.settings.kiosk_session_hours
+        )
+        raw, login_session = create_login_session(db, profile, payload.device_mode, hours)
+        set_session_cookie(request, response, raw, hours)
+        return session_payload(login_session)
 
 
 @router.get("/auth/me", response_model=SessionResponse)
@@ -363,6 +426,7 @@ def change_pin(
         )
     profile.pin_hash = hash_pin(payload.new_pin)
     profile.pin_change_required = False
+    clear_login_failures(profile)
     db.commit()
 
 
@@ -414,10 +478,13 @@ def update_person(
         raise HTTPException(status_code=404, detail="Profile not found")
     if request.app.state.settings.demo_mode and is_protected_demo_profile(profile):
         raise HTTPException(status_code=403, detail="Seeded demo profiles cannot be changed")
+    reactivating = payload.active is True and not profile.active
     for key, value in payload.model_dump(exclude_unset=True, exclude={"pin"}).items():
         setattr(profile, key, value)
     if payload.pin:
         profile.pin_hash = hash_pin(payload.pin)
+    if payload.pin or reactivating:
+        clear_login_failures(profile)
     db.commit()
     db.refresh(profile)
     return profile
