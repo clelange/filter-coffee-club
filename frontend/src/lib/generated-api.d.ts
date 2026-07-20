@@ -1466,6 +1466,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Login temporarily blocked after repeated failures */
+            429: {
+                headers: {
+                    /** @description Seconds until another login attempt is allowed */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     me_api_v1_auth_me_get: {

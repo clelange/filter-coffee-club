@@ -157,6 +157,35 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('link', { name: 'Sign in to brew' }).click();
   await expect(page.getByText('Shared touch display')).toBeVisible();
   await expect(page.locator('input[aria-label="PIN"]')).toHaveCount(0);
+  let throttleResponse = 0;
+  await page.route('**/api/v1/auth/login', async (route) => {
+    if (route.request().method() !== 'POST' || throttleResponse >= 2) {
+      await route.continue();
+      return;
+    }
+    throttleResponse += 1;
+    await route.fulfill({
+      status: 429,
+      contentType: 'application/json',
+      headers: throttleResponse === 2 ? { 'Retry-After': '30' } : {},
+      body: JSON.stringify({ detail: 'Login traffic is temporarily limited.' })
+    });
+  });
+  await enterKioskPin(page, '9999');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Login traffic is temporarily limited.');
+  await enterKioskPin(page, '9999');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert')).toContainText('Try again in 30 seconds');
+  await expect(
+    page.getByRole('group', { name: 'PIN', exact: true }).getByRole('button', { name: '1' })
+  ).toBeDisabled();
+  await page.getByLabel('Profile').selectOption({ label: 'Bob' });
+  await expect(
+    page.getByRole('group', { name: 'PIN', exact: true }).getByRole('button', { name: '2' })
+  ).toBeEnabled();
+  await page.unroute('**/api/v1/auth/login');
+  await page.reload();
   await enterKioskPin(page, '9999');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('alert')).toContainText('Invalid profile or PIN');

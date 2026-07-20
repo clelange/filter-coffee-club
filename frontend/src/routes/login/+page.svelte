@@ -4,7 +4,7 @@
   import { page } from '$app/stores';
   import PinPad from '$lib/PinPad.svelte';
   import { deviceModeStore } from '$lib/device';
-  import { api, jsonBody, setSession } from '$lib/api';
+  import { api, ApiError, jsonBody, setSession } from '$lib/api';
   import type { AppSettings, Profile, Session } from '$lib/types';
 
   let profiles: Profile[] = $state([]);
@@ -13,6 +13,17 @@
   let pin = $state('');
   let error = $state('');
   let loading = $state(false);
+  let blockedUntilByProfile = $state<Record<number, number>>({});
+  let now = $state(Date.now());
+  let retrySeconds = $derived(
+    Math.max(0, Math.ceil(((blockedUntilByProfile[profileId] ?? 0) - now) / 1000))
+  );
+  let blocked = $derived(retrySeconds > 0);
+
+  function countdown(value: number): string {
+    if (value < 60) return `${value} second${value === 1 ? '' : 's'}`;
+    return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+  }
 
   function safeNext(): string {
     const requested = $page.url.searchParams.get('next');
@@ -27,14 +38,26 @@
     profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;
   });
 
+  onMount(() => {
+    const timer = window.setInterval(() => {
+      now = Date.now();
+      for (const [id, deadline] of Object.entries(blockedUntilByProfile)) {
+        if (deadline <= now) delete blockedUntilByProfile[Number(id)];
+      }
+    }, 250);
+    return () => window.clearInterval(timer);
+  });
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
+    if (blocked) return;
     loading = true;
     error = '';
+    const submittedProfileId = profileId;
     try {
       const session = await api<Session>('/auth/login', {
         method: 'POST',
-        body: jsonBody({ profile_id: profileId, pin, device_mode: $deviceModeStore })
+        body: jsonBody({ profile_id: submittedProfileId, pin, device_mode: $deviceModeStore })
       });
       setSession(session);
       const next = safeNext();
@@ -42,7 +65,17 @@
         session.profile.pin_change_required ? `/account/pin?next=${encodeURIComponent(next)}` : next
       );
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Sign-in failed.';
+      if (
+        caught instanceof ApiError &&
+        caught.status === 429 &&
+        caught.retryAfterSeconds !== null &&
+        caught.retryAfterSeconds > 0
+      ) {
+        now = Date.now();
+        blockedUntilByProfile[submittedProfileId] = now + caught.retryAfterSeconds * 1000;
+      } else {
+        error = caught instanceof Error ? caught.message : 'Sign-in failed.';
+      }
       pin = '';
     } finally {
       loading = false;
@@ -71,7 +104,14 @@
     {/if}
     <label>
       Profile
-      <select bind:value={profileId} required>
+      <select
+        bind:value={profileId}
+        required
+        onchange={() => {
+          pin = '';
+          error = '';
+        }}
+      >
         {#each profiles as profile}
           <option value={profile.id}>{profile.display_name}</option>
         {/each}
@@ -82,7 +122,7 @@
         <strong>Shared touch display</strong>
         <span>You will be signed out when this activity is complete.</span>
       </div>
-      <PinPad label="PIN" bind:value={pin} disabled={loading} />
+      <PinPad label="PIN" bind:value={pin} disabled={loading || blocked} />
     {:else}
       <label>
         PIN
@@ -92,12 +132,19 @@
           autocomplete="current-password"
           pattern="[0-9][0-9][0-9][0-9]"
           maxlength="4"
+          disabled={loading || blocked}
           required
         />
       </label>
     {/if}
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="primary" disabled={loading || !profileId || pin.length !== 4}
+    {#if blocked}
+      <p class="error" role="alert">
+        Too many incorrect PINs. Try again in {countdown(retrySeconds)}.
+      </p>
+    {:else if error}
+      <p class="error" role="alert">{error}</p>
+    {/if}
+    <button class="primary" disabled={loading || blocked || !profileId || pin.length !== 4}
       >{loading ? 'Signing in…' : 'Sign in'}</button
     >
   </form>

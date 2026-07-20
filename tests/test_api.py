@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import io
 import zipfile
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
 from app.models import Profile
-from app.security import _attempts
 from fastapi.testclient import TestClient
 
 
@@ -53,6 +53,10 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert 83.99 < remaining_hours <= 84
         with client.app.state.session_factory() as db:
             assert db.get(Profile, 1).pin_hash.startswith("$argon2")
+        public_profile = client.get("/api/v1/auth/profiles").json()[0]
+        assert "failed_login_attempts" not in public_profile
+        assert "last_failed_login_at" not in public_profile
+        assert "login_blocked_until" not in public_profile
 
         grinders = client.get("/api/v1/grinders").json()
         assert grinders[0]["manufacturer"] == "Comandante"
@@ -472,6 +476,9 @@ def test_export_omits_auth_secrets(tmp_path: Path) -> None:
         body = response.text
         assert "pin_hash" not in body
         assert "rating_token" not in body
+        assert "failed_login_attempts" not in body
+        assert "last_failed_login_at" not in body
+        assert "login_blocked_until" not in body
         csv_response = client.get("/api/v1/exports/csv")
         assert csv_response.status_code == 200
         assert csv_response.headers["content-type"] == "application/zip"
@@ -596,20 +603,234 @@ def test_new_profiles_must_replace_temporary_pin_and_admin_can_toggle_requiremen
         assert not_required.json()["pin_change_required"] is False
 
 
-def test_failed_logins_are_rate_limited(tmp_path: Path) -> None:
+def test_failed_logins_use_persistent_progressive_backoff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    current = [datetime(2026, 7, 20, 12, tzinfo=UTC)]
+    monkeypatch.setattr("app.security.utcnow", lambda: current[0])
+
     with build_client(tmp_path) as client:
         bootstrap(client)
-        try:
-            for _ in range(8):
-                response = client.post(
-                    "/api/v1/auth/login",
-                    json={"profile_id": 1, "pin": "9999", "device_mode": "personal"},
-                )
-                assert response.status_code == 401
-            blocked = client.post(
-                "/api/v1/auth/login",
-                json={"profile_id": 1, "pin": "9999", "device_mode": "personal"},
-            )
+        payload = {"profile_id": 1, "pin": "9999", "device_mode": "personal"}
+        for _ in range(2):
+            response = client.post("/api/v1/auth/login", json=payload)
+            assert response.status_code == 401
+            assert response.json()["detail"] == "Invalid profile or PIN"
+
+        blocked = client.post("/api/v1/auth/login", json=payload)
+        assert blocked.status_code == 429
+        assert blocked.headers["Retry-After"] == "30"
+        assert blocked.json()["detail"] == "Too many failed attempts. Try again shortly."
+
+        correct_while_blocked = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        assert correct_while_blocked.status_code == 429
+        assert correct_while_blocked.headers["Retry-After"] == "30"
+
+        previous_delay = 30
+        for expected_delay in (60, 120, 240, 480, 900, 900):
+            current[0] += timedelta(seconds=previous_delay)
+            blocked = client.post("/api/v1/auth/login", json=payload)
             assert blocked.status_code == 429
-        finally:
-            _attempts.clear()
+            assert blocked.headers["Retry-After"] == str(expected_delay)
+            previous_delay = expected_delay
+
+        current[0] += timedelta(seconds=previous_delay)
+        success = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        assert success.status_code == 200
+        with client.app.state.session_factory() as db:
+            profile = db.get(Profile, 1)
+            assert profile is not None
+            assert profile.failed_login_attempts == 0
+            assert profile.last_failed_login_at is None
+            assert profile.login_blocked_until is None
+
+        client.post("/api/v1/auth/login", json=payload)
+        client.post("/api/v1/auth/login", json=payload)
+        current[0] += timedelta(hours=24)
+        after_quiet_period = client.post("/api/v1/auth/login", json=payload)
+        assert after_quiet_period.status_code == 401
+        with client.app.state.session_factory() as db:
+            profile = db.get(Profile, 1)
+            assert profile is not None
+            assert profile.failed_login_attempts == 1
+            assert profile.login_blocked_until is None
+
+        login_responses = client.get("/openapi.json").json()["paths"]["/api/v1/auth/login"]["post"][
+            "responses"
+        ]
+        assert "Retry-After" in login_responses["429"]["headers"]
+
+
+def test_login_backoff_survives_application_restart(tmp_path: Path) -> None:
+    payload = {"profile_id": 1, "pin": "9999", "device_mode": "personal"}
+    with build_client(tmp_path) as client:
+        bootstrap(client)
+        assert client.post("/api/v1/auth/login", json=payload).status_code == 401
+        assert client.post("/api/v1/auth/login", json=payload).status_code == 401
+        assert client.post("/api/v1/auth/login", json=payload).status_code == 429
+
+    with build_client(tmp_path) as restarted_client:
+        blocked = restarted_client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        assert blocked.status_code == 429
+        assert 1 <= int(blocked.headers["Retry-After"]) <= 30
+
+
+def test_concurrent_login_failures_are_serialized_per_profile(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        bootstrap(client)
+        payload = {"profile_id": 1, "pin": "9999", "device_mode": "personal"}
+
+        def attempt_login(_attempt: int) -> int:
+            return client.post("/api/v1/auth/login", json=payload).status_code
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            statuses = list(executor.map(attempt_login, range(8)))
+
+        assert sorted(statuses) == [401, 401, 429, 429, 429, 429, 429, 429]
+        with client.app.state.session_factory() as db:
+            profile = db.get(Profile, 1)
+            assert profile is not None
+            assert profile.failed_login_attempts == 3
+
+
+def test_login_backoff_is_per_profile_and_pin_management_clears_it(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        member = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        wrong_member = {
+            "profile_id": member["id"],
+            "pin": "9999",
+            "device_mode": "personal",
+        }
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 429
+
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        assert admin_login.status_code == 200
+        admin_headers = {"X-CSRF-Token": admin_login.json()["csrf_token"]}
+        reset = client.put(
+            f"/api/v1/people/{member['id']}",
+            headers=admin_headers,
+            json={"pin": "1357"},
+        )
+        assert reset.status_code == 200
+
+        member_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "1357", "device_mode": "personal"},
+        )
+        assert member_login.status_code == 200
+        member_headers = {"X-CSRF-Token": member_login.json()["csrf_token"]}
+
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 429
+        self_reset = client.post(
+            "/api/v1/auth/pin",
+            headers=member_headers,
+            json={"current_pin": "1357", "new_pin": "2468"},
+        )
+        assert self_reset.status_code == 204
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={
+                    "profile_id": member["id"],
+                    "pin": "2468",
+                    "device_mode": "personal",
+                },
+            ).status_code
+            == 200
+        )
+
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 401
+        assert client.post("/api/v1/auth/login", json=wrong_member).status_code == 429
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
+        assert (
+            client.put(
+                f"/api/v1/people/{member['id']}",
+                headers=admin_headers,
+                json={"active": False},
+            ).status_code
+            == 200
+        )
+        inactive = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "2468", "device_mode": "personal"},
+        )
+        missing = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 9999, "pin": "2468", "device_mode": "personal"},
+        )
+        assert inactive.status_code == missing.status_code == 401
+        assert inactive.json() == missing.json() == {"detail": "Invalid profile or PIN"}
+
+        reactivated = client.put(
+            f"/api/v1/people/{member['id']}",
+            headers=admin_headers,
+            json={"active": True},
+        )
+        assert reactivated.status_code == 200
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={
+                    "profile_id": member["id"],
+                    "pin": "2468",
+                    "device_mode": "personal",
+                },
+            ).status_code
+            == 200
+        )
+
+
+def test_shared_demo_profiles_are_not_persistently_blocked(tmp_path: Path) -> None:
+    with build_demo_client(tmp_path) as client:
+        profile = next(
+            item
+            for item in client.get("/api/v1/auth/profiles").json()
+            if item["display_name"] == "Demo Admin"
+        )
+        payload = {"profile_id": profile["id"], "pin": "9999", "device_mode": "personal"}
+        for _ in range(10):
+            response = client.post("/api/v1/auth/login", json=payload)
+            assert response.status_code == 401
+        with client.app.state.session_factory() as db:
+            stored = db.get(Profile, profile["id"])
+            assert stored is not None
+            assert stored.failed_login_attempts == 0
+            assert stored.login_blocked_until is None
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={
+                    "profile_id": profile["id"],
+                    "pin": "1234",
+                    "device_mode": "personal",
+                },
+            ).status_code
+            == 200
+        )

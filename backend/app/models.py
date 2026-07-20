@@ -42,6 +42,9 @@ class Profile(TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(20), default="member")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     pin_change_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_failed_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    login_blocked_until: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     sessions: Mapped[list[LoginSession]] = relationship(back_populates="profile")
 

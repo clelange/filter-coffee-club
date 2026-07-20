@@ -51,6 +51,19 @@ docker compose up --build
 
 Traefik, TLS, VM provisioning, and scheduled host backups are intentionally outside this repository. When Traefik terminates HTTPS, set `FCC_COOKIE_SECURE=true`. Mounting `/data` persists the database and uploaded branding.
 
+### Login throttling
+
+Four-digit PIN logins use persistent per-profile throttling. After two incorrect attempts, the app
+starts at a 30-second wait and doubles the delay after each further failure up to 15 minutes. A
+successful login, PIN change/reset, profile reactivation, or 24 hours without a failure resets the
+sequence. Existing authenticated sessions are not revoked when someone triggers a login delay.
+
+For an internet-facing deployment, add source-based rate limiting at the trusted reverse proxy as
+defense in depth. A reasonable starting point for the login endpoint is 30 requests per minute per
+source with a burst of 10. The application deliberately does not use forwarded IP addresses as its
+throttling identity because proxy topology, shared networks, and IP rotation make IP-only blocking
+unreliable.
+
 ## Public demo mode
 
 Set `FCC_DEMO_MODE=true` only for a disposable public demonstration. On an empty database, demo

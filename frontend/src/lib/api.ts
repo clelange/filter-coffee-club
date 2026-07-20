@@ -4,7 +4,8 @@ import type { Session } from './types';
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    public retryAfterSeconds: number | null = null
   ) {
     super(message);
   }
@@ -24,6 +25,13 @@ function detailMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function retryAfterSeconds(response: Response): number | null {
+  const value = response.headers.get('Retry-After');
+  if (value === null) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds) : null;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData))
@@ -39,7 +47,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (response.status === 204) return undefined as T;
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(response.status, detailMessage(body, response.statusText));
+  if (!response.ok)
+    throw new ApiError(
+      response.status,
+      detailMessage(body, response.statusText),
+      retryAfterSeconds(response)
+    );
   return body as T;
 }
 
