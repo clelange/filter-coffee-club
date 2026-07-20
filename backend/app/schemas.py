@@ -98,6 +98,7 @@ class CoffeeInput(BaseModel):
 
 class CoffeeResponse(CoffeeInput, ORMModel):
     id: int
+    photo_path: str | None
     archived: bool
     cloned_from_id: int | None
     created_at: datetime
@@ -129,6 +130,7 @@ class GrinderInput(BaseModel):
 
 class GrinderResponse(GrinderInput, ORMModel):
     id: int
+    photo_path: str | None
     archived: bool
 
 
@@ -140,6 +142,7 @@ class EquipmentInput(BaseModel):
 
 class DripperResponse(EquipmentInput, ORMModel):
     id: int
+    photo_path: str | None
     archived: bool
 
 
@@ -150,6 +153,7 @@ class FilterInput(BaseModel):
 
 class FilterResponse(FilterInput, ORMModel):
     id: int
+    photo_path: str | None
     archived: bool
 
 

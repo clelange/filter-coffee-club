@@ -11,14 +11,16 @@ from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
 from app.models import Profile
 from fastapi.testclient import TestClient
+from PIL import Image
 
 
-def build_client(tmp_path: Path) -> TestClient:
+def build_client(tmp_path: Path, **overrides: object) -> TestClient:
     settings = Settings(
         data_dir=tmp_path,
         database_url=f"sqlite:///{tmp_path / 'test.sqlite3'}",
         frontend_dir=tmp_path / "missing-frontend",
         public_base_url="http://fcc.test",
+        **overrides,
     )
     return TestClient(create_app(settings))
 
@@ -39,6 +41,12 @@ def bootstrap(client: TestClient) -> tuple[dict, dict[str, str]]:
     assert response.status_code == 200, response.text
     session = response.json()
     return session, {"X-CSRF-Token": session["csrf_token"]}
+
+
+def image_upload(format_name: str = "PNG", size: tuple[int, int] = (2000, 1000)) -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", size, "#8f4f38").save(output, format=format_name)
+    return output.getvalue()
 
 
 def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
@@ -137,6 +145,16 @@ def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> 
             assert [item["display_name"] for item in profiles] == sorted(DEMO_PROFILE_NAMES)
             coffees = client.get("/api/v1/coffees").json()
             assert len(coffees) == 4
+            assert all(item["photo_path"] for item in coffees)
+            demo_photo = client.get(coffees[0]["photo_path"])
+            assert demo_photo.status_code == 200
+            assert demo_photo.headers["content-type"] == "image/webp"
+            grinders = client.get("/api/v1/grinders").json()
+            drippers = client.get("/api/v1/drippers").json()
+            filters = client.get("/api/v1/filters").json()
+            assert grinders[0]["photo_path"]
+            assert sum(item["photo_path"] is not None for item in drippers) == 1
+            assert sum(item["photo_path"] is not None for item in filters) == 1
             assert len(client.get("/api/v1/brews").json()) == 12
 
             settings = client.get("/api/v1/settings").json()
@@ -220,11 +238,139 @@ def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> 
                 files={"logo": ("logo.png", b"\x89PNG\r\n\x1a\n", "image/png")},
             )
             assert upload.status_code == 403
+            photo_upload = client.put(
+                f"/api/v1/coffees/{coffees[0]['id']}/photo",
+                headers=headers,
+                files={"photo": ("photo.png", image_upload(), "image/png")},
+            )
+            assert photo_upload.status_code == 403
+            assert photo_upload.json()["detail"] == "Photo changes are disabled in demo mode"
 
         with build_demo_client(tmp_path) as client:
             assert len(client.get("/api/v1/brews").json()) == 12
     finally:
         _write_attempts.clear()
+
+
+def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "PSI Roasters", "name": "Photo Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        dripper = client.post(
+            "/api/v1/drippers",
+            headers=headers,
+            json={"manufacturer": "Demo", "model": "Cone"},
+        ).json()
+        brew_filter = client.post(
+            "/api/v1/filters",
+            headers=headers,
+            json={"name": "Demo paper"},
+        ).json()
+
+        targets = [
+            ("coffees", coffee),
+            ("grinders", grinder),
+            ("drippers", dripper),
+            ("filters", brew_filter),
+        ]
+        for resource, item in targets:
+            response = client.put(
+                f"/api/v1/{resource}/{item['id']}/photo",
+                headers=headers,
+                files={"photo": ("photo.png", image_upload(), "image/png")},
+            )
+            assert response.status_code == 200, response.text
+            path = response.json()["photo_path"]
+            assert path.startswith("/uploads/catalog/photo-")
+            stored = client.get(path)
+            assert stored.status_code == 200
+            assert stored.headers["content-type"] == "image/webp"
+            with Image.open(io.BytesIO(stored.content)) as image:
+                assert image.format == "WEBP"
+                assert image.size == (1600, 800)
+                assert not image.getexif()
+
+        coffee_path = client.get(f"/api/v1/coffees/{coffee['id']}").json()["photo_path"]
+        replacement = client.put(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers=headers,
+            files={"photo": ("replacement.jpg", image_upload("JPEG", (400, 600)), "image/jpeg")},
+        )
+        assert replacement.status_code == 200
+        replacement_path = replacement.json()["photo_path"]
+        assert replacement_path != coffee_path
+        assert client.get(coffee_path).status_code == 404
+
+        clone = client.post(
+            f"/api/v1/coffees/{coffee['id']}/clone",
+            headers=headers,
+            json={},
+        )
+        assert clone.status_code == 200
+        assert clone.json()["photo_path"] is None
+
+        removed = client.delete(f"/api/v1/coffees/{coffee['id']}/photo", headers=headers)
+        assert removed.status_code == 200
+        assert removed.json()["photo_path"] is None
+        assert client.get(replacement_path).status_code == 404
+
+        mismatch = client.put(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers=headers,
+            files={"photo": ("not-really.png", image_upload("JPEG"), "image/png")},
+        )
+        assert mismatch.status_code == 415
+        assert mismatch.json()["detail"] == "Photo contents do not match its file type"
+
+        client.post("/api/v1/auth/logout", headers=headers)
+        kiosk_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "kiosk"},
+        ).json()
+        kiosk_upload = client.put(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers={"X-CSRF-Token": kiosk_login["csrf_token"]},
+            files={"photo": ("photo.png", image_upload(), "image/png")},
+        )
+        assert kiosk_upload.status_code == 403
+        assert kiosk_upload.json()["detail"] == "Photo changes are unavailable in kiosk mode"
+
+
+def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
+    size_path = tmp_path / "size-limit"
+    with build_client(size_path, max_catalog_photo_bytes=32) as client:
+        _session, headers = bootstrap(client)
+        oversized = client.put(
+            "/api/v1/grinders/1/photo",
+            headers=headers,
+            files={"photo": ("photo.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert oversized.status_code == 413
+        assert oversized.json()["detail"] == "Photo exceeds 32 bytes"
+
+    pixel_path = tmp_path / "pixel-limit"
+    with build_client(pixel_path, max_catalog_photo_pixels=100) as client:
+        _session, headers = bootstrap(client)
+        excessive_resolution = client.put(
+            "/api/v1/grinders/1/photo",
+            headers=headers,
+            files={"photo": ("photo.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert excessive_resolution.status_code == 413
+        assert excessive_resolution.json()["detail"] == "Photo resolution is too large"
+
+        unsupported = client.put(
+            "/api/v1/grinders/1/photo",
+            headers=headers,
+            files={"photo": ("photo.gif", b"GIF89a", "image/gif")},
+        )
+        assert unsupported.status_code == 415
+        assert unsupported.json()["detail"] == "Photo must be JPEG, PNG, or WebP"
 
 
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:

@@ -1,4 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+
+const ethiopiaPhoto = fileURLToPath(
+  new URL('../../backend/app/demo_assets/catalog/demo-coffee-ethiopia.webp', import.meta.url)
+);
+const colombiaPhoto = fileURLToPath(
+  new URL('../../backend/app/demo_assets/catalog/demo-coffee-colombia.webp', import.meta.url)
+);
 
 const keyboardCapableControls =
   'input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), textarea';
@@ -111,8 +119,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: '+ Add coffee' }).click();
   await page.getByLabel('Roaster / brand').fill('PSI Roasters');
   await page.getByLabel('Coffee name').fill('Collider Blend');
+  await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(ethiopiaPhoto);
+  await expect(page.getByRole('img', { name: 'Selected catalog item' })).toBeVisible();
   await page.getByRole('button', { name: 'Save coffee' }).click();
   await expect(page.getByRole('heading', { name: 'Collider Blend' })).toBeVisible();
+  const colliderCard = page
+    .locator('article.coffee-card')
+    .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });
+  const colliderPhoto = colliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' });
+  await expect(colliderPhoto).toBeVisible();
+  const firstPhotoPath = await colliderPhoto.getAttribute('src');
+  await colliderCard.getByLabel('Replace photo').setInputFiles(colombiaPhoto);
+  await expect.poll(() => colliderPhoto.getAttribute('src')).not.toBe(firstPhotoPath);
+  await expect(colliderCard.getByRole('button', { name: 'Remove photo' })).toBeVisible();
 
   await page.goto('/brews/new');
   await page.getByRole('button', { name: '+ Coffee' }).click();
@@ -194,6 +213,16 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page).toHaveURL(/\/brews\/new$/);
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '+ Coffee' })).toHaveCount(0);
+  await page.goto('/coffees');
+  const kioskColliderCard = page
+    .locator('article.coffee-card')
+    .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });
+  await expect(
+    kioskColliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' })
+  ).toBeVisible();
+  await expect(kioskColliderCard.getByLabel('Replace photo')).toHaveCount(0);
+  await expect(kioskColliderCard.getByRole('button', { name: 'Remove photo' })).toHaveCount(0);
+  await page.goto('/brews/new');
   await page.getByRole('combobox', { name: 'Coffee', exact: true }).selectOption({
     label: 'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   });

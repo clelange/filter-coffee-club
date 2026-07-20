@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import { api, ensureSession, jsonBody } from '$lib/api';
+  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
+  import PhotoPicker from '$lib/PhotoPicker.svelte';
+  import { api, appSettingsStore, ensureSession, jsonBody, uploadCatalogPhoto } from '$lib/api';
   import type { BrewFilter, Dripper, Grinder } from '$lib/types';
 
   let grinders: Grinder[] = $state([]);
@@ -11,6 +13,7 @@
   let message = $state('');
   let error = $state('');
   let adding: 'grinder' | 'dripper' | 'filter' | null = $state(null);
+  let photoFile: File | null = $state(null);
   let grinderForm = $state({
     manufacturer: '',
     model: '',
@@ -25,6 +28,18 @@
 
   function isClickUnit(unit: string) {
     return ['click', 'clicks'].includes(unit.trim().toLowerCase());
+  }
+
+  function startAdding(kind: 'grinder' | 'dripper' | 'filter') {
+    adding = kind;
+    photoFile = null;
+    error = '';
+    message = '';
+  }
+
+  function closeAdding() {
+    adding = null;
+    photoFile = null;
   }
 
   onMount(async () => {
@@ -53,22 +68,52 @@
       error = caught instanceof Error ? caught.message : 'Could not save equipment.';
     }
   }
+  async function createWithPhoto<T extends { id: number }>(
+    action: () => Promise<T>,
+    endpoint: string,
+    success: string
+  ) {
+    error = '';
+    message = '';
+    try {
+      const item = await action();
+      if (photoFile) {
+        try {
+          await uploadCatalogPhoto(`${endpoint}/${item.id}/photo`, photoFile);
+        } catch (caught) {
+          message = success;
+          error = `The item was saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not upload photo.'} Use “Add photo” below to retry.`;
+          adding = null;
+          photoFile = null;
+          await load();
+          return;
+        }
+      }
+      message = success;
+      adding = null;
+      photoFile = null;
+      await load();
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not save equipment.';
+    }
+  }
   async function addGrinder(event: SubmitEvent) {
     event.preventDefault();
-    await run(
+    await createWithPhoto<Grinder>(
       () =>
-        api('/grinders', {
+        api<Grinder>('/grinders', {
           method: 'POST',
           body: jsonBody({ ...grinderForm, guidance: grinderForm.guidance || null })
         }),
+      '/grinders',
       'Grinder added.'
     );
   }
   async function addDripper(event: SubmitEvent) {
     event.preventDefault();
-    await run(
+    await createWithPhoto<Dripper>(
       () =>
-        api('/drippers', {
+        api<Dripper>('/drippers', {
           method: 'POST',
           body: jsonBody({
             ...dripperForm,
@@ -76,17 +121,19 @@
             notes: dripperForm.notes || null
           })
         }),
+      '/drippers',
       'Dripper added.'
     );
   }
   async function addFilter(event: SubmitEvent) {
     event.preventDefault();
-    await run(
+    await createWithPhoto<BrewFilter>(
       () =>
-        api('/filters', {
+        api<BrewFilter>('/filters', {
           method: 'POST',
           body: jsonBody({ ...filterForm, notes: filterForm.notes || null })
         }),
+      '/filters',
       'Filter added.'
     );
   }
@@ -144,6 +191,12 @@
       <h2>Grinders</h2>
       <div class="items">
         {#each grinders as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={`${item.manufacturer} ${item.model}`}
+              endpoint={`/grinders/${item.id}/photo`}
+              compact
+            />
             <h3>{item.manufacturer} {item.model}</h3>
             <p class="muted">
               {item.setting_unit} · step {item.setting_step} · usual range {item.soft_min ??
@@ -157,6 +210,12 @@
       <h2>Drippers</h2>
       <div class="items">
         {#each drippers as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
+              endpoint={`/drippers/${item.id}/photo`}
+              compact
+            />
             <h3>{item.manufacturer ?? ''} {item.model}</h3>
             {#if item.notes}<p>{item.notes}</p>{/if}
           </article>{:else}<p class="muted">No drippers registered.</p>{/each}
@@ -166,6 +225,12 @@
       <h2>Filters</h2>
       <div class="items">
         {#each filters as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={item.name}
+              endpoint={`/filters/${item.id}/photo`}
+              compact
+            />
             <h3>{item.name}</h3>
             {#if item.notes}<p>{item.notes}</p>{/if}
           </article>{:else}<p class="muted">No filters registered.</p>{/each}
@@ -183,10 +248,10 @@
       </p>
     </div>
     <div class="actions">
-      <button class="primary" onclick={() => (adding = 'grinder')}>+ Grinder</button><button
+      <button class="primary" onclick={() => startAdding('grinder')}>+ Grinder</button><button
         class="secondary"
-        onclick={() => (adding = 'dripper')}>+ Dripper</button
-      ><button class="secondary" onclick={() => (adding = 'filter')}>+ Filter</button>
+        onclick={() => startAdding('dripper')}>+ Dripper</button
+      ><button class="secondary" onclick={() => startAdding('filter')}>+ Filter</button>
     </div>
   </div>
   {#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
@@ -229,11 +294,15 @@
             >
           </div>
           <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label>
+          {#if !$appSettingsStore?.demo_mode}<PhotoPicker
+              bind:file={photoFile}
+              label="Photo (optional)"
+            />{/if}
           <div class="actions">
             <button class="primary">Save grinder</button><button
               class="secondary"
               type="button"
-              onclick={() => (adding = null)}>Cancel</button
+              onclick={closeAdding}>Cancel</button
             >
           </div>
         </form>
@@ -245,11 +314,15 @@
             >
           </div>
           <label>Notes<textarea bind:value={dripperForm.notes}></textarea></label>
+          {#if !$appSettingsStore?.demo_mode}<PhotoPicker
+              bind:file={photoFile}
+              label="Photo (optional)"
+            />{/if}
           <div class="actions">
             <button class="primary">Save dripper</button><button
               class="secondary"
               type="button"
-              onclick={() => (adding = null)}>Cancel</button
+              onclick={closeAdding}>Cancel</button
             >
           </div>
         </form>
@@ -258,11 +331,15 @@
           <label>Name<input bind:value={filterForm.name} required /></label><label
             >Notes<textarea bind:value={filterForm.notes}></textarea></label
           >
+          {#if !$appSettingsStore?.demo_mode}<PhotoPicker
+              bind:file={photoFile}
+              label="Photo (optional)"
+            />{/if}
           <div class="actions">
             <button class="primary">Save filter</button><button
               class="secondary"
               type="button"
-              onclick={() => (adding = null)}>Cancel</button
+              onclick={closeAdding}>Cancel</button
             >
           </div>
         </form>{/if}
@@ -274,6 +351,16 @@
       <h2>Grinders</h2>
       <div class="items">
         {#each grinders as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={`${item.manufacturer} ${item.model}`}
+              endpoint={`/grinders/${item.id}/photo`}
+              compact
+              editable={!$appSettingsStore?.demo_mode}
+              onchanged={(photoPath) => {
+                item.photo_path = photoPath;
+              }}
+            />
             <div class="field-grid">
               <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
                 >Model<input bind:value={item.model} /></label
@@ -312,6 +399,16 @@
       <h2>Drippers</h2>
       <div class="items">
         {#each drippers as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
+              endpoint={`/drippers/${item.id}/photo`}
+              compact
+              editable={!$appSettingsStore?.demo_mode}
+              onchanged={(photoPath) => {
+                item.photo_path = photoPath;
+              }}
+            />
             <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
               >Model<input bind:value={item.model} /></label
             ><label>Notes<textarea bind:value={item.notes}></textarea></label><button
@@ -325,6 +422,16 @@
       <h2>Filters</h2>
       <div class="items">
         {#each filters as item}<article>
+            <CatalogPhoto
+              photoPath={item.photo_path}
+              alt={item.name}
+              endpoint={`/filters/${item.id}/photo`}
+              compact
+              editable={!$appSettingsStore?.demo_mode}
+              onchanged={(photoPath) => {
+                item.photo_path = photoPath;
+              }}
+            />
             <label>Name<input bind:value={item.name} /></label><label
               >Notes<textarea bind:value={item.notes}></textarea></label
             ><button class="secondary" onclick={() => saveFilter(item)}>Save filter</button>

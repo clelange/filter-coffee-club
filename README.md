@@ -49,7 +49,7 @@ To build the current checkout locally instead of pulling a release, use:
 docker compose up --build
 ```
 
-Traefik, TLS, VM provisioning, and scheduled host backups are intentionally outside this repository. When Traefik terminates HTTPS, set `FCC_COOKIE_SECURE=true`. Mounting `/data` persists the database and uploaded branding.
+Traefik, TLS, VM provisioning, and scheduled host backups are intentionally outside this repository. When Traefik terminates HTTPS, set `FCC_COOKIE_SECURE=true`. Mounting `/data` persists the database, uploaded branding, and catalog photos.
 
 ### Login throttling
 
@@ -67,15 +67,15 @@ unreliable.
 ## Public demo mode
 
 Set `FCC_DEMO_MODE=true` only for a disposable public demonstration. On an empty database, demo
-mode creates four fictional profiles, four coffees, shared equipment, twelve completed brews, and
-sample ratings. Every seeded profile uses PIN `1234`; **Demo Admin** can open the administration
-area.
+mode creates four fictional profiles, four photographed coffees, photographed examples from the
+shared equipment, twelve completed brews, and sample ratings. Every seeded profile uses PIN `1234`;
+**Demo Admin** can open the administration area.
 
 Demo mode also disables first-run administrator takeover, keeps branding under deployment control,
-protects all records present at startup and the seeded PIN, rate-limits mutations, and caps the
-number of records visitors can create. Visitors can create and edit their own new records. The
-interface identifies the site as a public demo and asks visitors not to enter personal or
-confidential information.
+protects all records present at startup and the seeded PIN, rate-limits mutations, caps the number
+of records visitors can create, and disables photo uploads. Visitors can create and edit their own
+new text records. The interface identifies the site as a public demo and asks visitors not to enter
+personal or confidential information.
 
 The included `render.yaml` creates a free Docker web service backed by ephemeral SQLite storage.
 Render discards that storage whenever the free service sleeps, restarts, or redeploys, so the sample
@@ -114,8 +114,9 @@ All environment variables use the `FCC_` prefix. Important values are:
 | `FCC_PUBLIC_BASE_URL` | `http://filter-coffee-club.local` | Absolute URL encoded into QR links. Can also be changed in Admin → Branding. |
 | `FCC_COOKIE_SECURE`   | `false`                           | Send the session cookie only over HTTPS.                                     |
 | `FCC_ALLOWED_ORIGINS` | empty                             | Optional comma-separated additional trusted origins.                         |
-| `FCC_DATA_DIR`        | `data` locally, `/data` in Docker | SQLite and uploaded-logo storage.                                            |
+| `FCC_DATA_DIR`        | `data` locally, `/data` in Docker | SQLite, branding, and catalog-photo storage.                                 |
 | `FCC_DATABASE_URL`    | derived SQLite URL                | Override only for local/testing scenarios.                                   |
+| `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB) | Maximum accepted coffee or equipment photo upload.                           |
 | `FCC_LOG_LEVEL`       | `info`                            | Application and structured request log level.                                |
 | `FCC_DEMO_MODE`       | `false`                           | Seed fictional data and enable public-demo protections.                      |
 
@@ -125,7 +126,7 @@ Docker Compose also reads `FCC_IMAGE` and `FCC_IMAGE_TAG` from `.env` to select 
 
 ## Local development
 
-Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), and pnpm are expected.
+Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), pnpm, and Git LFS are expected. Git LFS stores the bundled demo WebP assets; `make install` fetches them for the current checkout.
 
 ```sh
 uv sync
@@ -152,7 +153,7 @@ make install
 make hooks
 ```
 
-`make hooks` installs Chromium for Playwright and configures `prek` to format-check Python and frontend sources, lint GitHub Actions, validate lockfiles and common repository hazards, validate Conventional Commit messages, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
+`make hooks` installs Chromium for Playwright and configures `prek` to format-check Python and frontend sources, lint GitHub Actions, validate lockfiles and common repository hazards, validate Conventional Commit messages, upload referenced Git LFS objects, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
 
 ```text
 feat: add brew comparison
@@ -175,6 +176,11 @@ The Playwright flow covers a 1024×600 Pi operator journey and a touch-enabled 3
 
 ## Backup and restore
 
+Catalog photos and uploaded branding live beside SQLite under `/data/uploads`. A complete backup
+must therefore copy or snapshot the entire `/data` volume, preferably while the application is
+stopped. The SQLite-only procedure below is still useful for a consistent database backup, but it
+does not include uploaded files.
+
 For an online, consistent copy, use SQLite's backup command against the mounted database:
 
 ```sh
@@ -185,8 +191,15 @@ docker compose cp filter-coffee-club:/data/fcc-backup.sqlite3 ./fcc-backup.sqlit
 
 The slim production image may not include the `sqlite3` command on every platform. In that case, stop the container before copying `/data/fcc.sqlite3`, or run a temporary SQLite container against the same volume. Do not copy only the main file while the application is actively writing in WAL mode.
 
-To restore, stop the application, keep a copy of the current `/data` directory, replace `/data/fcc.sqlite3` with the backup, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if present, then start the application. Alembic automatically upgrades an older restored schema at startup.
+To restore a database-only backup, stop the application, keep a copy of the current `/data`
+directory, replace `/data/fcc.sqlite3`, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if
+present, then start the application. Restore `/data/uploads` from the matching full backup whenever
+catalog photos or branding must be recovered. Alembic automatically upgrades an older restored
+schema at startup.
 
 ## Data boundaries
 
-Exports include coffees, brews, and ratings. They intentionally omit PIN hashes, live sessions, CSRF values, and opaque rating tokens. Version one is manual pour-over only: it does not connect to the TIMEMORE scale, run an in-app timer, store second-by-second pours, or support offline writes.
+Exports include coffees, brews, and ratings. They intentionally omit uploaded photo files, PIN
+hashes, live sessions, CSRF values, and opaque rating tokens. Version one is manual pour-over only:
+it does not connect to the TIMEMORE scale, run an in-app timer, store second-by-second pours, or
+support offline writes.

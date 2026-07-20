@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -50,6 +52,26 @@ FLAVORS = {
     "Fermented": ["Winey", "Fermented"],
     "Green / earthy": ["Herbal / tea-like", "Green / vegetative", "Earthy", "Woody / papery"],
 }
+
+DEMO_CATALOG_PHOTOS = {
+    "coffee-ethiopia": "demo-coffee-ethiopia.webp",
+    "coffee-colombia": "demo-coffee-colombia.webp",
+    "coffee-kenya": "demo-coffee-kenya.webp",
+    "coffee-brazil": "demo-coffee-brazil.webp",
+    "grinder": "demo-grinder.webp",
+    "dripper": "demo-dripper.webp",
+    "filter": "demo-filter.webp",
+}
+
+
+def seed_demo_catalog_photos(catalog_upload_dir: Path) -> dict[str, str]:
+    source_dir = Path(__file__).with_name("demo_assets") / "catalog"
+    catalog_upload_dir.mkdir(parents=True, exist_ok=True)
+    public_paths: dict[str, str] = {}
+    for key, filename in DEMO_CATALOG_PHOTOS.items():
+        shutil.copyfile(source_dir / filename, catalog_upload_dir / filename)
+        public_paths[key] = f"/uploads/catalog/{filename}"
+    return public_paths
 
 
 def seed_database(db: Session) -> None:
@@ -121,9 +143,10 @@ def seed_database(db: Session) -> None:
     db.commit()
 
 
-def seed_demo_database(db: Session) -> None:
+def seed_demo_database(db: Session, catalog_upload_dir: Path) -> None:
     """Create a fictional, useful dataset only in a completely unconfigured database."""
 
+    photo_paths = seed_demo_catalog_photos(catalog_upload_dir)
     if (db.scalar(select(func.count(Profile.id))) or 0) > 0:
         return
 
@@ -153,12 +176,14 @@ def seed_demo_database(db: Session) -> None:
         select(RecipePreset).where(RecipePreset.name == "Light washed / floral / acidic")
     )
     assert grinder is not None and natural_preset is not None and washed_preset is not None
+    grinder.photo_path = photo_paths["grinder"]
 
     drippers = [
         Dripper(
             manufacturer="Hario",
             model="V60 02",
             notes="Conical demo dripper",
+            photo_path=photo_paths["dripper"],
             created_at=now - timedelta(days=30),
             updated_at=now - timedelta(days=30),
         ),
@@ -174,6 +199,7 @@ def seed_demo_database(db: Session) -> None:
         BrewFilter(
             name="V60 paper 02",
             notes="White tabbed paper",
+            photo_path=photo_paths["filter"],
             created_at=now - timedelta(days=30),
             updated_at=now - timedelta(days=30),
         ),
@@ -198,6 +224,7 @@ def seed_demo_database(db: Session) -> None:
             "roast_level": "Light",
             "variety": "Heirloom",
             "package_notes": "Jasmine, bergamot, peach",
+            "photo_path": photo_paths["coffee-ethiopia"],
         },
         {
             "roaster": "Sample Roastery",
@@ -209,6 +236,7 @@ def seed_demo_database(db: Session) -> None:
             "roast_level": "Light",
             "variety": "Caturra",
             "package_notes": "Strawberry, cacao, panela",
+            "photo_path": photo_paths["coffee-colombia"],
         },
         {
             "roaster": "Imaginary Coffee Lab",
@@ -220,6 +248,7 @@ def seed_demo_database(db: Session) -> None:
             "roast_level": "Light",
             "variety": "SL28, SL34",
             "package_notes": "Blackcurrant, grapefruit, brown sugar",
+            "photo_path": photo_paths["coffee-kenya"],
         },
         {
             "roaster": "Imaginary Coffee Lab",
@@ -231,6 +260,7 @@ def seed_demo_database(db: Session) -> None:
             "roast_level": "Medium",
             "variety": "Yellow Bourbon",
             "package_notes": "Hazelnut, chocolate, dried cherry",
+            "photo_path": photo_paths["coffee-brazil"],
         },
     ]
     coffees = []

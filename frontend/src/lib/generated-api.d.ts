@@ -194,6 +194,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coffees/{coffee_id}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Coffee Photo */
+        put: operations["put_coffee_photo_api_v1_coffees__coffee_id__photo_put"];
+        post?: never;
+        /** Delete Coffee Photo */
+        delete: operations["delete_coffee_photo_api_v1_coffees__coffee_id__photo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/coffees/{coffee_id}/archive": {
         parameters: {
             query?: never;
@@ -263,6 +281,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grinders/{item_id}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Grinder Photo */
+        put: operations["put_grinder_photo_api_v1_grinders__item_id__photo_put"];
+        post?: never;
+        /** Delete Grinder Photo */
+        delete: operations["delete_grinder_photo_api_v1_grinders__item_id__photo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grinders/{item_id}/archive": {
         parameters: {
             query?: never;
@@ -315,6 +351,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drippers/{item_id}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Dripper Photo */
+        put: operations["put_dripper_photo_api_v1_drippers__item_id__photo_put"];
+        post?: never;
+        /** Delete Dripper Photo */
+        delete: operations["delete_dripper_photo_api_v1_drippers__item_id__photo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drippers/{item_id}/archive": {
         parameters: {
             query?: never;
@@ -362,6 +416,24 @@ export interface paths {
         put: operations["update_filter_api_v1_filters__item_id__put"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filters/{item_id}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Filter Photo */
+        put: operations["put_filter_photo_api_v1_filters__item_id__photo_put"];
+        post?: never;
+        /** Delete Filter Photo */
+        delete: operations["delete_filter_photo_api_v1_filters__item_id__photo_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -777,6 +849,26 @@ export interface components {
             /** Color Amber */
             color_amber: string;
         };
+        /** Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put */
+        Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put: {
+            /** Photo */
+            photo: string;
+        };
+        /** Body_put_dripper_photo_api_v1_drippers__item_id__photo_put */
+        Body_put_dripper_photo_api_v1_drippers__item_id__photo_put: {
+            /** Photo */
+            photo: string;
+        };
+        /** Body_put_filter_photo_api_v1_filters__item_id__photo_put */
+        Body_put_filter_photo_api_v1_filters__item_id__photo_put: {
+            /** Photo */
+            photo: string;
+        };
+        /** Body_put_grinder_photo_api_v1_grinders__item_id__photo_put */
+        Body_put_grinder_photo_api_v1_grinders__item_id__photo_put: {
+            /** Photo */
+            photo: string;
+        };
         /** Body_upload_logo_api_v1_settings_logo_post */
         Body_upload_logo_api_v1_settings_logo_post: {
             /** Logo */
@@ -1000,6 +1092,8 @@ export interface components {
             package_notes?: string | null;
             /** Id */
             id: number;
+            /** Photo Path */
+            photo_path: string | null;
             /** Archived */
             archived: boolean;
             /** Cloned From Id */
@@ -1020,6 +1114,8 @@ export interface components {
             notes?: string | null;
             /** Id */
             id: number;
+            /** Photo Path */
+            photo_path: string | null;
             /** Archived */
             archived: boolean;
         };
@@ -1047,6 +1143,8 @@ export interface components {
             notes?: string | null;
             /** Id */
             id: number;
+            /** Photo Path */
+            photo_path: string | null;
             /** Archived */
             archived: boolean;
         };
@@ -1145,6 +1243,8 @@ export interface components {
             guidance?: string | null;
             /** Id */
             id: number;
+            /** Photo Path */
+            photo_path: string | null;
             /** Archived */
             archived: boolean;
         };
@@ -1764,6 +1864,72 @@ export interface operations {
             };
         };
     };
+    put_coffee_photo_api_v1_coffees__coffee_id__photo_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_coffee_photo_api_v1_coffees__coffee_id__photo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_coffee_api_v1_coffees__coffee_id__archive_post: {
         parameters: {
             query?: never;
@@ -1914,6 +2080,72 @@ export interface operations {
             };
         };
     };
+    put_grinder_photo_api_v1_grinders__item_id__photo_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_put_grinder_photo_api_v1_grinders__item_id__photo_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrinderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_grinder_photo_api_v1_grinders__item_id__photo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrinderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_grinder_api_v1_grinders__item_id__archive_post: {
         parameters: {
             query?: never;
@@ -2033,6 +2265,72 @@ export interface operations {
             };
         };
     };
+    put_dripper_photo_api_v1_drippers__item_id__photo_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_put_dripper_photo_api_v1_drippers__item_id__photo_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DripperResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_dripper_photo_api_v1_drippers__item_id__photo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DripperResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_dripper_api_v1_drippers__item_id__archive_post: {
         parameters: {
             query?: never;
@@ -2131,6 +2429,72 @@ export interface operations {
                 "application/json": components["schemas"]["FilterInput"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_filter_photo_api_v1_filters__item_id__photo_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_put_filter_photo_api_v1_filters__item_id__photo_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_filter_photo_api_v1_filters__item_id__photo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

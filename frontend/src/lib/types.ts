@@ -35,6 +35,7 @@ export interface AppSettings {
 
 export interface Coffee {
   id: number;
+  photo_path: string | null;
   roaster: string;
   name: string;
   country?: string | null;
@@ -53,6 +54,7 @@ export interface Coffee {
 
 export interface Grinder {
   id: number;
+  photo_path: string | null;
   manufacturer: string;
   model: string;
   setting_unit: string;
@@ -65,6 +67,7 @@ export interface Grinder {
 
 export interface Dripper {
   id: number;
+  photo_path: string | null;
   manufacturer: string | null;
   model: string;
   notes: string | null;
@@ -73,6 +76,7 @@ export interface Dripper {
 
 export interface BrewFilter {
   id: number;
+  photo_path: string | null;
   name: string;
   notes: string | null;
   archived: boolean;

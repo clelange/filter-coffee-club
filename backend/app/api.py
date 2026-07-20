@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .calculations import brew_ratio, overall_throughput
+from .catalog_photos import remove_catalog_photo, save_catalog_photo
 from .db import session_dependency, utcnow
 from .demo import (
     DEMO_NOTICE,
@@ -84,12 +85,20 @@ from .security import (
     require_csrf,
     require_csrf_token,
     require_login_session,
+    require_personal_csrf,
     require_user,
     verify_pin,
     verify_profile_pin,
 )
 
 router = APIRouter(prefix="/api/v1")
+
+
+def ensure_catalog_photo_writes_allowed(request: Request) -> None:
+    if request.app.state.settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Photo changes are disabled in demo mode")
+
+
 auth_logger = logging.getLogger("fcc.auth")
 
 
@@ -542,6 +551,37 @@ def update_coffee(
     return coffee
 
 
+@router.put("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
+async def put_coffee_photo(
+    coffee_id: int,
+    photo: UploadFile,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Coffee:
+    ensure_catalog_photo_writes_allowed(request)
+    coffee = db.get(Coffee, coffee_id)
+    if coffee is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    await save_catalog_photo(photo, request.app.state.settings, db, coffee)
+    return coffee
+
+
+@router.delete("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
+def delete_coffee_photo(
+    coffee_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Coffee:
+    ensure_catalog_photo_writes_allowed(request)
+    coffee = db.get(Coffee, coffee_id)
+    if coffee is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    remove_catalog_photo(request.app.state.settings, db, coffee)
+    return coffee
+
+
 @router.post("/coffees/{coffee_id}/archive", response_model=CoffeeResponse)
 def archive_coffee(
     coffee_id: int,
@@ -632,6 +672,37 @@ def update_grinder(
     return item
 
 
+@router.put("/grinders/{item_id}/photo", response_model=GrinderResponse)
+async def put_grinder_photo(
+    item_id: int,
+    photo: UploadFile,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Grinder:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Grinder, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Grinder not found")
+    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    return item
+
+
+@router.delete("/grinders/{item_id}/photo", response_model=GrinderResponse)
+def delete_grinder_photo(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Grinder:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Grinder, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Grinder not found")
+    remove_catalog_photo(request.app.state.settings, db, item)
+    return item
+
+
 @router.post("/grinders/{item_id}/archive", response_model=GrinderResponse)
 def archive_grinder(
     item_id: int,
@@ -689,6 +760,37 @@ def update_dripper(
         setattr(item, key, value)
     db.commit()
     db.refresh(item)
+    return item
+
+
+@router.put("/drippers/{item_id}/photo", response_model=DripperResponse)
+async def put_dripper_photo(
+    item_id: int,
+    photo: UploadFile,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Dripper:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Dripper, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Dripper not found")
+    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    return item
+
+
+@router.delete("/drippers/{item_id}/photo", response_model=DripperResponse)
+def delete_dripper_photo(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Dripper:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Dripper, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Dripper not found")
+    remove_catalog_photo(request.app.state.settings, db, item)
     return item
 
 
@@ -751,6 +853,37 @@ def update_filter(
         setattr(item, key, value)
     db.commit()
     db.refresh(item)
+    return item
+
+
+@router.put("/filters/{item_id}/photo", response_model=FilterResponse)
+async def put_filter_photo(
+    item_id: int,
+    photo: UploadFile,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> BrewFilter:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(BrewFilter, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Filter not found")
+    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    return item
+
+
+@router.delete("/filters/{item_id}/photo", response_model=FilterResponse)
+def delete_filter_photo(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> BrewFilter:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(BrewFilter, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Filter not found")
+    remove_catalog_photo(request.app.state.settings, db, item)
     return item
 
 
