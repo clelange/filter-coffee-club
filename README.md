@@ -126,7 +126,7 @@ Docker Compose also reads `FCC_IMAGE` and `FCC_IMAGE_TAG` from `.env` to select 
 
 ## Local development
 
-Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), and pnpm are expected.
+Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), pnpm, and Git LFS are expected. Git LFS stores the bundled demo WebP assets; `make install` fetches them for the current checkout.
 
 ```sh
 uv sync
@@ -153,7 +153,7 @@ make install
 make hooks
 ```
 
-`make hooks` installs Chromium for Playwright and configures `prek` to format-check Python and frontend sources, lint GitHub Actions, validate lockfiles and common repository hazards, validate Conventional Commit messages, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
+`make hooks` installs Chromium for Playwright and configures `prek` to format-check Python and frontend sources, lint GitHub Actions, validate lockfiles and common repository hazards, validate Conventional Commit messages, upload referenced Git LFS objects, and run the complete non-Docker verification suite before pushes. Commit messages use `type(scope): subject`; the scope is optional, and `!` marks a breaking change. For example:
 
 ```text
 feat: add brew comparison

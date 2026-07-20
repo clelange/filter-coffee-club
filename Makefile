@@ -1,6 +1,7 @@
 .PHONY: install hooks format check test build e2e types types-check verify dev
 
 install:
+	git lfs pull
 	uv sync
 	pnpm --dir frontend install --frozen-lockfile
 

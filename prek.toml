@@ -129,6 +129,15 @@ language = "system"
 stages = ["commit-msg"]
 
 [[repos.hooks]]
+id = "git-lfs-push"
+name = "upload Git LFS objects"
+entry = "scripts/git-lfs-pre-push.sh"
+language = "system"
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+
+[[repos.hooks]]
 id = "verify"
 name = "non-Docker CI suite"
 entry = "make verify"
