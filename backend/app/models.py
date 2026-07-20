@@ -81,6 +81,7 @@ class Coffee(TimestampMixin, Base):
     opened_date: Mapped[date | None] = mapped_column(Date)
     variety: Mapped[str | None] = mapped_column(String(160))
     package_notes: Mapped[str | None] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(500))
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("coffees.id"))
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
@@ -104,6 +105,7 @@ class Grinder(TimestampMixin, Base):
     soft_min: Mapped[float | None] = mapped_column(Float)
     soft_max: Mapped[float | None] = mapped_column(Float)
     guidance: Mapped[str | None] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(500))
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -114,6 +116,7 @@ class Dripper(TimestampMixin, Base):
     manufacturer: Mapped[str | None] = mapped_column(String(120))
     model: Mapped[str] = mapped_column(String(120))
     notes: Mapped[str | None] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(500))
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -123,6 +126,7 @@ class BrewFilter(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(160))
     notes: Mapped[str | None] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(500))
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

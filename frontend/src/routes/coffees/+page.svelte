@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { deviceModeStore } from '$lib/device';
-  import { api, jsonBody, sessionStore } from '$lib/api';
+  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
+  import PhotoPicker from '$lib/PhotoPicker.svelte';
+  import { api, appSettingsStore, jsonBody, sessionStore, uploadCatalogPhoto } from '$lib/api';
   import type { Coffee } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
   let showForm = $state(false);
   let editId: number | null = $state(null);
   let error = $state('');
+  let photoFile: File | null = $state(null);
   let form = $state({
     roaster: '',
     name: '',
@@ -30,12 +33,23 @@
     event.preventDefault();
     error = '';
     try {
-      await api(editId ? `/coffees/${editId}` : '/coffees', {
+      const coffee = await api<Coffee>(editId ? `/coffees/${editId}` : '/coffees', {
         method: editId ? 'PUT' : 'POST',
         body: jsonBody(
           Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value || null]))
         )
       });
+      if (photoFile) {
+        try {
+          await uploadCatalogPhoto<Coffee>(`/coffees/${coffee.id}/photo`, photoFile);
+        } catch (caught) {
+          editId = coffee.id;
+          showForm = true;
+          await load();
+          error = `Coffee details were saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not upload photo.'}`;
+          return;
+        }
+      }
       form = {
         roaster: '',
         name: '',
@@ -50,6 +64,7 @@
         package_notes: ''
       };
       editId = null;
+      photoFile = null;
       showForm = false;
       await load();
     } catch (caught) {
@@ -79,12 +94,14 @@
       variety: coffee.variety ?? '',
       package_notes: coffee.package_notes ?? ''
     };
+    photoFile = null;
     showForm = true;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function closeForm() {
     showForm = false;
     editId = null;
+    photoFile = null;
   }
 </script>
 
@@ -134,6 +151,12 @@
       >
     </div>
     <label>Package tasting notes<textarea bind:value={form.package_notes}></textarea></label>
+    {#if !$appSettingsStore?.demo_mode}
+      <PhotoPicker
+        bind:file={photoFile}
+        label={editId ? 'Replace photo (optional)' : 'Photo (optional)'}
+      />
+    {/if}
     {#if error}<p class="error">{error}</p>{/if}<button class="primary"
       >{editId ? 'Save changes' : 'Save coffee'}</button
     >
@@ -146,7 +169,18 @@
     >
       {#each coffees as coffee}
         <article class="card coffee-card">
-          <div class="bean-mark" aria-hidden="true"></div>
+          <CatalogPhoto
+            photoPath={coffee.photo_path}
+            alt={`${coffee.roaster} ${coffee.name}`}
+            endpoint={`/coffees/${coffee.id}/photo`}
+            beanFallback
+            editable={Boolean(
+              $sessionStore && $deviceModeStore !== 'kiosk' && !$appSettingsStore?.demo_mode
+            )}
+            onchanged={(photoPath) => {
+              coffee.photo_path = photoPath;
+            }}
+          />
           <p class="eyebrow">{coffee.roaster}</p>
           <h2>{coffee.name}</h2>
           <p class="muted">
@@ -184,26 +218,6 @@
   }
   .coffee-card h2 {
     margin-bottom: 7px;
-  }
-  .bean-mark {
-    position: absolute;
-    right: -20px;
-    top: -28px;
-    width: 120px;
-    height: 160px;
-    border-radius: 52% 48% 48% 52%;
-    border: 2px solid color-mix(in srgb, var(--coffee) 22%, transparent);
-    transform: rotate(28deg);
-  }
-  .bean-mark::after {
-    content: '';
-    position: absolute;
-    left: 52%;
-    top: 10%;
-    width: 2px;
-    height: 80%;
-    background: color-mix(in srgb, var(--coffee) 22%, transparent);
-    transform: rotate(12deg);
   }
   .notes {
     padding: 12px;

@@ -28,7 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_factory() as db:
             seed_database(db)
             if app_settings.demo_mode:
-                seed_demo_database(db)
+                seed_demo_database(db, app_settings.catalog_upload_dir)
                 _app.state.demo_protected_ids = capture_demo_protected_ids(db)
         yield
         engine.dispose()

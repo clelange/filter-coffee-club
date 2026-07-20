@@ -9,7 +9,7 @@
     initializeDeviceMode,
     loginPath
   } from '$lib/device';
-  import { api, ensureSession, logout, sessionStore } from '$lib/api';
+  import { api, appSettingsStore, ensureSession, logout, sessionStore } from '$lib/api';
   import type { AppSettings } from '$lib/types';
   import '../styles.css';
 
@@ -60,6 +60,7 @@
     try {
       const device = initializeDeviceMode($page.url);
       settings = await api<AppSettings>('/settings');
+      appSettingsStore.set(settings);
       applyTheme(settings);
       const bootstrap = await api<{ required: boolean }>('/auth/bootstrap-status');
       if (bootstrap.required && $page.url.pathname !== '/setup') {

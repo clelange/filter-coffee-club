@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     personal_session_hours: int = 84
     kiosk_session_hours: int = 4
     max_logo_bytes: int = 2 * 1024 * 1024
+    max_catalog_photo_bytes: int = 12 * 1024 * 1024
+    max_catalog_photo_pixels: int = 50_000_000
+    catalog_photo_max_dimension: int = 1600
+    catalog_photo_webp_quality: int = 82
     app_name: str = "Filter Coffee Club"
     log_level: str = Field(default="info")
     demo_mode: bool = False
@@ -34,6 +38,11 @@ class Settings(BaseSettings):
     def upload_dir(self) -> Path:
         return self.data_dir / "uploads"
 
+    @property
+    def catalog_upload_dir(self) -> Path:
+        return self.upload_dir / "catalog"
+
     def prepare_directories(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.catalog_upload_dir.mkdir(parents=True, exist_ok=True)

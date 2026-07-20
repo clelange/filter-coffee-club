@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { Session } from './types';
+import type { AppSettings, Session } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -12,6 +12,7 @@ export class ApiError extends Error {
 }
 
 export const sessionStore = writable<Session | null>(null);
+export const appSettingsStore = writable<AppSettings | null>(null);
 let sessionSnapshot: Session | null = null;
 let sessionChecked = false;
 sessionStore.subscribe((value) => (sessionSnapshot = value));
@@ -81,6 +82,12 @@ export async function logout(): Promise<void> {
 
 export function jsonBody(value: unknown): string {
   return JSON.stringify(value);
+}
+
+export async function uploadCatalogPhoto<T>(path: string, photo: File): Promise<T> {
+  const body = new FormData();
+  body.append('photo', photo);
+  return api<T>(path, { method: 'PUT', body });
 }
 
 export function formatTime(seconds: number | null): string {

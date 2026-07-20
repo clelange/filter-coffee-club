@@ -213,3 +213,11 @@ def require_csrf(
     login_session: LoginSession = Depends(require_csrf_token),
 ) -> LoginSession:
     return require_pin_change_complete(login_session)
+
+
+def require_personal_csrf(
+    login_session: LoginSession = Depends(require_csrf),
+) -> LoginSession:
+    if login_session.device_mode != "personal":
+        raise HTTPException(status_code=403, detail="Photo changes are unavailable in kiosk mode")
+    return login_session

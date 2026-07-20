@@ -8,6 +8,7 @@ dependencies = [
   "alembic>=1.13,<2",
   "argon2-cffi>=23.1,<26",
   "fastapi>=0.115,<1",
+  "pillow>=11.0,<13",
   "pydantic-settings>=2.5,<3",
   "python-multipart>=0.0.12,<1",
   "segno>=1.6,<2",
@@ -24,6 +25,9 @@ package-dir = {"" = "backend"}
 
 [tool.setuptools.packages.find]
 where = ["backend"]
+
+[tool.setuptools.package-data]
+app = ["demo_assets/catalog/*.webp"]
 
 [dependency-groups]
 dev = [
