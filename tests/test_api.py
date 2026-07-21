@@ -306,6 +306,17 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         assert replacement_path != coffee_path
         assert client.get(coffee_path).status_code == 404
 
+        heic_upload = client.put(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers=headers,
+            files={"photo": ("iphone.heic", image_upload("HEIF", (3024, 4032)), "image/heic")},
+        )
+        assert heic_upload.status_code == 200, heic_upload.text
+        heic_path = heic_upload.json()["photo_path"]
+        with Image.open(io.BytesIO(client.get(heic_path).content)) as image:
+            assert image.format == "WEBP"
+            assert image.size == (1200, 1600)
+
         clone = client.post(
             f"/api/v1/coffees/{coffee['id']}/clone",
             headers=headers,
@@ -370,7 +381,7 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
             files={"photo": ("photo.gif", b"GIF89a", "image/gif")},
         )
         assert unsupported.status_code == 415
-        assert unsupported.json()["detail"] == "Photo must be JPEG, PNG, or WebP"
+        assert unsupported.json()["detail"] == "Photo must be JPEG, PNG, WebP, HEIC, or HEIF"
 
 
 def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> None:
