@@ -736,6 +736,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profiles/{profile_id}/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile Ratings */
+        get: operations["get_profile_ratings_api_v1_profiles__profile_id__ratings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ratings/me/comparisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Rating Comparisons */
+        get: operations["get_my_rating_comparisons_api_v1_ratings_me_comparisons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analytics": {
         parameters: {
             query?: never;
@@ -1481,6 +1515,19 @@ export interface components {
             /** Grinder Ranges */
             grinder_ranges?: components["schemas"]["GrinderRangeInput"][];
         };
+        /** ProfileCoffeePreference */
+        ProfileCoffeePreference: {
+            /** Coffee Id */
+            coffee_id: number;
+            /** Coffee Name */
+            coffee_name: string;
+            /** Coffee Roaster */
+            coffee_roaster: string;
+            /** Rating Count */
+            rating_count: number;
+            /** Average Liking */
+            average_liking: number;
+        };
         /** ProfileCreate */
         ProfileCreate: {
             /** Display Name */
@@ -1513,6 +1560,51 @@ export interface components {
             /** Pin Change Required */
             pin_change_required: boolean;
         };
+        /** ProfileRatingResult */
+        ProfileRatingResult: {
+            /** Brew Id */
+            brew_id: number;
+            rating: components["schemas"]["RatingItem"];
+            /** Total Rating Count */
+            total_rating_count: number;
+            /** Peer Count */
+            peer_count: number;
+            /** Peer Averages */
+            peer_averages?: {
+                [key: string]: number;
+            };
+            /** Peer Deltas */
+            peer_deltas?: {
+                [key: string]: number;
+            };
+            /** Selected Flavors */
+            selected_flavors?: string[];
+            /** Peer Flavor Counts */
+            peer_flavor_counts?: {
+                [key: string]: number;
+            };
+            brew: components["schemas"]["BrewResponse"];
+        };
+        /** ProfileRatingsResponse */
+        ProfileRatingsResponse: {
+            profile: components["schemas"]["ProfilePublic"];
+            /** Is Self */
+            is_self: boolean;
+            /** Is Complete History */
+            is_complete_history: boolean;
+            /** Rating Count */
+            rating_count: number;
+            /** Averages */
+            averages?: {
+                [key: string]: number;
+            };
+            /** Favorite Coffees */
+            favorite_coffees?: components["schemas"]["ProfileCoffeePreference"][];
+            /** Ratings */
+            ratings?: components["schemas"]["ProfileRatingResult"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
         /** ProfileUpdate */
         ProfileUpdate: {
             /** Display Name */
@@ -1525,6 +1617,30 @@ export interface components {
             pin_change_required?: boolean | null;
             /** Pin */
             pin?: string | null;
+        };
+        /** RatingComparison */
+        RatingComparison: {
+            /** Brew Id */
+            brew_id: number;
+            rating: components["schemas"]["RatingItem"];
+            /** Total Rating Count */
+            total_rating_count: number;
+            /** Peer Count */
+            peer_count: number;
+            /** Peer Averages */
+            peer_averages?: {
+                [key: string]: number;
+            };
+            /** Peer Deltas */
+            peer_deltas?: {
+                [key: string]: number;
+            };
+            /** Selected Flavors */
+            selected_flavors?: string[];
+            /** Peer Flavor Counts */
+            peer_flavor_counts?: {
+                [key: string]: number;
+            };
         };
         /** RatingInput */
         RatingInput: {
@@ -3469,6 +3585,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RatingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_ratings_api_v1_profiles__profile_id__ratings_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                profile_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileRatingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_rating_comparisons_api_v1_ratings_me_comparisons_get: {
+        parameters: {
+            query: {
+                brew_id: number[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingComparison"][];
                 };
             };
             /** @description Validation Error */

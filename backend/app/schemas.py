@@ -331,6 +331,40 @@ class RatingSummary(BaseModel):
     flavor_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class ProfileCoffeePreference(BaseModel):
+    coffee_id: int
+    coffee_name: str
+    coffee_roaster: str
+    rating_count: int
+    average_liking: float
+
+
+class RatingComparison(BaseModel):
+    brew_id: int
+    rating: RatingItem
+    total_rating_count: int
+    peer_count: int
+    peer_averages: dict[str, float] = Field(default_factory=dict)
+    peer_deltas: dict[str, float] = Field(default_factory=dict)
+    selected_flavors: list[str] = Field(default_factory=list)
+    peer_flavor_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ProfileRatingResult(RatingComparison):
+    brew: BrewResponse
+
+
+class ProfileRatingsResponse(BaseModel):
+    profile: ProfilePublic
+    is_self: bool
+    is_complete_history: bool
+    rating_count: int
+    averages: dict[str, float] = Field(default_factory=dict)
+    favorite_coffees: list[ProfileCoffeePreference] = Field(default_factory=list)
+    ratings: list[ProfileRatingResult] = Field(default_factory=list)
+    next_offset: int | None = None
+
+
 class RatingLinkResponse(BaseModel):
     active: bool
     brew: BrewResponse | None

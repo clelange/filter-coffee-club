@@ -185,9 +185,14 @@
             >
           {/if}
         {/if}
-        <button class="nav-action" onclick={signOut}
-          >{$sessionStore.profile.display_name} · Sign out</button
-        >
+        {#if !$sessionStore.profile.pin_change_required}
+          <a
+            class:active={$page.url.pathname === `/profiles/${$sessionStore.profile.id}`}
+            href={`/profiles/${$sessionStore.profile.id}`}
+            onclick={closeNav}>{$sessionStore.profile.display_name}</a
+          >
+        {/if}
+        <button class="nav-action" onclick={signOut}>Sign out</button>
       {:else}
         <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
         <a

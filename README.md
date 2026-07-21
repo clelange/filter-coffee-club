@@ -9,7 +9,7 @@ A small, touch-first pour-over tracker for the High-Energy Physics coffee breaks
 - Kiosk sign-in for the shared Raspberry Pi and personal sessions that expire exactly 84 hours after login.
 - Coffee bag/lot catalog, extensible grinders/drippers/filters, editable FCC starting presets, and reference-sheet serving calculators.
 - Draft recipe, high-contrast brew mode with Screen Wake Lock when available, final scale values, permanent QR invitation, and on-device rating handoff.
-- A compact 1–9 liking scale, 0–5 sensory intensities, structured flavor tags, visibility rules, and lightweight SVG analytics.
+- A compact 1–9 liking scale, 0–5 sensory intensities, structured flavor tags, visibility rules, member tasting profiles with favorite coffees and per-brew comparisons, and lightweight SVG analytics.
 - JSON/CSV exports, configurable branding, health endpoints, Alembic migrations, WAL mode, and structured request logs.
 
 The bundled collider-ring/coffee-drop mark is original. The official PSI logo is deliberately not included.

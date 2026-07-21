@@ -91,7 +91,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await menuButton.click();
   await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Ada · Sign out' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Ada', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
   await expect(menuButton).toBeFocused();
@@ -570,6 +571,117 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       )
     )
     .toBe(true);
+
+  await page.route('**/api/v1/ratings/me/comparisons*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Temporary comparison failure' })
+    });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Past brews' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'My rating profile' })).toBeVisible();
+  await expect(
+    page.getByText('Past brews are available, but your comparisons could not load.')
+  ).toBeVisible();
+  await expect(page.getByText('Your rating vs other tasters')).toHaveCount(0);
+  await page.unroute('**/api/v1/ratings/me/comparisons*');
+  await page.reload();
+  const ratedBrewCard = page.locator('.brew-card').filter({
+    has: page.getByRole('heading', {
+      name: 'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+  });
+  await expect(ratedBrewCard.getByText('Your rating vs other tasters')).toBeVisible();
+  for (const metric of ['Liking', 'Acidity', 'Bitterness', 'Sweetness', 'Body']) {
+    await expect(ratedBrewCard.getByText(metric, { exact: true })).toBeVisible();
+  }
+  const compactComparisonLayout = await ratedBrewCard.evaluate((card) => {
+    const comparison = card.querySelector<HTMLElement>('.rating-comparison');
+    const cells = [...card.querySelectorAll<HTMLElement>('.comparison-cell')];
+    const supportingText = card.querySelector<HTMLElement>('.comparison-cell small');
+    if (!comparison || cells.length !== 5 || !supportingText) return null;
+    const comparisonBox = comparison.getBoundingClientRect();
+    const firstBox = cells[0].getBoundingClientRect();
+    const secondBox = cells[1].getBoundingClientRect();
+    const thirdBox = cells[2].getBoundingClientRect();
+    return {
+      likingSpansWidth: Math.abs(firstBox.width - comparisonBox.width) <= 1,
+      twoColumnRows: Math.abs(secondBox.y - thirdBox.y) <= 1,
+      supportingTextSize: Number.parseFloat(getComputedStyle(supportingText).fontSize),
+      contained: cells.every((cell) => {
+        const box = cell.getBoundingClientRect();
+        return box.left >= comparisonBox.left && box.right <= comparisonBox.right + 1;
+      }),
+      overflowingElements: [...document.querySelectorAll<HTMLElement>('body *')]
+        .filter((element) => {
+          const box = element.getBoundingClientRect();
+          return box.left < -1 || box.right > document.documentElement.clientWidth + 1;
+        })
+        .slice(0, 10)
+        .map((element) => `${element.tagName.toLowerCase()}.${String(element.className)}`)
+    };
+  });
+  expect(compactComparisonLayout?.likingSpansWidth).toBe(true);
+  expect(compactComparisonLayout?.twoColumnRows).toBe(true);
+  expect(compactComparisonLayout?.supportingTextSize).toBeGreaterThanOrEqual(11.5);
+  expect(compactComparisonLayout?.contained).toBe(true);
+  expect(compactComparisonLayout?.overflowingElements).toEqual([]);
+
+  let firstProfileRating: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/profiles/*/ratings?*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      rating_count: number;
+      next_offset: number | null;
+      ratings: Record<string, unknown>[];
+    };
+    const offset = new URL(route.request().url()).searchParams.get('offset');
+    if (offset === '0' && body.ratings.length > 0) {
+      firstProfileRating = body.ratings[0];
+      await route.fulfill({
+        response,
+        json: { ...body, rating_count: 2, next_offset: 1 }
+      });
+      return;
+    }
+    if (offset === '1' && firstProfileRating) {
+      const olderRating = structuredClone(firstProfileRating) as {
+        brew: { id: number; coffee_name: string };
+      };
+      olderRating.brew.id += 10_000;
+      olderRating.brew.coffee_name = 'Earlier test brew';
+      await route.fulfill({
+        response,
+        json: { ...body, rating_count: 2, ratings: [olderRating], next_offset: null }
+      });
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await ratedBrewCard.getByRole('link', { name: 'Full details' }).click();
+  await expect(page.getByRole('heading', { name: 'Ada', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Most-liked coffees.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Rating history.' })).toBeVisible();
+  await expect(page.getByText('You chose')).toBeVisible();
+  await expect(page.getByText('Other tasters chose')).toBeVisible();
+  await page.getByRole('button', { name: 'Load more ratings' }).click();
+  await expect(page.getByRole('heading', { name: 'Earlier test brew' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more ratings' })).toHaveCount(0);
+  await page.unroute('**/api/v1/profiles/*/ratings?*');
+
+  const profiles = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/auth/profiles');
+    return (await response.json()) as { id: number; display_name: string }[];
+  });
+  const bob = profiles.find((profile) => profile.display_name === 'Bob');
+  expect(bob).toBeDefined();
+  await page.goto(`/profiles/${bob!.id}`);
+  await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('link', { name: 'Ada', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ada', exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/coffees');

@@ -2,11 +2,14 @@
   import { onMount } from 'svelte';
   import { loginPath } from '$lib/device';
   import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
-  import type { Brew } from '$lib/types';
+  import RatingComparison from '$lib/RatingComparison.svelte';
+  import type { Brew, RatingComparison as RatingComparisonData } from '$lib/types';
 
   let brews: Brew[] = $state([]);
+  let comparisons: RatingComparisonData[] = $state([]);
   let loading = $state(true);
   let error = $state('');
+  let comparisonError = $state('');
 
   onMount(load);
 
@@ -15,8 +18,26 @@
       brews = await api<Brew[]>('/brews?limit=12');
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load brews.';
+      return;
     } finally {
       loading = false;
+    }
+    if ($sessionStore && brews.length > 0) await loadComparisons();
+  }
+
+  async function loadComparisons() {
+    const params = new URLSearchParams();
+    for (const brew of brews) params.append('brew_id', String(brew.id));
+    try {
+      comparisons = await api<RatingComparisonData[]>(
+        `/ratings/me/comparisons?${params.toString()}`
+      );
+    } catch (caught) {
+      // Comparisons enhance the brew log but must not make the log itself unavailable.
+      comparisonError =
+        caught instanceof Error
+          ? caught.message
+          : 'Rating comparisons are temporarily unavailable.';
     }
   }
 
@@ -26,6 +47,10 @@
       body: jsonBody({})
     });
     location.href = `/brews/${clone.id}`;
+  }
+
+  function ratingForBrew(brewId: number): RatingComparisonData | undefined {
+    return comparisons.find((item) => item.brew_id === brewId);
   }
 </script>
 
@@ -59,9 +84,14 @@
   <div class="section-heading">
     <div>
       <p class="eyebrow">Latest observations</p>
-      <h2>Recent brews</h2>
+      <h2>Past brews</h2>
     </div>
-    <a href="/coffees">Browse coffees →</a>
+    <div class="section-links">
+      {#if $sessionStore}
+        <a href={`/profiles/${$sessionStore.profile.id}`}>My rating profile →</a>
+      {/if}
+      <a href="/coffees">Browse coffees →</a>
+    </div>
   </div>
   {#if loading}
     <div class="empty">Loading brew log…</div>
@@ -70,8 +100,12 @@
   {:else if brews.length === 0}
     <div class="empty">No brews yet. The first measurement is waiting.</div>
   {:else}
+    {#if comparisonError && $sessionStore}
+      <p class="comparison-error">Past brews are available, but your comparisons could not load.</p>
+    {/if}
     <div class="card-grid">
       {#each brews as brew}
+        {@const comparison = ratingForBrew(brew.id)}
         <article class="card brew-card">
           <div class="card-top">
             <span class="status {brew.status}">{brew.status}</span><small
@@ -79,13 +113,31 @@
             >
           </div>
           <h3>{brew.coffee_name}</h3>
-          <p class="muted">{brew.coffee_roaster} · brewed by {brew.operator_name}</p>
+          <p class="muted">
+            {brew.coffee_roaster} · brewed by
+            {#if $sessionStore}
+              <a class="profile-link" href={`/profiles/${brew.operator_id}`}>{brew.operator_name}</a
+              >
+            {:else}
+              {brew.operator_name}
+            {/if}
+          </p>
           <div class="mini-metrics">
             <span><b>1:{brew.ratio}</b> ratio</span>
             <span><b>{brew.grinder_setting}</b> {brew.grinder_unit}</span>
             <span><b>{brew.temperature_c}°</b> water</span>
             <span><b>{formatTime(brew.total_brew_time_s)}</b> time</span>
           </div>
+          {#if comparison}
+            <div class="own-comparison">
+              <div class="comparison-heading">
+                <strong>Your rating vs other tasters</strong>
+                <a href={`/profiles/${$sessionStore?.profile.id}#brew-${brew.id}`}>Full details →</a
+                >
+              </div>
+              <RatingComparison result={comparison} compact />
+            </div>
+          {/if}
           <div class="actions">
             <a class="button small" href={`/brews/${brew.id}`}
               >{brew.status === 'completed'
@@ -168,6 +220,24 @@
   .card-top small {
     color: var(--muted);
   }
+  .section-links,
+  .comparison-heading {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .section-links {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .profile-link {
+    font-weight: 750;
+  }
+  .comparison-error {
+    margin: -8px 0 18px;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
   .brew-card h3 {
     margin: 22px 0 4px;
     font-size: 1.35rem;
@@ -187,13 +257,31 @@
     color: var(--ink);
     font-size: 1.05rem;
   }
-  @media (max-width: 760px) {
+  .own-comparison {
+    display: grid;
+    gap: 10px;
+    margin: 20px 0;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  .comparison-heading {
+    justify-content: space-between;
+    font-size: 0.78rem;
+  }
+  @media (max-width: 820px) {
     .hero {
       grid-template-columns: 1fr;
       min-height: auto;
     }
     .orbit-art {
       display: none;
+    }
+    .section-heading {
+      align-items: start;
+    }
+    .section-links {
+      display: grid;
+      justify-items: end;
     }
   }
 </style>

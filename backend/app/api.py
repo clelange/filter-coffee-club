@@ -14,7 +14,7 @@ import segno
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from .calculations import brew_ratio, overall_throughput
 from .catalog_photos import remove_catalog_photo, save_catalog_photo
@@ -70,9 +70,13 @@ from .schemas import (
     PinChange,
     PresetResponse,
     PresetUpdate,
+    ProfileCoffeePreference,
     ProfileCreate,
     ProfilePublic,
+    ProfileRatingResult,
+    ProfileRatingsResponse,
     ProfileUpdate,
+    RatingComparison,
     RatingInput,
     RatingItem,
     RatingLinkResponse,
@@ -98,6 +102,7 @@ from .security import (
 )
 
 router = APIRouter(prefix="/api/v1")
+RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
 
 
 def ensure_catalog_photo_writes_allowed(request: Request) -> None:
@@ -261,7 +266,7 @@ def rating_summary(brew: Brew, viewer: Profile) -> RatingSummary:
     ratings = [rating_item(item) for item in brew.ratings]
     averages: dict[str, float] = {}
     if ratings:
-        for field in ("liking", "acidity", "bitterness", "sweetness", "body"):
+        for field in RATING_FIELDS:
             averages[field] = round(mean(getattr(item, field) for item in ratings), 2)
     flavor_counts = Counter(tag.name for item in brew.ratings for tag in item.flavor_tags)
     return RatingSummary(
@@ -271,6 +276,45 @@ def rating_summary(brew: Brew, viewer: Profile) -> RatingSummary:
         count=len(ratings),
         averages=averages,
         flavor_counts=dict(flavor_counts.most_common()),
+    )
+
+
+def rating_comparison(target_rating: Rating) -> RatingComparison:
+    peer_ratings = [
+        item for item in target_rating.brew.ratings if item.profile_id != target_rating.profile_id
+    ]
+    peer_averages = (
+        {
+            field: round(mean(getattr(item, field) for item in peer_ratings), 2)
+            for field in RATING_FIELDS
+        }
+        if peer_ratings
+        else {}
+    )
+    peer_flavor_counts = Counter(tag.name for item in peer_ratings for tag in item.flavor_tags)
+    return RatingComparison(
+        brew_id=target_rating.brew_id,
+        rating=rating_item(target_rating),
+        total_rating_count=len(target_rating.brew.ratings),
+        peer_count=len(peer_ratings),
+        peer_averages=peer_averages,
+        peer_deltas=(
+            {
+                field: round(getattr(target_rating, field) - peer_averages[field], 2)
+                for field in RATING_FIELDS
+            }
+            if peer_ratings
+            else {}
+        ),
+        selected_flavors=sorted(tag.name for tag in target_rating.flavor_tags),
+        peer_flavor_counts=dict(peer_flavor_counts.most_common()),
+    )
+
+
+def profile_rating_result(target_rating: Rating) -> ProfileRatingResult:
+    return ProfileRatingResult(
+        **rating_comparison(target_rating).model_dump(),
+        brew=brew_payload(target_rating.brew, include_token=False),
     )
 
 
@@ -1424,6 +1468,142 @@ def get_ratings(
     viewer: Profile = Depends(require_user),
 ) -> RatingSummary:
     return rating_summary(load_brew(db, brew_id), viewer)
+
+
+@router.get("/profiles/{profile_id}/ratings", response_model=ProfileRatingsResponse)
+def get_profile_ratings(
+    profile_id: int,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(session_dependency),
+    viewer: Profile = Depends(require_user),
+) -> ProfileRatingsResponse:
+    profile = db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    complete_history = viewer.id == profile.id or viewer.role == "admin"
+    filters = [Rating.profile_id == profile.id, Brew.status == "completed"]
+    if not complete_history:
+        viewer_rating = aliased(Rating)
+        shared_brew_ids = select(viewer_rating.brew_id).where(viewer_rating.profile_id == viewer.id)
+        filters.append(Brew.id.in_(shared_brew_ids))
+
+    rating_count = db.scalar(select(func.count(Rating.id)).join(Rating.brew).where(*filters)) or 0
+    average_row = db.execute(
+        select(*(func.avg(getattr(Rating, field)) for field in RATING_FIELDS))
+        .join(Rating.brew)
+        .where(*filters)
+    ).one()
+    profile_averages = (
+        {field: round(float(average_row[index]), 2) for index, field in enumerate(RATING_FIELDS)}
+        if rating_count
+        else {}
+    )
+
+    favorite_count = func.count(Rating.id).label("rating_count")
+    favorite_average = func.avg(Rating.liking).label("average_liking")
+    favorite_rows = db.execute(
+        select(
+            Coffee.id,
+            Coffee.name,
+            Coffee.roaster,
+            favorite_count,
+            favorite_average,
+        )
+        .select_from(Rating)
+        .join(Rating.brew)
+        .join(Coffee, Coffee.id == Brew.coffee_id)
+        .where(*filters)
+        .group_by(Coffee.id, Coffee.name, Coffee.roaster)
+        .order_by(
+            favorite_average.desc(),
+            favorite_count.desc(),
+            func.lower(Coffee.roaster),
+            func.lower(Coffee.name),
+        )
+        .limit(3)
+    ).all()
+    favorite_coffees = [
+        ProfileCoffeePreference(
+            coffee_id=row.id,
+            coffee_name=row.name,
+            coffee_roaster=row.roaster,
+            rating_count=row.rating_count,
+            average_liking=round(float(row.average_liking), 2),
+        )
+        for row in favorite_rows
+    ]
+
+    target_ratings = list(
+        db.scalars(
+            select(Rating)
+            .join(Rating.brew)
+            .options(
+                selectinload(Rating.profile),
+                selectinload(Rating.flavor_tags),
+                selectinload(Rating.brew).selectinload(Brew.coffee),
+                selectinload(Rating.brew).selectinload(Brew.operator),
+                selectinload(Rating.brew).selectinload(Brew.grinder),
+                selectinload(Rating.brew).selectinload(Brew.dripper),
+                selectinload(Rating.brew).selectinload(Brew.brew_filter),
+                selectinload(Rating.brew)
+                .selectinload(Brew.ratings)
+                .selectinload(Rating.flavor_tags),
+            )
+            .where(*filters)
+            .order_by(Brew.completed_at.desc(), Rating.updated_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    next_offset = offset + len(target_ratings)
+
+    return ProfileRatingsResponse(
+        profile=ProfilePublic.model_validate(profile),
+        is_self=viewer.id == profile.id,
+        is_complete_history=complete_history,
+        rating_count=rating_count,
+        averages=profile_averages,
+        favorite_coffees=favorite_coffees,
+        ratings=[profile_rating_result(item) for item in target_ratings],
+        next_offset=next_offset if next_offset < rating_count else None,
+    )
+
+
+@router.get("/ratings/me/comparisons", response_model=list[RatingComparison])
+def get_my_rating_comparisons(
+    brew_id: list[int] = Query(...),
+    db: Session = Depends(session_dependency),
+    viewer: Profile = Depends(require_user),
+) -> list[RatingComparison]:
+    if not 1 <= len(brew_id) <= 50:
+        raise HTTPException(status_code=422, detail="Provide between 1 and 50 brew IDs")
+    if len(brew_id) != len(set(brew_id)):
+        raise HTTPException(status_code=422, detail="Brew IDs must be unique")
+    if any(item <= 0 for item in brew_id):
+        raise HTTPException(status_code=422, detail="Brew IDs must be positive")
+
+    ratings = list(
+        db.scalars(
+            select(Rating)
+            .join(Rating.brew)
+            .options(
+                selectinload(Rating.profile),
+                selectinload(Rating.flavor_tags),
+                selectinload(Rating.brew)
+                .selectinload(Brew.ratings)
+                .selectinload(Rating.flavor_tags),
+            )
+            .where(
+                Rating.profile_id == viewer.id,
+                Rating.brew_id.in_(brew_id),
+                Brew.status == "completed",
+            )
+        )
+    )
+    ratings_by_brew = {item.brew_id: item for item in ratings}
+    return [rating_comparison(ratings_by_brew[item]) for item in brew_id if item in ratings_by_brew]
 
 
 @router.post("/brews/{brew_id}/ratings", response_model=RatingSummary)
