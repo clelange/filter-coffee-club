@@ -218,11 +218,13 @@
     </section>
   {:else}
     <div class="empty profile-empty">
-      <h2>{data.is_self ? 'No ratings yet.' : 'No shared ratings yet.'}</h2>
+      <h2>{data.is_complete_history ? 'No ratings yet.' : 'No shared ratings yet.'}</h2>
       <p>
         {data.is_self
           ? 'Your first completed tasting will start this profile.'
-          : 'Once you have both rated the same brew, the comparison will appear here.'}
+          : data.is_complete_history
+            ? 'This member has not rated a completed brew yet.'
+            : 'Once you have both rated the same brew, the comparison will appear here.'}
       </p>
       <a class="button" href="/">Browse past brews</a>
     </div>

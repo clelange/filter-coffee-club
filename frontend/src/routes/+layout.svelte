@@ -166,6 +166,13 @@
             onclick={closeNav}>Equipment</a
           >
           <a
+            class:active={$page.url.pathname === '/profiles' ||
+              ($page.url.pathname.startsWith('/profiles/') &&
+                $page.url.pathname !== `/profiles/${$sessionStore.profile.id}`)}
+            href="/profiles"
+            onclick={closeNav}>Members</a
+          >
+          <a
             class:active={$page.url.pathname.startsWith('/analytics')}
             href="/analytics"
             onclick={closeNav}>Analytics</a

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { loginPath } from '$lib/device';
   import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
+  import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingComparison from '$lib/RatingComparison.svelte';
   import type { Brew, RatingComparison as RatingComparisonData } from '$lib/types';
 
@@ -115,12 +116,7 @@
           <h3>{brew.coffee_name}</h3>
           <p class="muted">
             {brew.coffee_roaster} · brewed by
-            {#if $sessionStore}
-              <a class="profile-link" href={`/profiles/${brew.operator_id}`}>{brew.operator_name}</a
-              >
-            {:else}
-              {brew.operator_name}
-            {/if}
+            <ProfileLink profileId={brew.operator_id} displayName={brew.operator_name} />
           </p>
           <div class="mini-metrics">
             <span><b>1:{brew.ratio}</b> ratio</span>
@@ -229,9 +225,6 @@
   .section-links {
     flex-wrap: wrap;
     justify-content: flex-end;
-  }
-  .profile-link {
-    font-weight: 750;
   }
   .comparison-error {
     margin: -8px 0 18px;

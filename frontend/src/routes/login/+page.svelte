@@ -5,9 +5,9 @@
   import PinPad from '$lib/PinPad.svelte';
   import { deviceModeStore } from '$lib/device';
   import { api, ApiError, jsonBody, setSession } from '$lib/api';
-  import type { AppSettings, Profile, Session } from '$lib/types';
+  import type { AppSettings, ProfileIdentity, Session } from '$lib/types';
 
-  let profiles: Profile[] = $state([]);
+  let profiles: ProfileIdentity[] = $state([]);
   let settings: AppSettings | null = $state(null);
   let profileId = $state(0);
   let pin = $state('');
@@ -32,7 +32,7 @@
 
   onMount(async () => {
     [profiles, settings] = await Promise.all([
-      api<Profile[]>('/auth/profiles'),
+      api<ProfileIdentity[]>('/auth/profiles'),
       api<AppSettings>('/settings')
     ]);
     profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;

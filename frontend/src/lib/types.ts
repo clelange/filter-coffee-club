@@ -1,9 +1,18 @@
-export interface Profile {
+export interface ProfileIdentity {
   id: number;
   display_name: string;
+}
+
+export interface Profile extends ProfileIdentity {
   role: 'member' | 'admin';
   active: boolean;
   pin_change_required: boolean;
+}
+
+export interface ProfileDirectoryItem extends ProfileIdentity {
+  is_self: boolean;
+  is_complete_history: boolean;
+  rating_count: number;
 }
 
 export type DeviceMode = 'kiosk' | 'personal';
@@ -293,7 +302,7 @@ export interface ProfileRatingResult extends RatingComparison {
 }
 
 export interface ProfileRatings {
-  profile: Profile;
+  profile: ProfileIdentity;
   is_self: boolean;
   is_complete_history: boolean;
   rating_count: number;

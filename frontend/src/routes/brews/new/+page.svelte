@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import ProfileLink from '$lib/ProfileLink.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
@@ -13,7 +14,7 @@
     Dripper,
     Grinder,
     Preset,
-    Profile
+    ProfileIdentity
   } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
@@ -21,7 +22,7 @@
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
   let presets: Preset[] = $state([]);
-  let operators: Profile[] = $state([]);
+  let operators: ProfileIdentity[] = $state([]);
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
   let correctionId = $state<number | null>(null);
@@ -89,7 +90,7 @@
         api<Dripper[]>('/drippers'),
         api<BrewFilter[]>('/filters'),
         api<Preset[]>('/presets'),
-        correctionId ? api<Profile[]>('/auth/profiles') : Promise.resolve([])
+        correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
       ]);
       form.coffee_id = Number($page.url.searchParams.get('coffee')) || coffees[0]?.id || 0;
       form.grinder_id = grinders[0]?.id ?? 0;
@@ -554,8 +555,12 @@
           <div class="trial-list">
             {#each history as brew}<article>
                 <div>
-                  <strong>1:{brew.ratio} · {brew.temperature_c}°</strong><small
-                    >{brew.grinder_setting} {brew.grinder_unit} · {brew.operator_name}</small
+                  <strong>1:{brew.ratio} · {brew.temperature_c}°</strong><small>
+                    {brew.grinder_setting}
+                    {brew.grinder_unit} · <ProfileLink
+                      profileId={brew.operator_id}
+                      displayName={brew.operator_name}
+                    /></small
                   >
                 </div>
                 <button class="secondary" type="button" onclick={() => clone(brew)}>Repeat</button>

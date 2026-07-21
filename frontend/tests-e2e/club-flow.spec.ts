@@ -115,6 +115,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(mainNavigation).toBeHidden();
   await menuButton.click();
   await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('link', { name: 'Members' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Ada', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
@@ -140,6 +141,44 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Add member' }).click();
   await expect(page.getByText('Member added.')).toBeVisible();
   await expect(page.getByLabel('Require PIN change for Bob')).toBeChecked();
+  const bobAdminRow = page.locator('.item-list article').filter({
+    has: page.getByLabel('Require PIN change for Bob')
+  });
+  await expect(bobAdminRow.getByRole('link', { name: 'View profile' })).toHaveAttribute(
+    'href',
+    /\/profiles\/\d+/
+  );
+
+  await page.goto('/profiles');
+  await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible();
+  const adaMemberCard = page.locator('.member-card').filter({ hasText: 'Ada' });
+  const bobMemberCard = page.locator('.member-card').filter({ hasText: 'Bob' });
+  await expect(adaMemberCard.getByText('You', { exact: true })).toBeVisible();
+  await expect(adaMemberCard.getByText('No ratings yet', { exact: true })).toBeVisible();
+  await expect(bobMemberCard.getByText('No ratings yet', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 393, height: 851 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.route('**/api/v1/profiles', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Directory temporarily unavailable' })
+    });
+  });
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Profiles are temporarily unavailable.' })
+  ).toBeVisible();
+  await page.unroute('**/api/v1/profiles');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(bobMemberCard).toBeVisible();
 
   await page.goto('/coffees');
   await page.getByRole('button', { name: '+ Add coffee' }).click();
@@ -524,7 +563,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(profilesResponse.ok()).toBe(true);
   const adminProfiles = (await profilesResponse.json()) as { id: number; display_name: string }[];
   const ada = adminProfiles.find((profile) => profile.display_name === 'Ada');
+  const bob = adminProfiles.find((profile) => profile.display_name === 'Bob');
   expect(ada).toBeDefined();
+  expect(bob).toBeDefined();
   const adminLoginResponse = await adminApiContext.request.post('/api/v1/auth/login', {
     data: { profile_id: ada!.id, pin: '1234', device_mode: 'personal' }
   });
@@ -642,8 +683,26 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     )
     .toBe(true);
   await phone.setViewportSize({ width: 360, height: 800 });
+  await phone.goto('/profiles');
+  const bobOwnMemberCard = phone.locator('.member-card').filter({ hasText: 'Bob' });
+  const adaUnsharedMemberCard = phone.locator('.member-card').filter({ hasText: 'Ada' });
+  await expect(bobOwnMemberCard.getByText('You', { exact: true })).toBeVisible();
+  await expect(bobOwnMemberCard.getByText('1 brew rated', { exact: true })).toBeVisible();
+  await expect(
+    adaUnsharedMemberCard.getByText('No shared ratings yet', { exact: true })
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      phone.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
   await phone.goto('/analytics');
   await expect(phone.getByRole('heading', { name: 'Find the useful signal.' })).toBeVisible();
+  await expect(
+    phone.locator('.operator-list').getByRole('link', { name: 'Ada', exact: true })
+  ).toBeVisible();
   const coffeeFilter = phone.getByRole('combobox', { name: 'Coffee', exact: true });
   const axisFilter = phone.getByRole('combobox', { name: 'Horizontal axis', exact: true });
   const mobileCoffeeBox = await coffeeFilter.boundingBox();
@@ -674,6 +733,26 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     /Fruity: 1 of 2 tasters \(50%\)/
   );
   await expect(page.locator('.result-panel .tags')).toContainText('Fruity · 1');
+
+  const memberContext = await browser.newContext({
+    baseURL: 'http://127.0.0.1:8000',
+    viewport: { width: 393, height: 851 }
+  });
+  const memberLoginResponse = await memberContext.request.post('/api/v1/auth/login', {
+    data: { profile_id: bob!.id, pin: '1357', device_mode: 'personal' }
+  });
+  expect(memberLoginResponse.ok()).toBe(true);
+  const memberPage = await memberContext.newPage();
+  await memberPage.goto('/profiles');
+  const adaSharedMemberCard = memberPage.locator('.member-card').filter({ hasText: 'Ada' });
+  await expect(adaSharedMemberCard.getByText('1 shared brew', { exact: true })).toBeVisible();
+  await adaSharedMemberCard.click();
+  await expect(memberPage.getByRole('heading', { name: 'Ada', exact: true })).toBeVisible();
+  await expect(memberPage.locator('.profile-hero .lede')).toContainText(
+    '1 brew rated in common with you.'
+  );
+  await memberContext.close();
+
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(
@@ -681,6 +760,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   ).toBeVisible();
 
   const invitationPath = new URL(page.url()).pathname;
+  await page.goto('/profiles');
+  await expect(page).toHaveURL(/\/login\?.*next=%2Fprofiles/);
   await page.goto('/coffees');
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '+ Add coffee' })).toHaveCount(0);
@@ -695,6 +776,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     })
     .click();
   await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  await expect(
+    page.locator('.recent-section').getByRole('link', { name: 'Ada', exact: true })
+  ).toHaveCount(0);
   await expect(
     page.getByRole('heading', { name: 'Sign in to see the club’s tasting analysis.' })
   ).toBeVisible();
@@ -741,6 +825,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  await expect(
+    page.locator('.invitation').getByRole('link', { name: 'Ada', exact: true })
+  ).toHaveAttribute('href', '/profiles/1');
   await expect(page.getByRole('heading', { name: 'How this brew landed.' })).toBeVisible();
   await expect(page.getByRole('img', { name: /Broad flavour profile for brew/ })).toHaveAttribute(
     'aria-label',
@@ -886,17 +973,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('button', { name: 'Load more ratings' })).toHaveCount(0);
   await page.unroute('**/api/v1/profiles/*/ratings?*');
 
-  const profiles = await page.evaluate(async () => {
-    const response = await fetch('/api/v1/auth/profiles');
-    return (await response.json()) as { id: number; display_name: string }[];
-  });
-  const bob = profiles.find((profile) => profile.display_name === 'Bob');
-  expect(bob).toBeDefined();
-  await page.goto(`/profiles/${bob!.id}`);
+  await page.goto('/profiles');
+  const ratedBobCard = page.locator('.member-card').filter({ hasText: 'Bob' });
+  await expect(ratedBobCard.getByText('1 brew rated', { exact: true })).toBeVisible();
+  await ratedBobCard.click();
   await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(page.getByRole('link', { name: 'Members' })).toHaveClass(/active/);
+  await expect(page.getByRole('link', { name: 'Ada', exact: true })).not.toHaveClass(/active/);
   await page.getByRole('link', { name: 'Ada', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ada', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(page.getByRole('link', { name: 'Ada', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('link', { name: 'Members' })).not.toHaveClass(/active/);
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/coffees');
@@ -976,6 +1065,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   const comparisonGrid = page.locator('[data-testid="brew-comparison-grid"]');
   await expect(page.locator('[data-testid="brew-comparison-card"]')).toHaveCount(1);
   const firstComparisonCard = page.locator('[data-testid="brew-comparison-card"]').first();
+  await expect(firstComparisonCard.getByRole('link', { name: 'Ada', exact: true })).toHaveAttribute(
+    'href',
+    '/profiles/1'
+  );
   for (const contextLabel of ['Ratio', 'Temperature', 'Grinder', 'Brew time', 'Throughput']) {
     await expect(firstComparisonCard.getByText(contextLabel, { exact: true })).toBeVisible();
   }
@@ -996,6 +1089,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.locator('[data-testid="brew-comparison-card"]')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Load more brews' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  await expect(
+    page.locator('.recent-section').getByRole('link', { name: 'Ada', exact: true }).first()
+  ).toHaveAttribute('href', '/profiles/1');
   for (const viewport of [
     { width: 768, height: 1024 },
     { width: 393, height: 851 }
@@ -1119,6 +1215,40 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   const reassignedInvitationPath = new URL(page.url()).pathname;
   await expect(page.getByText(/Brewed by Bob/)).toBeVisible();
+
+  const bobProfileId = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/auth/profiles');
+    const activeProfiles = (await response.json()) as { id: number; display_name: string }[];
+    return activeProfiles.find((profile) => profile.display_name === 'Bob')?.id ?? 0;
+  });
+  expect(bobProfileId).toBeGreaterThan(0);
+  const setBobActive = async (active: boolean) => {
+    const status = await page.evaluate(
+      async ({ profileId, nextActive }) => {
+        const sessionResponse = await fetch('/api/v1/auth/me');
+        const session = (await sessionResponse.json()) as { csrf_token: string };
+        const response = await fetch(`/api/v1/people/${profileId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': session.csrf_token
+          },
+          body: JSON.stringify({ active: nextActive })
+        });
+        return response.status;
+      },
+      { profileId: bobProfileId, nextActive: active }
+    );
+    expect(status).toBe(200);
+  };
+  await setBobActive(false);
+  await page.reload();
+  await expect(
+    page.locator('.invitation').getByRole('link', { name: 'Bob', exact: true })
+  ).toHaveAttribute('href', `/profiles/${bobProfileId}`);
+  await page.goto('/profiles');
+  await expect(page.locator('.member-card').filter({ hasText: 'Bob' })).toHaveCount(0);
+  await setBobActive(true);
 
   await page.goto(`/login?kiosk=0&next=${encodeURIComponent(reassignedInvitationPath)}`);
   await page.getByLabel('Profile').selectOption({ label: 'Bob' });

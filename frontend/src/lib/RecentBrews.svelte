@@ -1,6 +1,7 @@
 <script lang="ts">
   import { formatTime } from '$lib/api';
   import { formatCatalogDate, formatCatalogNumber } from '$lib/catalog';
+  import ProfileLink from '$lib/ProfileLink.svelte';
   import type { CatalogInsights } from '$lib/types';
 
   export let insights: CatalogInsights;
@@ -16,13 +17,27 @@
   {:else}
     <div class="brew-list">
       {#each insights.recent_brews as brew}
-        <a class="brew-result" href={`/brews/${brew.id}`}>
+        <article class="brew-result">
           <div class="brew-heading">
             <div>
-              <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong>
-              <span>{formatCatalogDate(brew.completed_at)} · by {brew.operator_name}</span>
+              <strong
+                ><a class="brew-target" href={`/brews/${brew.id}`}
+                  >{brew.coffee_roaster} · {brew.coffee_name}</a
+                ></strong
+              >
+              <span
+                >{formatCatalogDate(brew.completed_at)} · by
+                <span class="operator-link"
+                  ><ProfileLink
+                    profileId={brew.operator_id}
+                    displayName={brew.operator_name}
+                  /></span
+                ></span
+              >
             </div>
-            <span class="view-label">View brew <span aria-hidden="true">→</span></span>
+            <a class="view-label" href={`/brews/${brew.id}`}
+              >View brew <span aria-hidden="true">→</span></a
+            >
           </div>
           <dl>
             <div>
@@ -87,7 +102,7 @@
                 </dd>
               </div>{/if}
           </dl>
-        </a>
+        </article>
       {/each}
     </div>
   {/if}
@@ -114,6 +129,7 @@
     font-size: clamp(1.8rem, 4vw, 2.7rem);
   }
   .brew-result {
+    position: relative;
     display: grid;
     gap: 14px;
     min-width: 0;
@@ -126,6 +142,20 @@
   }
   .brew-result:hover {
     border-color: color-mix(in srgb, var(--cyan) 45%, var(--line));
+  }
+  .brew-target {
+    color: inherit;
+    text-decoration: none;
+  }
+  .brew-target::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+  }
+  .operator-link,
+  .view-label {
+    position: relative;
+    z-index: 1;
   }
   .brew-heading {
     display: flex;
@@ -148,6 +178,7 @@
     flex: 0 0 auto;
     color: var(--cyan) !important;
     font-weight: 800;
+    text-decoration: none;
   }
   dl {
     display: grid;
