@@ -4,7 +4,7 @@ A small, touch-first pour-over tracker for the High-Energy Physics coffee breaks
 
 ## How this has been built
 
-I've built this web app with the Codex/ChatGPT app using GPT 5.6 Extra High Effort for all steps on macOS,
+I've built this web app with the Codex/ChatGPT app using GPT-Sol 5.6 Extra High Effort for all steps on macOS,
 outlining how I would initially have thought that this app could work.
 The overall idea was to have a filter coffee brewing tracker for our coffee breaks such that we can compare different
 kinds of coffees but in particular also how brewing a respective coffee differently would affect the results.
