@@ -4,11 +4,12 @@
   import { page } from '$app/stores';
   import { loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody, logout } from '$lib/api';
+  import FlavorRadar from '$lib/FlavorRadar.svelte';
   import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '$lib/types';
 
   let brew: Brew | null = $state(null);
   let session: Session | null = $state(null);
-  let tags: FlavorTag[] = $state([]);
+  let allTags: FlavorTag[] = $state([]);
   let summary: RatingSummary | null = $state(null);
   let inactive = $state(false);
   let loading = $state(true);
@@ -27,7 +28,15 @@
   });
 
   const token = $derived($page.params.token);
-  const parents = $derived(tags.filter((tag) => tag.parent_id === null));
+  const activeTags = $derived(allTags.filter((tag) => tag.active));
+  const activeTagIds = $derived(new Set(activeTags.map((tag) => tag.id)));
+  const parents = $derived(
+    activeTags
+      .filter((tag) => tag.parent_id === null)
+      .sort(
+        (left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name)
+      )
+  );
 
   onMount(async () => {
     try {
@@ -42,7 +51,7 @@
         await goto(loginPath(`/rate/${token}`));
         return;
       }
-      tags = await api<FlavorTag[]>('/flavor-tags');
+      allTags = await api<FlavorTag[]>('/flavor-tags?active_only=false');
       summary = await api<RatingSummary>(`/brews/${brew.id}/ratings`);
       if (summary.own_rating)
         rating = {
@@ -51,7 +60,7 @@
           bitterness: summary.own_rating.bitterness,
           sweetness: summary.own_rating.sweetness,
           body: summary.own_rating.body,
-          flavor_tag_ids: summary.own_rating.flavor_tag_ids
+          flavor_tag_ids: summary.own_rating.flavor_tag_ids.filter((id) => activeTagIds.has(id))
         };
       if (summary.own_rating)
         openFlavorGroupIds = parents
@@ -118,7 +127,34 @@
   }
 
   function children(parentId: number): FlavorTag[] {
-    return tags.filter((tag) => tag.parent_id === parentId);
+    return activeTags.filter((tag) => tag.parent_id === parentId);
+  }
+
+  function flavorAxes() {
+    const categoryByTagId = new Map(
+      allTags.map((tag) => [tag.id, tag.parent_id === null ? tag.id : tag.parent_id])
+    );
+    const mentions = new Map(parents.map((parent) => [parent.id, 0]));
+
+    for (const response of summary?.ratings ?? []) {
+      const responseCategories = new Set(
+        response.flavor_tag_ids
+          .map((tagId) => categoryByTagId.get(tagId))
+          .filter(
+            (categoryId): categoryId is number =>
+              categoryId !== undefined && mentions.has(categoryId)
+          )
+      );
+      for (const categoryId of responseCategories)
+        mentions.set(categoryId, (mentions.get(categoryId) ?? 0) + 1);
+    }
+
+    return parents.map((parent) => ({
+      id: parent.id,
+      label: parent.name,
+      mentions: mentions.get(parent.id) ?? 0,
+      total: summary?.count ?? 0
+    }));
   }
 </script>
 
@@ -166,6 +202,7 @@
             <b>{summary.averages[key] ?? '—'}</b><span>{key}</span>
           </div>{/each}
       </div>
+      <FlavorRadar axes={flavorAxes()} />
       {#if Object.keys(summary.flavor_counts).length}<div class="tags">
           {#each Object.entries(summary.flavor_counts) as [name, count]}<span class="tag"
               >{name} · {count}</span
