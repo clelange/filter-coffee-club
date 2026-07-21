@@ -44,6 +44,7 @@ from .models import (
     RecipePreset,
 )
 from .schemas import (
+    AnalyticsRatingMetric,
     AnalyticsResponse,
     AppSettingsResponse,
     AppSettingsUpdate,
@@ -1984,6 +1985,14 @@ def analytics(
     for brew in brews:
         if not brew.ratings:
             continue
+        rating_metrics = {
+            field: AnalyticsRatingMetric(
+                average=round(mean(getattr(rating, field) for rating in brew.ratings), 2),
+                minimum=min(getattr(rating, field) for rating in brew.ratings),
+                maximum=max(getattr(rating, field) for rating in brew.ratings),
+            )
+            for field in RATING_FIELDS
+        }
         scatter.append(
             {
                 "brew_id": brew.id,
@@ -1991,13 +2000,16 @@ def analytics(
                 "coffee": coffee_names[brew.coffee_id],
                 "liking": round(mean(rating.liking for rating in brew.ratings), 2),
                 "ratings": len(brew.ratings),
-                "ratio": round(brew.water_g / brew.dose_g, 2),
+                "rating_metrics": rating_metrics,
+                "ratio": brew_ratio(brew.water_g, brew.dose_g),
                 "temperature_c": brew.temperature_c,
                 "grinder_id": brew.grinder_id,
                 "grinder_name": f"{brew.grinder.manufacturer} {brew.grinder.model}",
+                "grinder_unit": brew.grinder.setting_unit,
                 "grinder_setting": brew.grinder_setting,
                 "total_brew_time_s": brew.total_brew_time_s,
                 "target_flow_g_s": brew.target_flow_g_s,
+                "overall_throughput_g_s": overall_throughput(brew.water_g, brew.total_brew_time_s),
             }
         )
     return AnalyticsResponse(

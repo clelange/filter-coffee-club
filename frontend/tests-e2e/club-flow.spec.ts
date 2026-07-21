@@ -703,6 +703,63 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(
     phone.locator('.operator-list').getByRole('link', { name: 'Ada', exact: true })
   ).toBeVisible();
+  const settingsChart = phone.locator('.chart-panel').filter({
+    has: phone.getByRole('heading', { name: 'Settings versus liking' })
+  });
+  await expect(settingsChart.locator('.x-tick')).not.toHaveCount(0);
+  await expect(settingsChart.getByText('Brew ratio (1:x)', { exact: true })).toBeVisible();
+  await expect(settingsChart.getByText('Liking (1–9)', { exact: true })).toBeVisible();
+  await expect(settingsChart.locator('option[value="overall_throughput_g_s"]')).toHaveText(
+    'Overall throughput'
+  );
+
+  const recipeMap = phone.locator('.recipe-map');
+  await expect(recipeMap.getByRole('heading', { name: 'Recipe map' })).toBeVisible();
+  const mapCoffee = recipeMap.getByRole('combobox', { name: 'Map coffee', exact: true });
+  const mapXAxis = recipeMap.getByRole('combobox', { name: 'X axis', exact: true });
+  const mapYAxis = recipeMap.getByRole('combobox', { name: 'Y axis', exact: true });
+  const mapColour = recipeMap.getByRole('combobox', { name: 'Colour', exact: true });
+  await expect(mapCoffee).toHaveValue(/^\d+$/);
+  const selectedMapCoffee = await mapCoffee.inputValue();
+  await mapCoffee.selectOption('');
+  await expect(
+    recipeMap.getByText('Choose one coffee to compare recipes without mixing different beans.', {
+      exact: true
+    })
+  ).toBeVisible();
+  await mapCoffee.selectOption(selectedMapCoffee);
+  await expect(mapXAxis).toHaveValue('ratio');
+  await expect(mapYAxis).toHaveValue('temperature_c');
+  await expect(mapColour).toHaveValue('liking');
+  await expect(mapXAxis.locator('option[value="temperature_c"]')).toHaveAttribute('disabled', '');
+  await expect(mapYAxis.locator('option[value="ratio"]')).toHaveAttribute('disabled', '');
+  const mapLegend = recipeMap.getByTestId('color-legend');
+  await expect(mapLegend).toContainText('1');
+  await expect(mapLegend).toContainText('9');
+  await expect(mapLegend).toContainText('Liking average');
+  const mapPoint = recipeMap.locator('.plot-point').first();
+  await mapPoint.tap();
+  await expect(phone).toHaveURL(/\/analytics$/);
+  await expect(recipeMap.getByTestId('point-details')).toContainText('Selected brew');
+  await expect(recipeMap.getByTestId('point-details')).toContainText(/range · 1 rating/);
+  await expect(recipeMap.getByRole('link', { name: 'Open brew' })).toHaveAttribute(
+    'href',
+    /\/brews\/\d+/
+  );
+  await mapColour.selectOption('acidity');
+  await expect(mapLegend).toContainText('0');
+  await expect(mapLegend).toContainText('5');
+  await expect(mapLegend).toContainText('Acidity average');
+
+  await mapXAxis.selectOption('grinder_setting');
+  await expect(
+    recipeMap.getByText('Choose one grinder before comparing grinder settings.', { exact: true })
+  ).toBeVisible();
+  const mapGrinder = recipeMap.getByRole('combobox', { name: 'Map grinder', exact: true });
+  await mapGrinder.selectOption({ index: 1 });
+  await expect(recipeMap.locator('.plot-point')).not.toHaveCount(0);
+  await expect(mapYAxis.locator('option[value="grinder_setting"]')).toHaveAttribute('disabled', '');
+
   const coffeeFilter = phone.getByRole('combobox', { name: 'Coffee', exact: true });
   const axisFilter = phone.getByRole('combobox', { name: 'Horizontal axis', exact: true });
   const mobileCoffeeBox = await coffeeFilter.boundingBox();
@@ -712,6 +769,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(Math.abs(mobileCoffeeBox!.x - mobileAxisBox!.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(mobileCoffeeBox!.width - mobileAxisBox!.width)).toBeLessThanOrEqual(1);
   expect(mobileAxisBox!.y).toBeGreaterThan(mobileCoffeeBox!.y + mobileCoffeeBox!.height);
+  const mobileMapCoffeeBox = await mapCoffee.boundingBox();
+  const mobileMapXAxisBox = await mapXAxis.boundingBox();
+  expect(mobileMapCoffeeBox).not.toBeNull();
+  expect(mobileMapXAxisBox).not.toBeNull();
+  expect(Math.abs(mobileMapCoffeeBox!.x - mobileMapXAxisBox!.x)).toBeLessThanOrEqual(1);
+  expect(mobileMapXAxisBox!.y).toBeGreaterThan(mobileMapCoffeeBox!.y + mobileMapCoffeeBox!.height);
+  await expect
+    .poll(() =>
+      phone.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
   await phone.setViewportSize({ width: 768, height: 1024 });
   const tabletCoffeeBox = await coffeeFilter.boundingBox();
   const tabletAxisBox = await axisFilter.boundingBox();

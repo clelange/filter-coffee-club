@@ -969,6 +969,7 @@ export interface components {
             liking: number;
             /** Ratings */
             ratings: number;
+            rating_metrics: components["schemas"]["AnalyticsRatingMetrics"];
             /** Ratio */
             ratio: number;
             /** Temperature C */
@@ -977,12 +978,33 @@ export interface components {
             grinder_id: number;
             /** Grinder Name */
             grinder_name: string;
+            /** Grinder Unit */
+            grinder_unit: string;
             /** Grinder Setting */
             grinder_setting: number;
             /** Total Brew Time S */
             total_brew_time_s: number | null;
             /** Target Flow G S */
             target_flow_g_s: number | null;
+            /** Overall Throughput G S */
+            overall_throughput_g_s: number | null;
+        };
+        /** AnalyticsRatingMetric */
+        AnalyticsRatingMetric: {
+            /** Average */
+            average: number;
+            /** Minimum */
+            minimum: number;
+            /** Maximum */
+            maximum: number;
+        };
+        /** AnalyticsRatingMetrics */
+        AnalyticsRatingMetrics: {
+            liking: components["schemas"]["AnalyticsRatingMetric"];
+            acidity: components["schemas"]["AnalyticsRatingMetric"];
+            bitterness: components["schemas"]["AnalyticsRatingMetric"];
+            sweetness: components["schemas"]["AnalyticsRatingMetric"];
+            body: components["schemas"]["AnalyticsRatingMetric"];
         };
         /** AnalyticsRecipeRank */
         AnalyticsRecipeRank: {
