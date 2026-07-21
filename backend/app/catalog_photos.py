@@ -20,32 +20,20 @@ logger = logging.getLogger(__name__)
 
 register_heif_opener()
 
-SUPPORTED_TYPES = {
-    "image/jpeg": "JPEG",
-    "image/png": "PNG",
-    "image/webp": "WEBP",
-    "image/heic": "HEIF",
-    "image/heif": "HEIF",
-}
-
-SUPPORTED_TYPES_LABEL = "JPEG, PNG, WebP, HEIC, or HEIF"
+SUPPORTED_FORMATS = {"JPEG", "PNG", "WEBP", "HEIF"}
+SUPPORTED_FORMATS_LABEL = "JPEG, PNG, WebP, HEIC, or HEIF"
 
 
 class CatalogPhotoOwner(Protocol):
     photo_path: str | None
 
 
-def _normalized_webp(content: bytes, content_type: str | None, settings: Settings) -> bytes:
-    expected_format = SUPPORTED_TYPES.get(content_type or "")
-    if expected_format is None:
-        raise HTTPException(status_code=415, detail=f"Photo must be {SUPPORTED_TYPES_LABEL}")
-
+def _normalized_webp(content: bytes, settings: Settings) -> bytes:
     try:
         with Image.open(io.BytesIO(content)) as source:
-            if source.format != expected_format:
+            if source.format not in SUPPORTED_FORMATS:
                 raise HTTPException(
-                    status_code=415,
-                    detail="Photo contents do not match its file type",
+                    status_code=415, detail=f"Photo must be {SUPPORTED_FORMATS_LABEL}"
                 )
             if getattr(source, "is_animated", False) or getattr(source, "n_frames", 1) != 1:
                 raise HTTPException(status_code=415, detail="Animated photos are not supported")
@@ -126,7 +114,7 @@ async def save_catalog_photo(
             f"{limit // bytes_per_mb} MB" if limit % bytes_per_mb == 0 else f"{limit} bytes"
         )
         raise HTTPException(status_code=413, detail=f"Photo exceeds {limit_label}")
-    normalized = await run_in_threadpool(_normalized_webp, content, upload.content_type, settings)
+    normalized = await run_in_threadpool(_normalized_webp, content, settings)
     filename = f"photo-{secrets.token_hex(16)}.webp"
     destination = settings.catalog_upload_dir / filename
     await run_in_threadpool(_atomic_write, destination, normalized)
