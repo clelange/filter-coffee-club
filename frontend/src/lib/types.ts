@@ -52,6 +52,20 @@ export interface Coffee {
   created_at: string;
 }
 
+export interface CoffeeFormData {
+  roaster: string;
+  name: string;
+  country: string;
+  region: string;
+  producer: string;
+  process: string;
+  roast_level: string;
+  roast_date: string;
+  opened_date: string;
+  variety: string;
+  package_notes: string;
+}
+
 export interface Grinder {
   id: number;
   photo_path: string | null;
@@ -65,6 +79,16 @@ export interface Grinder {
   archived: boolean;
 }
 
+export interface GrinderFormData {
+  manufacturer: string;
+  model: string;
+  setting_unit: string;
+  setting_step: number;
+  soft_min: number | null;
+  soft_max: number | null;
+  guidance: string;
+}
+
 export interface Dripper {
   id: number;
   photo_path: string | null;
@@ -74,12 +98,23 @@ export interface Dripper {
   archived: boolean;
 }
 
+export interface DripperFormData {
+  manufacturer: string;
+  model: string;
+  notes: string;
+}
+
 export interface BrewFilter {
   id: number;
   photo_path: string | null;
   name: string;
   notes: string | null;
   archived: boolean;
+}
+
+export interface FilterFormData {
+  name: string;
+  notes: string;
 }
 
 export interface PresetRange {
@@ -138,6 +173,41 @@ export interface Brew extends BrewInput {
   created_at: string;
   cloned_from_id: number | null;
   rating_token: string | null;
+}
+
+export type CatalogKind = 'coffee' | 'grinder' | 'dripper' | 'filter';
+
+export interface CatalogUsageItem {
+  kind: CatalogKind;
+  item_id: number;
+  completed_brew_count: number;
+  last_completed_at: string | null;
+}
+
+export interface CatalogUsageResponse {
+  items: CatalogUsageItem[];
+}
+
+export interface CatalogBrewResult extends Brew {
+  rating_count: number | null;
+  average_liking: number | null;
+}
+
+export interface CatalogInsights {
+  kind: CatalogKind;
+  item_id: number;
+  completed_brew_count: number;
+  last_completed_at: string | null;
+  average_ratio: number | null;
+  average_temperature_c: number | null;
+  average_total_brew_time_s: number | null;
+  average_overall_throughput_g_s: number | null;
+  observed_grinder_setting_min: number | null;
+  observed_grinder_setting_max: number | null;
+  ratings_visible: boolean;
+  rating_count: number | null;
+  average_liking: number | null;
+  recent_brews: CatalogBrewResult[];
 }
 
 export interface FlavorTag {

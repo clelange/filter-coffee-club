@@ -1,37 +1,71 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
+  import CatalogCard from '$lib/CatalogCard.svelte';
+  import DripperFields from '$lib/DripperFields.svelte';
+  import FilterFields from '$lib/FilterFields.svelte';
+  import GrinderFields from '$lib/GrinderFields.svelte';
   import PhotoPicker from '$lib/PhotoPicker.svelte';
   import { api, appSettingsStore, ensureSession, jsonBody, uploadCatalogPhoto } from '$lib/api';
-  import type { BrewFilter, Dripper, Grinder } from '$lib/types';
+  import {
+    dripperPayload,
+    emptyDripperForm,
+    emptyFilterForm,
+    emptyGrinderForm,
+    filterPayload,
+    grinderPayload,
+    usageFor
+  } from '$lib/catalog';
+  import type { BrewFilter, CatalogUsageResponse, Dripper, Grinder } from '$lib/types';
+
+  type EquipmentKind = 'grinder' | 'dripper' | 'filter';
 
   let grinders: Grinder[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
+  let usage: CatalogUsageResponse['items'] = $state([]);
   let message = $state('');
   let error = $state('');
-  let adding: 'grinder' | 'dripper' | 'filter' | null = $state(null);
+  let loading = $state(true);
+  let adding: EquipmentKind | null = $state(null);
   let photoFile: File | null = $state(null);
-  let grinderForm = $state({
-    manufacturer: '',
-    model: '',
-    setting_unit: 'clicks',
-    setting_step: 1,
-    soft_min: 0,
-    soft_max: 50,
-    guidance: ''
-  });
-  let dripperForm = $state({ manufacturer: '', model: '', notes: '' });
-  let filterForm = $state({ name: '', notes: '' });
+  let grinderForm = $state(emptyGrinderForm());
+  let dripperForm = $state(emptyDripperForm());
+  let filterForm = $state(emptyFilterForm());
 
-  function isClickUnit(unit: string) {
-    return ['click', 'clicks'].includes(unit.trim().toLowerCase());
+  onMount(async () => {
+    if (!(await ensureSession())) {
+      await goto(loginPath('/equipment'));
+      return;
+    }
+    await load();
+  });
+
+  async function load() {
+    loading = true;
+    error = '';
+    try {
+      const [grinderItems, dripperItems, filterItems, usageResponse] = await Promise.all([
+        api<Grinder[]>('/grinders'),
+        api<Dripper[]>('/drippers'),
+        api<BrewFilter[]>('/filters'),
+        api<CatalogUsageResponse>('/catalog/usage')
+      ]);
+      grinders = grinderItems;
+      drippers = dripperItems;
+      filters = filterItems;
+      usage = usageResponse.items;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not load equipment.';
+    } finally {
+      loading = false;
+    }
   }
 
-  function startAdding(kind: 'grinder' | 'dripper' | 'filter') {
-    adding = kind;
+  function startAdding(kind: EquipmentKind) {
+    adding = adding === kind ? null : kind;
     photoFile = null;
     error = '';
     message = '';
@@ -42,37 +76,11 @@
     photoFile = null;
   }
 
-  onMount(async () => {
-    if (!(await ensureSession())) {
-      await goto(loginPath('/equipment'));
-      return;
-    }
-    await load();
-  });
-  async function load() {
-    [grinders, drippers, filters] = await Promise.all([
-      api<Grinder[]>('/grinders'),
-      api<Dripper[]>('/drippers'),
-      api<BrewFilter[]>('/filters')
-    ]);
-  }
-  async function run(action: () => Promise<unknown>, success: string) {
-    error = '';
-    message = '';
-    try {
-      await action();
-      message = success;
-      adding = null;
-      await load();
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not save equipment.';
-    }
-  }
   async function createWithPhoto<T extends { id: number }>(
     action: () => Promise<T>,
     endpoint: string,
     success: string
-  ) {
+  ): Promise<boolean> {
     error = '';
     message = '';
     try {
@@ -82,218 +90,110 @@
           await uploadCatalogPhoto(`${endpoint}/${item.id}/photo`, photoFile);
         } catch (caught) {
           message = success;
-          error = `The item was saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not upload photo.'} Use “Add photo” below to retry.`;
+          error = `The item was saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not upload photo.'}`;
           adding = null;
           photoFile = null;
           await load();
-          return;
+          return true;
         }
       }
       message = success;
       adding = null;
       photoFile = null;
       await load();
+      return true;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save equipment.';
+      return false;
     }
   }
+
   async function addGrinder(event: SubmitEvent) {
     event.preventDefault();
-    await createWithPhoto<Grinder>(
-      () =>
-        api<Grinder>('/grinders', {
-          method: 'POST',
-          body: jsonBody({ ...grinderForm, guidance: grinderForm.guidance || null })
-        }),
-      '/grinders',
-      'Grinder added.'
-    );
+    if (
+      await createWithPhoto(
+        () =>
+          api<Grinder>('/grinders', {
+            method: 'POST',
+            body: jsonBody(grinderPayload(grinderForm))
+          }),
+        '/grinders',
+        'Grinder added.'
+      )
+    )
+      grinderForm = emptyGrinderForm();
   }
+
   async function addDripper(event: SubmitEvent) {
     event.preventDefault();
-    await createWithPhoto<Dripper>(
-      () =>
-        api<Dripper>('/drippers', {
-          method: 'POST',
-          body: jsonBody({
-            ...dripperForm,
-            manufacturer: dripperForm.manufacturer || null,
-            notes: dripperForm.notes || null
-          })
-        }),
-      '/drippers',
-      'Dripper added.'
-    );
+    if (
+      await createWithPhoto(
+        () =>
+          api<Dripper>('/drippers', {
+            method: 'POST',
+            body: jsonBody(dripperPayload(dripperForm))
+          }),
+        '/drippers',
+        'Dripper added.'
+      )
+    )
+      dripperForm = emptyDripperForm();
   }
+
   async function addFilter(event: SubmitEvent) {
     event.preventDefault();
-    await createWithPhoto<BrewFilter>(
-      () =>
-        api<BrewFilter>('/filters', {
-          method: 'POST',
-          body: jsonBody({ ...filterForm, notes: filterForm.notes || null })
-        }),
-      '/filters',
-      'Filter added.'
-    );
-  }
-  async function saveGrinder(item: Grinder) {
-    await run(
-      () =>
-        api(`/grinders/${item.id}`, {
-          method: 'PUT',
-          body: jsonBody({
-            manufacturer: item.manufacturer,
-            model: item.model,
-            setting_unit: item.setting_unit,
-            setting_step: item.setting_step,
-            soft_min: item.soft_min,
-            soft_max: item.soft_max,
-            guidance: item.guidance
-          })
-        }),
-      'Grinder updated.'
-    );
-  }
-  async function saveDripper(item: Dripper) {
-    await run(
-      () =>
-        api(`/drippers/${item.id}`, {
-          method: 'PUT',
-          body: jsonBody({ manufacturer: item.manufacturer, model: item.model, notes: item.notes })
-        }),
-      'Dripper updated.'
-    );
-  }
-  async function saveFilter(item: BrewFilter) {
-    await run(
-      () =>
-        api(`/filters/${item.id}`, {
-          method: 'PUT',
-          body: jsonBody({ name: item.name, notes: item.notes })
-        }),
-      'Filter updated.'
-    );
+    if (
+      await createWithPhoto(
+        () =>
+          api<BrewFilter>('/filters', {
+            method: 'POST',
+            body: jsonBody(filterPayload(filterForm))
+          }),
+        '/filters',
+        'Filter added.'
+      )
+    )
+      filterForm = emptyFilterForm();
   }
 </script>
 
 <svelte:head><title>Equipment · Filter Coffee Club</title></svelte:head>
-{#if $deviceModeStore === 'kiosk'}
-  <div class="heading">
+
+<div class="catalog-page">
+  <div class="catalog-heading">
     <div>
       <p class="eyebrow">Shared equipment</p>
-      <h1>The club rack.</h1>
-      <p class="lede">Equipment is read-only on this shared display.</p>
-    </div>
-  </div>
-  <div class="equipment-grid section kiosk-equipment">
-    <section class="panel">
-      <h2>Grinders</h2>
-      <div class="items">
-        {#each grinders as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={`${item.manufacturer} ${item.model}`}
-              endpoint={`/grinders/${item.id}/photo`}
-              compact
-            />
-            <h3>{item.manufacturer} {item.model}</h3>
-            <p class="muted">
-              {item.setting_unit} · step {item.setting_step} · usual range {item.soft_min ??
-                '—'}–{item.soft_max ?? '—'}
-            </p>
-            {#if item.guidance}<p>{item.guidance}</p>{/if}
-          </article>{:else}<p class="muted">No grinders registered.</p>{/each}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Drippers</h2>
-      <div class="items">
-        {#each drippers as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
-              endpoint={`/drippers/${item.id}/photo`}
-              compact
-            />
-            <h3>{item.manufacturer ?? ''} {item.model}</h3>
-            {#if item.notes}<p>{item.notes}</p>{/if}
-          </article>{:else}<p class="muted">No drippers registered.</p>{/each}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Filters</h2>
-      <div class="items">
-        {#each filters as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={item.name}
-              endpoint={`/filters/${item.id}/photo`}
-              compact
-            />
-            <h3>{item.name}</h3>
-            {#if item.notes}<p>{item.notes}</p>{/if}
-          </article>{:else}<p class="muted">No filters registered.</p>{/each}
-      </div>
-    </section>
-  </div>
-{:else}
-  <div class="heading">
-    <div>
-      <p class="eyebrow">Shared equipment</p>
-      <h1>Keep the rack current.</h1>
+      <h1>{$deviceModeStore === 'kiosk' ? 'The club rack.' : 'Keep the rack current.'}</h1>
       <p class="lede">
-        Members can register and correct grinders, drippers, and filters. Administrators can archive
-        retired equipment.
+        {$deviceModeStore === 'kiosk'
+          ? 'Equipment is read-only on this shared display.'
+          : 'Browse the shared rack. Open an item to see its full brew history or make a correction.'}
       </p>
     </div>
-    <div class="actions">
-      <button class="primary" onclick={() => startAdding('grinder')}>+ Grinder</button><button
-        class="secondary"
-        onclick={() => startAdding('dripper')}>+ Dripper</button
-      ><button class="secondary" onclick={() => startAdding('filter')}>+ Filter</button>
-    </div>
+    {#if $deviceModeStore !== 'kiosk'}
+      <div class="actions add-actions">
+        <button class="primary" onclick={() => startAdding('grinder')}>+ Grinder</button>
+        <button class="secondary" onclick={() => startAdding('dripper')}>+ Dripper</button>
+        <button class="secondary" onclick={() => startAdding('filter')}>+ Filter</button>
+      </div>
+    {/if}
   </div>
-  {#if message}<p class="success" role="status">{message}</p>{/if}{#if error}<p
-      class="error"
-      role="alert"
-    >
-      {error}
-    </p>{/if}
 
-  {#if adding}
-    <section class="panel section">
-      {#if adding === 'grinder'}<form onsubmit={addGrinder}>
-          <h2>Add a grinder</h2>
-          <div class="field-grid">
-            <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label
-            ><label>Model<input bind:value={grinderForm.model} required /></label><label
-              >Setting unit<input bind:value={grinderForm.setting_unit} required /></label
-            ><label
-              >Step<input
-                type="number"
-                bind:value={grinderForm.setting_step}
-                min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            ><label
-              >Soft minimum<input
-                type="number"
-                bind:value={grinderForm.soft_min}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            ><label
-              >Soft maximum<input
-                type="number"
-                bind:value={grinderForm.soft_max}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            >
+  {#if page.url.searchParams.get('message')}<p class="success" role="status">
+      {page.url.searchParams.get('message')}
+    </p>{/if}
+  {#if message}<p class="success" role="status">{message}</p>{/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+  {#if adding && $deviceModeStore !== 'kiosk'}
+    <section class="panel create-panel">
+      {#if adding === 'grinder'}
+        <form onsubmit={addGrinder}>
+          <div class="form-heading">
+            <p class="eyebrow">New catalog item</p>
+            <h2>Add a grinder.</h2>
           </div>
-          <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label>
+          <GrinderFields bind:form={grinderForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
               label="Photo (optional)"
@@ -306,14 +206,13 @@
             >
           </div>
         </form>
-      {:else if adding === 'dripper'}<form onsubmit={addDripper}>
-          <h2>Add a dripper</h2>
-          <div class="field-grid">
-            <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
-              >Model<input bind:value={dripperForm.model} required /></label
-            >
+      {:else if adding === 'dripper'}
+        <form onsubmit={addDripper}>
+          <div class="form-heading">
+            <p class="eyebrow">New catalog item</p>
+            <h2>Add a dripper.</h2>
           </div>
-          <label>Notes<textarea bind:value={dripperForm.notes}></textarea></label>
+          <DripperFields bind:form={dripperForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
               label="Photo (optional)"
@@ -326,11 +225,13 @@
             >
           </div>
         </form>
-      {:else}<form onsubmit={addFilter}>
-          <h2>Add a filter</h2>
-          <label>Name<input bind:value={filterForm.name} required /></label><label
-            >Notes<textarea bind:value={filterForm.notes}></textarea></label
-          >
+      {:else}
+        <form onsubmit={addFilter}>
+          <div class="form-heading">
+            <p class="eyebrow">New catalog item</p>
+            <h2>Add a filter.</h2>
+          </div>
+          <FilterFields bind:form={filterForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
               label="Photo (optional)"
@@ -342,157 +243,164 @@
               onclick={closeAdding}>Cancel</button
             >
           </div>
-        </form>{/if}
+        </form>
+      {/if}
     </section>
   {/if}
 
-  <div class="equipment-grid section">
-    <section class="panel">
-      <h2>Grinders</h2>
-      <div class="items">
-        {#each grinders as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={`${item.manufacturer} ${item.model}`}
-              endpoint={`/grinders/${item.id}/photo`}
-              compact
-              editable={!$appSettingsStore?.demo_mode}
-              onchanged={(photoPath) => {
-                item.photo_path = photoPath;
-              }}
-            />
-            <div class="field-grid">
-              <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
-                >Model<input bind:value={item.model} /></label
-              ><label>Unit<input bind:value={item.setting_unit} /></label><label
-                >Step<input
-                  type="number"
-                  bind:value={item.setting_step}
-                  min={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
-                /></label
-              ><label
-                >Soft min<input
-                  type="number"
-                  bind:value={item.soft_min}
-                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
-                /></label
-              ><label
-                >Soft max<input
-                  type="number"
-                  bind:value={item.soft_max}
-                  step={isClickUnit(item.setting_unit) ? 1 : 0.01}
-                  inputmode={isClickUnit(item.setting_unit) ? 'numeric' : 'decimal'}
-                /></label
-              >
-            </div>
-            <label>Guidance<textarea bind:value={item.guidance}></textarea></label><button
-              class="secondary"
-              onclick={() => saveGrinder(item)}>Save grinder</button
-            >
-          </article>{/each}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Drippers</h2>
-      <div class="items">
-        {#each drippers as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
-              endpoint={`/drippers/${item.id}/photo`}
-              compact
-              editable={!$appSettingsStore?.demo_mode}
-              onchanged={(photoPath) => {
-                item.photo_path = photoPath;
-              }}
-            />
-            <label>Manufacturer<input bind:value={item.manufacturer} /></label><label
-              >Model<input bind:value={item.model} /></label
-            ><label>Notes<textarea bind:value={item.notes}></textarea></label><button
-              class="secondary"
-              onclick={() => saveDripper(item)}>Save dripper</button
-            >
-          </article>{:else}<p class="muted">No drippers registered.</p>{/each}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Filters</h2>
-      <div class="items">
-        {#each filters as item}<article>
-            <CatalogPhoto
-              photoPath={item.photo_path}
-              alt={item.name}
-              endpoint={`/filters/${item.id}/photo`}
-              compact
-              editable={!$appSettingsStore?.demo_mode}
-              onchanged={(photoPath) => {
-                item.photo_path = photoPath;
-              }}
-            />
-            <label>Name<input bind:value={item.name} /></label><label
-              >Notes<textarea bind:value={item.notes}></textarea></label
-            ><button class="secondary" onclick={() => saveFilter(item)}>Save filter</button>
-          </article>{:else}<p class="muted">No filters registered.</p>{/each}
-      </div>
-    </section>
-  </div>
-{/if}
+  {#if loading}
+    <div class="empty" role="status">Loading the equipment rack…</div>
+  {:else}
+    <div class="equipment-sections">
+      <section class="equipment-section" aria-labelledby="grinder-heading">
+        <div class="section-heading">
+          <p class="eyebrow">Preparation</p>
+          <h2 id="grinder-heading">Grinders</h2>
+        </div>
+        {#if grinders.length === 0}<div class="empty">No grinders registered.</div>{:else}
+          <div class="summary-grid">
+            {#each grinders as item}
+              <CatalogCard
+                href={`/equipment/grinders/${item.id}`}
+                photoPath={item.photo_path}
+                photoEndpoint={`/grinders/${item.id}/photo`}
+                alt={`${item.manufacturer} ${item.model}`}
+                eyebrow={item.manufacturer}
+                title={item.model}
+                metadata={`${item.setting_unit} · step ${item.setting_step} · usual range ${item.soft_min ?? '—'}–${item.soft_max ?? '—'}`}
+                notes={item.guidance}
+                usage={usageFor(usage, 'grinder', item.id)}
+              />
+            {/each}
+          </div>
+        {/if}
+      </section>
+      <section class="equipment-section" aria-labelledby="dripper-heading">
+        <div class="section-heading">
+          <p class="eyebrow">Brewing</p>
+          <h2 id="dripper-heading">Drippers</h2>
+        </div>
+        {#if drippers.length === 0}<div class="empty">No drippers registered.</div>{:else}
+          <div class="summary-grid">
+            {#each drippers as item}
+              <CatalogCard
+                href={`/equipment/drippers/${item.id}`}
+                photoPath={item.photo_path}
+                photoEndpoint={`/drippers/${item.id}/photo`}
+                alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
+                eyebrow={item.manufacturer ?? 'Dripper'}
+                title={item.model}
+                metadata={item.notes ?? 'No notes recorded'}
+                usage={usageFor(usage, 'dripper', item.id)}
+              />
+            {/each}
+          </div>
+        {/if}
+      </section>
+      <section class="equipment-section" aria-labelledby="filter-heading">
+        <div class="section-heading">
+          <p class="eyebrow">Brewing</p>
+          <h2 id="filter-heading">Filters</h2>
+        </div>
+        {#if filters.length === 0}<div class="empty">No filters registered.</div>{:else}
+          <div class="summary-grid">
+            {#each filters as item}
+              <CatalogCard
+                href={`/equipment/filters/${item.id}`}
+                photoPath={item.photo_path}
+                photoEndpoint={`/filters/${item.id}/photo`}
+                alt={item.name}
+                eyebrow="Filter"
+                title={item.name}
+                metadata={item.notes ?? 'No notes recorded'}
+                usage={usageFor(usage, 'filter', item.id)}
+              />
+            {/each}
+          </div>
+        {/if}
+      </section>
+    </div>
+  {/if}
+</div>
 
 <style>
-  .heading {
+  .catalog-page {
+    --catalog-gap-xs: 4px;
+    --catalog-gap-sm: 8px;
+    --catalog-gap-md: 16px;
+    --catalog-gap-lg: 28px;
+    --catalog-card-padding: clamp(16px, 2.5vw, 22px);
+    display: grid;
+    gap: var(--catalog-gap-lg);
+  }
+  .catalog-page :global(h1),
+  .catalog-page :global(h2),
+  .catalog-page :global(p) {
+    margin: 0;
+  }
+  .catalog-heading {
     display: flex;
     justify-content: space-between;
     align-items: end;
     gap: 24px;
   }
-  .equipment-grid {
+  .catalog-heading > div:first-child,
+  .form-heading,
+  .section-heading {
     display: grid;
-    grid-template-columns: 1.35fr 1fr 1fr;
-    gap: 16px;
-    align-items: start;
+    gap: var(--catalog-gap-sm);
   }
-  .items {
+  .catalog-heading h1 {
+    margin: 0;
+  }
+  .add-actions {
+    flex: 0 0 auto;
+  }
+  .create-panel,
+  .create-panel form {
     display: grid;
-    gap: 14px;
+    gap: 18px;
   }
-  .items article {
+  .form-heading h2,
+  .section-heading h2 {
+    font-size: clamp(1.7rem, 4vw, 2.5rem);
+  }
+  .equipment-sections,
+  .equipment-section {
     display: grid;
-    gap: 10px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
+    min-width: 0;
   }
-  .items article:first-child {
-    padding-top: 0;
-    border-top: 0;
+  .equipment-sections {
+    gap: clamp(38px, 7vw, 68px);
   }
-  .kiosk-equipment article h3,
-  .kiosk-equipment article p {
-    margin-bottom: 5px;
+  .equipment-section {
+    gap: var(--catalog-gap-md);
   }
-  .items textarea {
-    min-height: 80px;
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
+    gap: var(--catalog-gap-md);
+    align-items: stretch;
   }
-  @media (max-width: 950px) {
-    .equipment-grid {
-      grid-template-columns: 1fr 1fr;
+  @media (min-width: 900px) and (max-height: 650px) {
+    .catalog-page {
+      gap: 20px;
     }
-    .equipment-grid section:first-child {
-      grid-column: span 2;
+    .catalog-heading h1 {
+      font-size: clamp(3rem, 5vw, 3.5rem);
     }
-  }
-  @media (max-width: 650px) {
-    .heading {
-      display: grid;
+    .summary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+    }
+    :global(.equipment-section .catalog-summary) {
+      grid-template-columns: minmax(145px, 0.45fr) minmax(0, 1fr);
       align-items: start;
     }
-    .equipment-grid {
-      grid-template-columns: 1fr;
-    }
-    .equipment-grid section:first-child {
-      grid-column: auto;
+  }
+  @media (max-width: 680px) {
+    .catalog-heading {
+      display: grid;
+      align-items: start;
     }
   }
 </style>

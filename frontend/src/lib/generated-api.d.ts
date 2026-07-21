@@ -271,7 +271,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Grinder */
+        get: operations["get_grinder_api_v1_grinders__item_id__get"];
         /** Update Grinder */
         put: operations["update_grinder_api_v1_grinders__item_id__put"];
         post?: never;
@@ -341,7 +342,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Dripper */
+        get: operations["get_dripper_api_v1_drippers__item_id__get"];
         /** Update Dripper */
         put: operations["update_dripper_api_v1_drippers__item_id__put"];
         post?: never;
@@ -411,7 +413,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Filter */
+        get: operations["get_filter_api_v1_filters__item_id__get"];
         /** Update Filter */
         put: operations["update_filter_api_v1_filters__item_id__put"];
         post?: never;
@@ -450,6 +453,40 @@ export interface paths {
         put?: never;
         /** Archive Filter */
         post: operations["archive_filter_api_v1_filters__item_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Catalog Usage */
+        get: operations["catalog_usage_api_v1_catalog_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/{kind}/{item_id}/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Catalog Insights */
+        get: operations["catalog_insights_api_v1_catalog__kind___item_id__insights_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1040,6 +1077,136 @@ export interface components {
             cloned_from_id: number | null;
             /** Rating Token */
             rating_token?: string | null;
+        };
+        /** CatalogBrewResult */
+        CatalogBrewResult: {
+            /** Coffee Id */
+            coffee_id: number;
+            /** Grinder Id */
+            grinder_id: number;
+            /** Dripper Id */
+            dripper_id?: number | null;
+            /** Filter Id */
+            filter_id?: number | null;
+            /** Source Preset Id */
+            source_preset_id?: number | null;
+            /** Dose G */
+            dose_g: number;
+            /** Water G */
+            water_g: number;
+            /** Temperature C */
+            temperature_c: number;
+            /** Grinder Setting */
+            grinder_setting: number;
+            /**
+             * Servings
+             * @default 1
+             */
+            servings: number;
+            /** Target Flow G S */
+            target_flow_g_s?: number | null;
+            /** Bloom Water G */
+            bloom_water_g?: number | null;
+            /** Bloom Time S */
+            bloom_time_s?: number | null;
+            /** Pour Count */
+            pour_count?: number | null;
+            /** Technique Note */
+            technique_note?: string | null;
+            /** Id */
+            id: number;
+            /** Operator Id */
+            operator_id: number;
+            /** Operator Name */
+            operator_name: string;
+            /** Coffee Name */
+            coffee_name: string;
+            /** Coffee Roaster */
+            coffee_roaster: string;
+            /** Grinder Name */
+            grinder_name: string;
+            /** Grinder Unit */
+            grinder_unit: string;
+            /** Dripper Name */
+            dripper_name: string | null;
+            /** Filter Name */
+            filter_name: string | null;
+            /** Status */
+            status: string;
+            /** Ratio */
+            ratio: number;
+            /** Overall Throughput G S */
+            overall_throughput_g_s: number | null;
+            /** Total Brew Time S */
+            total_brew_time_s: number | null;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cloned From Id */
+            cloned_from_id: number | null;
+            /** Rating Token */
+            rating_token?: string | null;
+            /** Rating Count */
+            rating_count?: number | null;
+            /** Average Liking */
+            average_liking?: number | null;
+        };
+        /** CatalogInsights */
+        CatalogInsights: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "coffee" | "grinder" | "dripper" | "filter";
+            /** Item Id */
+            item_id: number;
+            /** Completed Brew Count */
+            completed_brew_count: number;
+            /** Last Completed At */
+            last_completed_at: string | null;
+            /** Average Ratio */
+            average_ratio: number | null;
+            /** Average Temperature C */
+            average_temperature_c: number | null;
+            /** Average Total Brew Time S */
+            average_total_brew_time_s: number | null;
+            /** Average Overall Throughput G S */
+            average_overall_throughput_g_s: number | null;
+            /** Observed Grinder Setting Min */
+            observed_grinder_setting_min: number | null;
+            /** Observed Grinder Setting Max */
+            observed_grinder_setting_max: number | null;
+            /** Ratings Visible */
+            ratings_visible: boolean;
+            /** Rating Count */
+            rating_count: number | null;
+            /** Average Liking */
+            average_liking: number | null;
+            /** Recent Brews */
+            recent_brews: components["schemas"]["CatalogBrewResult"][];
+        };
+        /** CatalogUsageItem */
+        CatalogUsageItem: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "coffee" | "grinder" | "dripper" | "filter";
+            /** Item Id */
+            item_id: number;
+            /** Completed Brew Count */
+            completed_brew_count: number;
+            /** Last Completed At */
+            last_completed_at: string | null;
+        };
+        /** CatalogUsageResponse */
+        CatalogUsageResponse: {
+            /** Items */
+            items: components["schemas"]["CatalogUsageItem"][];
         };
         /** CoffeeInput */
         CoffeeInput: {
@@ -2045,6 +2212,37 @@ export interface operations {
             };
         };
     };
+    get_grinder_api_v1_grinders__item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrinderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_grinder_api_v1_grinders__item_id__put: {
         parameters: {
             query?: never;
@@ -2209,6 +2407,37 @@ export interface operations {
                 "application/json": components["schemas"]["EquipmentInput"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DripperResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dripper_api_v1_drippers__item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2415,6 +2644,37 @@ export interface operations {
             };
         };
     };
+    get_filter_api_v1_filters__item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_filter_api_v1_filters__item_id__put: {
         parameters: {
             query?: never;
@@ -2534,6 +2794,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FilterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_usage_api_v1_catalog_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogUsageResponse"];
+                };
+            };
+        };
+    };
+    catalog_insights_api_v1_catalog__kind___item_id__insights_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                kind: "coffee" | "grinder" | "dripper" | "filter";
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogInsights"];
                 };
             };
             /** @description Validation Error */
