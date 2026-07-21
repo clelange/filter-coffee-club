@@ -5,7 +5,9 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
+from app import api as api_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
@@ -1002,6 +1004,307 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert repeat_void.json()["detail"] == "Only completed brews can be voided"
         inactive = client.get(f"/api/v1/rating-links/{finalized['rating_token']}").json()
         assert inactive == {"active": False, "brew": None}
+
+
+def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        grace = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        linus = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Linus", "pin": "6789", "role": "member"},
+        ).json()
+        inactive_operator = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Inactive", "pin": "7890", "role": "member"},
+        ).json()
+        for profile in (grace, linus):
+            response = client.put(
+                f"/api/v1/people/{profile['id']}",
+                headers=admin_headers,
+                json={"pin_change_required": False},
+            )
+            assert response.status_code == 200
+        response = client.put(
+            f"/api/v1/people/{inactive_operator['id']}",
+            headers=admin_headers,
+            json={"active": False},
+        )
+        assert response.status_code == 200
+
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Reassignment", "name": "Operator Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+
+        def login(profile_id: int, pin: str) -> dict[str, str]:
+            response = client.post(
+                "/api/v1/auth/login",
+                json={"profile_id": profile_id, "pin": pin, "device_mode": "personal"},
+            )
+            assert response.status_code == 200, response.text
+            return {"X-CSRF-Token": response.json()["csrf_token"]}
+
+        grace_headers = login(grace["id"], "5678")
+        admin_transfer = client.post("/api/v1/brews", headers=grace_headers, json=brew_input).json()
+        admin_headers = login(1, "1234")
+        admin_reassigned = client.put(
+            f"/api/v1/brews/{admin_transfer['id']}/operator",
+            headers=admin_headers,
+            json={"operator_id": linus["id"]},
+        )
+        assert admin_reassigned.status_code == 200
+        assert admin_reassigned.json()["operator_name"] == "Linus"
+
+        grace_headers = login(grace["id"], "5678")
+        brew = client.post("/api/v1/brews", headers=grace_headers, json=brew_input).json()
+        missing = client.put(
+            f"/api/v1/brews/{brew['id']}/operator",
+            headers=grace_headers,
+            json={"operator_id": 99999},
+        )
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == "Operator not found"
+        inactive = client.put(
+            f"/api/v1/brews/{brew['id']}/operator",
+            headers=grace_headers,
+            json={"operator_id": inactive_operator["id"]},
+        )
+        assert inactive.status_code == 422
+        assert inactive.json()["detail"] == "Operator must be active"
+
+        linus_headers = login(linus["id"], "6789")
+        forbidden = client.put(
+            f"/api/v1/brews/{brew['id']}/operator",
+            headers=linus_headers,
+            json={"operator_id": linus["id"]},
+        )
+        assert forbidden.status_code == 403
+
+        grace_headers = login(grace["id"], "5678")
+        reassigned = client.put(
+            f"/api/v1/brews/{brew['id']}/operator",
+            headers=grace_headers,
+            json={"operator_id": linus["id"]},
+        )
+        assert reassigned.status_code == 200
+        assert reassigned.json()["operator_id"] == linus["id"]
+        assert reassigned.json()["operator_name"] == "Linus"
+        assert (
+            client.put(
+                f"/api/v1/brews/{brew['id']}", headers=grace_headers, json=brew_input
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                f"/api/v1/brews/{brew['id']}/finalize",
+                headers=grace_headers,
+                json={"total_brew_time_s": 180},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(f"/api/v1/brews/{brew['id']}/cancel", headers=grace_headers).status_code
+            == 403
+        )
+
+        linus_headers = login(linus["id"], "6789")
+        finalized_response = client.post(
+            f"/api/v1/brews/{brew['id']}/finalize",
+            headers=linus_headers,
+            json={"total_brew_time_s": 180},
+        )
+        assert finalized_response.status_code == 200
+        finalized = finalized_response.json()
+        assert finalized["operator_id"] == linus["id"]
+        rating_token = finalized["rating_token"]
+        assert (
+            client.put(
+                f"/api/v1/brews/{brew['id']}/operator",
+                headers=linus_headers,
+                json={"operator_id": grace["id"]},
+            ).status_code
+            == 409
+        )
+        rated = client.post(
+            f"/api/v1/brews/{brew['id']}/ratings",
+            headers=linus_headers,
+            json={
+                "liking": 8,
+                "acidity": 3,
+                "bitterness": 2,
+                "sweetness": 4,
+                "body": 3,
+                "flavor_tag_ids": [],
+            },
+        )
+        assert rated.status_code == 200
+
+        correction = {
+            **brew_input,
+            "operator_id": grace["id"],
+            "temperature_c": 93,
+            "total_brew_time_s": 181,
+        }
+        corrected = client.put(
+            f"/api/v1/brews/{brew['id']}/correction",
+            headers=linus_headers,
+            json=correction,
+        )
+        assert corrected.status_code == 200
+        assert corrected.json()["operator_id"] == grace["id"]
+        assert corrected.json()["temperature_c"] == 93
+        assert corrected.json()["rating_token"] == rating_token
+        assert client.get(f"/api/v1/brews/{brew['id']}/ratings").json()["count"] == 1
+
+        assert (
+            client.put(
+                f"/api/v1/brews/{brew['id']}/correction",
+                headers=linus_headers,
+                json=correction,
+            ).status_code
+            == 403
+        )
+        grace_headers = login(grace["id"], "5678")
+        invalid_correction = client.put(
+            f"/api/v1/brews/{brew['id']}/correction",
+            headers=grace_headers,
+            json={**correction, "operator_id": inactive_operator["id"]},
+        )
+        assert invalid_correction.status_code == 422
+        assert (
+            client.post(f"/api/v1/brews/{brew['id']}/void", headers=grace_headers).status_code
+            == 403
+        )
+        analytics = client.get("/api/v1/analytics").json()
+        assert analytics["operator_counts"] == {"Grace": 1}
+
+        admin_headers = login(1, "1234")
+        admin_correction = client.put(
+            f"/api/v1/brews/{brew['id']}/correction",
+            headers=admin_headers,
+            json={key: value for key, value in correction.items() if key != "operator_id"},
+        )
+        assert admin_correction.status_code == 200
+        assert admin_correction.json()["operator_id"] == grace["id"]
+
+
+def test_concurrent_operator_transfers_are_atomic(tmp_path: Path, monkeypatch) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        grace = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        linus = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Linus", "pin": "6789", "role": "member"},
+        ).json()
+        for profile in (grace, linus):
+            response = client.put(
+                f"/api/v1/people/{profile['id']}",
+                headers=admin_headers,
+                json={"pin_change_required": False},
+            )
+            assert response.status_code == 200
+
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Concurrency", "name": "Atomic Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": grace["id"], "pin": "5678", "device_mode": "personal"},
+        ).json()
+        grace_headers = {"X-CSRF-Token": login["csrf_token"]}
+        draft = client.post("/api/v1/brews", headers=grace_headers, json=brew_input).json()
+        completed = client.post("/api/v1/brews", headers=grace_headers, json=brew_input).json()
+        finalized = client.post(
+            f"/api/v1/brews/{completed['id']}/finalize",
+            headers=grace_headers,
+            json={"total_brew_time_s": 180},
+        )
+        assert finalized.status_code == 200
+
+        barrier = Barrier(2)
+        original_load_active_operator = api_module.load_active_operator
+
+        def synchronized_load_active_operator(db, operator_id: int) -> Profile:
+            operator = original_load_active_operator(db, operator_id)
+            barrier.wait(timeout=5)
+            return operator
+
+        monkeypatch.setattr(api_module, "load_active_operator", synchronized_load_active_operator)
+
+        def reassign_draft(operator_id: int) -> int:
+            return client.put(
+                f"/api/v1/brews/{draft['id']}/operator",
+                headers=grace_headers,
+                json={"operator_id": operator_id},
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            draft_statuses = list(executor.map(reassign_draft, (1, linus["id"])))
+
+        assert sorted(draft_statuses) == [200, 403]
+        assert client.get(f"/api/v1/brews/{draft['id']}").json()["operator_id"] in {
+            1,
+            linus["id"],
+        }
+
+        def correct_completed_brew(target: tuple[int, int]) -> int:
+            operator_id, temperature = target
+            return client.put(
+                f"/api/v1/brews/{completed['id']}/correction",
+                headers=grace_headers,
+                json={
+                    **brew_input,
+                    "operator_id": operator_id,
+                    "temperature_c": temperature,
+                    "total_brew_time_s": 181,
+                },
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            correction_statuses = list(
+                executor.map(correct_completed_brew, ((1, 92), (linus["id"], 93)))
+            )
+
+        assert sorted(correction_statuses) == [200, 403]
+        corrected = client.get(f"/api/v1/brews/{completed['id']}").json()
+        assert (corrected["operator_id"], corrected["temperature_c"]) in {
+            (1, 92),
+            (linus["id"], 93),
+        }
 
 
 def test_export_omits_auth_secrets(tmp_path: Path) -> None:

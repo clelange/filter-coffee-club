@@ -13,7 +13,7 @@ from statistics import mean
 import segno
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from .calculations import brew_ratio, overall_throughput
@@ -50,6 +50,7 @@ from .schemas import (
     BrewCorrection,
     BrewFinalize,
     BrewInput,
+    BrewOperatorUpdate,
     BrewResponse,
     CatalogBrewResult,
     CatalogInsights,
@@ -242,6 +243,49 @@ def load_brew(db: Session, brew_id: int) -> Brew:
     if brew is None:
         raise HTTPException(status_code=404, detail="Brew not found")
     return brew
+
+
+def load_active_operator(db: Session, operator_id: int) -> Profile:
+    operator = db.get(Profile, operator_id)
+    if operator is None:
+        raise HTTPException(status_code=404, detail="Operator not found")
+    if not operator.active:
+        raise HTTPException(status_code=422, detail="Operator must be active")
+    return operator
+
+
+def commit_guarded_brew_update(
+    db: Session,
+    brew_id: int,
+    expected_status: str,
+    login_session: LoginSession,
+    values: dict[str, object],
+    status_detail: str,
+    permission_detail: str,
+) -> BrewResponse:
+    conditions = [Brew.id == brew_id, Brew.status == expected_status]
+    if login_session.profile.role != "admin":
+        conditions.append(Brew.operator_id == login_session.profile_id)
+    updated_id = db.scalar(
+        update(Brew)
+        .where(*conditions)
+        .values(**values)
+        .returning(Brew.id)
+        .execution_options(synchronize_session=False)
+    )
+    if updated_id is None:
+        db.rollback()
+        current = load_brew(db, brew_id)
+        if current.status != expected_status:
+            raise HTTPException(status_code=409, detail=status_detail)
+        if (
+            login_session.profile.role != "admin"
+            and current.operator_id != login_session.profile_id
+        ):
+            raise HTTPException(status_code=403, detail=permission_detail)
+        raise HTTPException(status_code=409, detail="Brew changed; refresh and try again")
+    db.commit()
+    return brew_payload(load_brew(db, updated_id), include_token=True)
 
 
 def rating_item(rating: Rating) -> RatingItem:
@@ -1291,10 +1335,44 @@ def update_brew(
     if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Only the operator may edit this draft")
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    for key, value in payload.model_dump().items():
-        setattr(brew, key, value)
-    db.commit()
-    return brew_payload(load_brew(db, brew.id), include_token=True)
+    return commit_guarded_brew_update(
+        db,
+        brew.id,
+        "draft",
+        login_session,
+        payload.model_dump(),
+        "Only draft brews can be edited",
+        "Only the operator may edit this draft",
+    )
+
+
+@router.put("/brews/{brew_id}/operator", response_model=BrewResponse)
+def update_brew_operator(
+    brew_id: int,
+    payload: BrewOperatorUpdate,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    login_session: LoginSession = Depends(require_csrf),
+) -> BrewResponse:
+    enforce_demo_seed_protection(request, Brew, brew_id)
+    brew = load_brew(db, brew_id)
+    if brew.status != "draft":
+        raise HTTPException(status_code=409, detail="Only draft brews can change operator")
+    if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the operator or an administrator may reassign this brew",
+        )
+    operator = load_active_operator(db, payload.operator_id)
+    return commit_guarded_brew_update(
+        db,
+        brew.id,
+        "draft",
+        login_session,
+        {"operator_id": operator.id},
+        "Only draft brews can change operator",
+        "Only the operator or an administrator may reassign this brew",
+    )
 
 
 @router.put("/brews/{brew_id}/correction", response_model=BrewResponse)
@@ -1305,17 +1383,28 @@ def correct_completed_brew(
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
-    if login_session.profile.role != "admin":
-        raise HTTPException(status_code=403, detail="Administrator access required")
     enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
     if brew.status != "completed":
         raise HTTPException(status_code=409, detail="Only completed brews need correction")
+    if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the operator or an administrator may correct this brew",
+        )
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    for key, value in payload.model_dump().items():
-        setattr(brew, key, value)
-    db.commit()
-    return brew_payload(load_brew(db, brew.id), include_token=True)
+    values: dict[str, object] = payload.model_dump(exclude={"operator_id"})
+    if payload.operator_id is not None:
+        values["operator_id"] = load_active_operator(db, payload.operator_id).id
+    return commit_guarded_brew_update(
+        db,
+        brew.id,
+        "completed",
+        login_session,
+        values,
+        "Only completed brews need correction",
+        "Only the operator or an administrator may correct this brew",
+    )
 
 
 @router.post("/brews/{brew_id}/finalize", response_model=BrewResponse)
@@ -1332,14 +1421,23 @@ def finalize_brew(
         raise HTTPException(status_code=409, detail="Only draft brews can be finalized")
     if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Only the operator may finalize this brew")
+    values: dict[str, object] = {
+        "total_brew_time_s": payload.total_brew_time_s,
+        "status": "completed",
+        "completed_at": utcnow(),
+        "rating_token": secrets.token_urlsafe(24),
+    }
     if payload.water_g is not None:
-        brew.water_g = payload.water_g
-    brew.total_brew_time_s = payload.total_brew_time_s
-    brew.status = "completed"
-    brew.completed_at = utcnow()
-    brew.rating_token = secrets.token_urlsafe(24)
-    db.commit()
-    return brew_payload(load_brew(db, brew.id), include_token=True)
+        values["water_g"] = payload.water_g
+    return commit_guarded_brew_update(
+        db,
+        brew.id,
+        "draft",
+        login_session,
+        values,
+        "Only draft brews can be finalized",
+        "Only the operator may finalize this brew",
+    )
 
 
 @router.post("/brews/{brew_id}/clone", response_model=BrewResponse)
@@ -1405,9 +1503,19 @@ def _change_brew_status(
         and login_session.profile.role != "admin"
     ):
         raise HTTPException(status_code=403, detail="Only the operator may cancel this brew")
-    brew.status = "voided" if action == "void" else "cancelled"
-    db.commit()
-    return brew_payload(load_brew(db, brew.id), include_token=True)
+    return commit_guarded_brew_update(
+        db,
+        brew.id,
+        expected_status,
+        login_session,
+        {"status": "voided" if action == "void" else "cancelled"},
+        (
+            "Only completed brews can be voided"
+            if action == "void"
+            else "Only draft brews can be cancelled"
+        ),
+        "Only the operator may cancel this brew",
+    )
 
 
 @router.post("/brews/{brew_id}/cancel", response_model=BrewResponse)
