@@ -11,6 +11,14 @@ const colombiaPhoto = fileURLToPath(
 const keyboardCapableControls =
   'input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), textarea';
 
+interface EditableFlavorTag {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  active: boolean;
+  sort_order: number;
+}
+
 async function enterKioskPin(page: Page, pin: string, label = 'PIN') {
   const pad = page.getByRole('group', { name: label, exact: true });
   for (const digit of pin) await pad.getByRole('button', { name: digit, exact: true }).click();
@@ -479,6 +487,145 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .toBe(true);
   await phone.getByRole('button', { name: 'Submit rating' }).click();
   await expect(phone.getByRole('heading', { name: 'Thanks, Bob.' })).toBeVisible();
+  const phoneRadar = phone.getByRole('img', { name: /Broad flavour profile/ });
+  await expect(phoneRadar).toHaveAttribute('aria-label', /Fruity: 1 of 1 taster \(100%\)/);
+  await expect(phone.locator('[data-testid="flavor-radar"] .axis-label')).toHaveCount(8);
+  await expect(phone.locator('.result-panel .tags')).toContainText('Grape · 1');
+  const mobileRadarLayout = await phone
+    .locator('[data-testid="flavor-radar"]')
+    .evaluate((radar) => {
+      const svg = radar.querySelector('svg');
+      const panel = radar.closest<HTMLElement>('.result-panel');
+      if (!svg || !panel) return null;
+      const svgBox = svg.getBoundingClientRect();
+      const panelBox = panel.getBoundingClientRect();
+      return {
+        contained: svgBox.left >= panelBox.left && svgBox.right <= panelBox.right + 1,
+        pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      };
+    });
+  expect(mobileRadarLayout).toEqual({ contained: true, pageFits: true });
+
+  const adminApiContext = await browser.newContext({ baseURL: 'http://127.0.0.1:8000' });
+  const profilesResponse = await adminApiContext.request.get('/api/v1/auth/profiles');
+  expect(profilesResponse.ok()).toBe(true);
+  const adminProfiles = (await profilesResponse.json()) as { id: number; display_name: string }[];
+  const ada = adminProfiles.find((profile) => profile.display_name === 'Ada');
+  expect(ada).toBeDefined();
+  const adminLoginResponse = await adminApiContext.request.post('/api/v1/auth/login', {
+    data: { profile_id: ada!.id, pin: '1234', device_mode: 'personal' }
+  });
+  expect(adminLoginResponse.ok()).toBe(true);
+  const adminSession = (await adminLoginResponse.json()) as { csrf_token: string };
+  const allFlavorTagsResponse = await adminApiContext.request.get(
+    '/api/v1/flavor-tags?active_only=false'
+  );
+  expect(allFlavorTagsResponse.ok()).toBe(true);
+  const allFlavorTags = (await allFlavorTagsResponse.json()) as EditableFlavorTag[];
+  const updateFlavorTag = async (
+    tag: EditableFlavorTag,
+    updates: Partial<Pick<EditableFlavorTag, 'name' | 'active'>>
+  ) => {
+    const response = await adminApiContext.request.put(`/api/v1/flavor-tags/${tag.id}`, {
+      headers: { 'X-CSRF-Token': adminSession.csrf_token },
+      data: {
+        name: updates.name ?? tag.name,
+        parent_id: tag.parent_id,
+        active: updates.active ?? tag.active,
+        sort_order: tag.sort_order
+      }
+    });
+    expect(response.ok()).toBe(true);
+  };
+
+  const grapeTag = allFlavorTags.find((tag) => tag.name === 'Grape');
+  expect(grapeTag).toBeDefined();
+  await updateFlavorTag(grapeTag!, { active: false });
+  await phone.reload();
+  await expect(phone.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 1 of 1 taster \(100%\)/
+  );
+  await expect(phone.locator('.result-panel .tags')).toContainText('Grape · 1');
+  await phone.getByRole('button', { name: 'Edit my rating' }).click();
+  await expect(phone.getByRole('button', { name: 'Grape', exact: true })).toHaveCount(0);
+  await updateFlavorTag(grapeTag!, { active: true });
+  await phone.reload();
+
+  await phone.getByRole('button', { name: 'Edit my rating' }).click();
+  for (const flavor of ['Fruity · general', 'Grape', 'Citrus', 'Stone fruit']) {
+    await phone.getByRole('button', { name: flavor, exact: true }).click();
+  }
+  await phone.getByRole('button', { name: 'Submit rating' }).click();
+  await expect(phone.getByText('No broad flavour notes yet.', { exact: true })).toBeVisible();
+  await expect(phone.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 0 of 1 taster \(0%\)/
+  );
+
+  await phone.getByRole('button', { name: 'Edit my rating' }).click();
+  await phone.getByRole('button', { name: 'Fruity · general', exact: true }).click();
+  await phone.getByRole('button', { name: 'Submit rating' }).click();
+  await expect(phone.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 1 of 1 taster \(100%\)/
+  );
+  await expect(phone.locator('.result-panel .tags')).toContainText('Fruity · 1');
+
+  const sweetCategory = allFlavorTags.find((tag) => tag.parent_id === null && tag.name === 'Sweet');
+  expect(sweetCategory).toBeDefined();
+  const longCategoryName =
+    'An exceptionally descriptive broad flavour category used for layout testing';
+  await updateFlavorTag(sweetCategory!, { name: longCategoryName });
+  await phone.reload();
+  const longLabelRadar = phone.getByRole('img', { name: /Broad flavour profile/ });
+  expect(await longLabelRadar.getAttribute('aria-label')).toContain(longCategoryName);
+  const visibleAxisLabels = await phone
+    .locator('[data-testid="flavor-radar"] .axis-label')
+    .allTextContents();
+  expect(visibleAxisLabels).not.toContain(longCategoryName);
+  expect(visibleAxisLabels.join('')).toContain('…');
+  await expect
+    .poll(() =>
+      phone.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
+  await updateFlavorTag(sweetCategory!, { name: sweetCategory!.name });
+
+  const parentTags = allFlavorTags
+    .filter((tag) => tag.parent_id === null)
+    .sort(
+      (left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name)
+    );
+  for (const tag of parentTags.slice(2)) await updateFlavorTag(tag, { active: false });
+  await phone.reload();
+  await expect(phone.locator('[data-testid="flavor-radar"] .category-bar')).toHaveCount(2);
+  await expect(phone.locator('[data-testid="flavor-radar"] svg')).toHaveCount(0);
+  await updateFlavorTag(parentTags[1], { active: false });
+  await phone.reload();
+  await expect(phone.locator('[data-testid="flavor-radar"] .category-bar')).toHaveCount(1);
+  await updateFlavorTag(parentTags[0], { active: false });
+  await phone.reload();
+  await expect(
+    phone.getByText('No broad flavour categories configured.', { exact: true })
+  ).toBeVisible();
+  await expect(phone.locator('[data-testid="flavor-radar"] [role="img"]')).toHaveCount(0);
+  for (const tag of parentTags) await updateFlavorTag(tag, { active: true });
+  await phone.reload();
+  await expect(phone.locator('[data-testid="flavor-radar"] .axis-label')).toHaveCount(8);
+  await adminApiContext.close();
+
+  await phone.setViewportSize({ width: 768, height: 1024 });
+  await expect
+    .poll(() =>
+      phone.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    )
+    .toBe(true);
+  await phone.setViewportSize({ width: 360, height: 800 });
   await phone.goto('/analytics');
   await expect(phone.getByRole('heading', { name: 'Find the useful signal.' })).toBeVisible();
   const coffeeFilter = phone.getByRole('combobox', { name: 'Coffee', exact: true });
@@ -506,6 +653,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
   await page.getByRole('button', { name: 'Submit rating' }).click();
   await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 1 of 2 tasters \(50%\)/
+  );
+  await expect(page.locator('.result-panel .tags')).toContainText('Fruity · 1');
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
