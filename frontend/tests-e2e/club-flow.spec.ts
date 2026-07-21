@@ -124,14 +124,94 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Save coffee' }).click();
   await expect(page.getByRole('heading', { name: 'Collider Blend' })).toBeVisible();
   const colliderCard = page
-    .locator('article.coffee-card')
+    .locator('article[data-testid="catalog-card"]')
     .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });
   const colliderPhoto = colliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' });
   await expect(colliderPhoto).toBeVisible();
+  await expect(colliderCard.locator('input, textarea, select')).toHaveCount(0);
+  await expect(colliderCard.getByRole('button', { name: /Edit|Clone|Archive|photo/i })).toHaveCount(
+    0
+  );
+  await expect(colliderCard.getByRole('link', { name: 'Brew this' })).toHaveAttribute(
+    'href',
+    /\/brews\/new\?coffee=\d+/
+  );
+
+  const catalogGeometry = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-testid="catalog-card"]')];
+    const first = cards[0];
+    const photo = first?.querySelector<HTMLElement>('.catalog-photo');
+    const copy = first?.querySelector<HTMLElement>('.catalog-copy');
+    const actionBottoms = cards
+      .map((card) => card.querySelector<HTMLElement>('.catalog-actions'))
+      .filter((action): action is HTMLElement => Boolean(action))
+      .map((action) => action.getBoundingClientRect().bottom);
+    return {
+      photoTextGap:
+        photo && copy
+          ? copy.getBoundingClientRect().top - photo.getBoundingClientRect().bottom
+          : -1,
+      actionBottomSpread:
+        actionBottoms.length > 1 ? Math.max(...actionBottoms) - Math.min(...actionBottoms) : 0,
+      firstCardUseful:
+        Boolean(first) &&
+        first.getBoundingClientRect().top < window.innerHeight &&
+        first.getBoundingClientRect().bottom > 0,
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    };
+  });
+  expect(catalogGeometry.photoTextGap).toBeGreaterThanOrEqual(12);
+  expect(catalogGeometry.actionBottomSpread).toBeLessThanOrEqual(1);
+  expect(catalogGeometry.firstCardUseful).toBe(true);
+  expect(catalogGeometry.noOverflow).toBe(true);
+
   const firstPhotoPath = await colliderPhoto.getAttribute('src');
-  await colliderCard.getByLabel('Replace photo').setInputFiles(colombiaPhoto);
-  await expect.poll(() => colliderPhoto.getAttribute('src')).not.toBe(firstPhotoPath);
-  await expect(colliderCard.getByRole('button', { name: 'Remove photo' })).toBeVisible();
+  await colliderCard.getByRole('link', { name: 'View details for Collider Blend' }).click();
+  await expect(page).toHaveURL(/\/coffees\/\d+$/);
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(page.locator('input, textarea, select')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
+  await page.getByLabel('Roaster / brand').fill('Temporary roaster');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(page.getByText('PSI Roasters', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('input, textarea, select')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page
+    .getByLabel('Replacement photo (optional)', { exact: true })
+    .setInputFiles(colombiaPhoto);
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  const detailPhoto = page.getByRole('img', { name: 'PSI Roasters Collider Blend' });
+  await expect.poll(() => detailPhoto.getAttribute('src')).not.toBe(firstPhotoPath);
+  const detailGeometry = await page.evaluate(() => {
+    const photo = document.querySelector<HTMLElement>('[data-testid="detail-photo"]');
+    const identity = document.querySelector<HTMLElement>('[data-testid="detail-identity"]');
+    if (!photo || !identity) return null;
+    return {
+      horizontalGap: identity.getBoundingClientRect().left - photo.getBoundingClientRect().right,
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    };
+  });
+  expect(detailGeometry?.horizontalGap).toBeGreaterThanOrEqual(20);
+  expect(detailGeometry?.noOverflow).toBe(true);
+  await page.setViewportSize({ width: 393, height: 851 });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const photo = document.querySelector<HTMLElement>('[data-testid="detail-photo"]');
+        const identity = document.querySelector<HTMLElement>('[data-testid="detail-identity"]');
+        return Boolean(
+          photo &&
+          identity &&
+          identity.getBoundingClientRect().top - photo.getBoundingClientRect().bottom >= 20 &&
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth
+        );
+      })
+    )
+    .toBe(true);
+  await page.setViewportSize({ width: 1024, height: 600 });
 
   await page.goto('/brews/new');
   await page.getByRole('button', { name: '+ Coffee' }).click();
@@ -215,13 +295,16 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('button', { name: '+ Coffee' })).toHaveCount(0);
   await page.goto('/coffees');
   const kioskColliderCard = page
-    .locator('article.coffee-card')
+    .locator('article[data-testid="catalog-card"]')
     .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });
   await expect(
     kioskColliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' })
   ).toBeVisible();
   await expect(kioskColliderCard.getByLabel('Replace photo')).toHaveCount(0);
   await expect(kioskColliderCard.getByRole('button', { name: 'Remove photo' })).toHaveCount(0);
+  await expect(kioskColliderCard.getByRole('button', { name: /Edit|Clone|Archive/ })).toHaveCount(
+    0
+  );
   await page.goto('/brews/new');
   await page.getByRole('combobox', { name: 'Coffee', exact: true }).selectOption({
     label: 'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
@@ -419,12 +502,39 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.goto('/coffees');
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '+ Add coffee' })).toHaveCount(0);
+  const brewedCoffeeCard = page.locator('article[data-testid="catalog-card"]').filter({
+    has: page.getByRole('heading', {
+      name: 'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+  });
+  await brewedCoffeeCard
+    .getByRole('link', {
+      name: 'View details for Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  await expect(page.getByText('Average liking', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Ratings', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
 
   await page.goto('/equipment');
   await enterKioskPin(page, '1234');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'The club rack.' })).toBeVisible();
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await expect(page.locator('.equipment-sections > .equipment-section')).toHaveCount(3);
+  await expect(page.locator('.equipment-section.panel')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Edit|Archive|photo/i })).toHaveCount(0);
+  const grinderCard = page
+    .locator('article[data-testid="catalog-card"]')
+    .filter({ has: page.getByRole('heading', { name: 'C40', exact: true }) });
+  await grinderCard.getByRole('link', { name: 'View details for C40' }).click();
+  await expect(page).toHaveURL(/\/equipment\/grinders\/\d+$/);
+  await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
+  await page.goto('/equipment');
   await page.goto('/account/pin');
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await enterKioskPin(page, '1234', 'Current PIN');
@@ -460,6 +570,76 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       )
     )
     .toBe(true);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/coffees');
+  const signedBrewedCard = page.locator('article[data-testid="catalog-card"]').filter({
+    has: page.getByRole('heading', {
+      name: 'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+  });
+  const desktopCatalogGeometry = await page.evaluate(() => {
+    const actionBottoms = [...document.querySelectorAll<HTMLElement>('.catalog-actions')].map(
+      (action) => action.getBoundingClientRect().bottom
+    );
+    return {
+      actionBottomSpread: Math.max(...actionBottoms) - Math.min(...actionBottoms),
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    };
+  });
+  expect(desktopCatalogGeometry.actionBottomSpread).toBeLessThanOrEqual(1);
+  expect(desktopCatalogGeometry.noOverflow).toBe(true);
+  await signedBrewedCard
+    .getByRole('link', {
+      name: 'View details for Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+    .click();
+  await expect(page.getByText('Average liking', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ratings', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+
+  await page.goto('/coffees');
+  const personalColliderCard = page
+    .locator('article[data-testid="catalog-card"]')
+    .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) })
+    .first();
+  await personalColliderCard.getByRole('link', { name: 'View details for Collider Blend' }).click();
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Clone bag' }).click();
+  await expect(page).toHaveURL(/\/coffees\/\d+\?edit=1$/);
+  const clonedCoffeePath = new URL(page.url()).pathname;
+  await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
+  await expect(page.getByLabel('Photo (optional)', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).not.toHaveURL(/edit=1/);
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Archive', exact: true }).click();
+  const archiveCoffeeDialog = page.getByRole('alertdialog', { name: 'Archive this coffee?' });
+  await expect(archiveCoffeeDialog).toBeVisible();
+  await archiveCoffeeDialog.getByRole('button', { name: 'Archive coffee' }).click();
+  await expect(page).toHaveURL(/\/coffees\?message=/);
+  await expect(page.getByRole('heading', { name: 'Collider Blend' })).toHaveCount(1);
+  await page.goto(clonedCoffeePath);
+  await expect(page.getByText('Archived', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Brew this' })).toHaveCount(0);
+
+  await page.goto('/equipment');
+  const personalGrinderCard = page
+    .locator('article[data-testid="catalog-card"]')
+    .filter({ has: page.getByRole('heading', { name: 'C40', exact: true }) });
+  await personalGrinderCard.getByRole('link', { name: 'View details for C40' }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByLabel('Photo (optional)', { exact: true })).toBeVisible();
+  await page.getByLabel('Guidance').fill('Temporary unsaved guidance');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText('Temporary unsaved guidance')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Guidance').fill('Use a slightly coarser setting for larger brews.');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('heading', { name: 'About this grinder.' })).toBeVisible();
+  await expect(page.getByText('Use a slightly coarser setting for larger brews.')).toBeVisible();
 
   await page.goto(invitationPath);
   await page.getByRole('link', { name: 'Correct brew' }).click();
