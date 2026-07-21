@@ -447,6 +447,7 @@
                   disabled={isSeededDemoProfile(person)}
                   >{person.active ? 'Deactivate' : 'Activate'}</button
                 >
+                <a class="button secondary" href={`/profiles/${person.id}`}>View profile</a>
               </article>{/each}
           </div>
         </section>
@@ -814,7 +815,7 @@
   }
   .item-list article {
     display: grid;
-    grid-template-columns: minmax(130px, 1fr) 130px 110px 150px auto auto;
+    grid-template-columns: minmax(130px, 1fr) 130px 110px 150px auto auto auto;
     gap: 7px;
     align-items: center;
     padding: 10px 0;

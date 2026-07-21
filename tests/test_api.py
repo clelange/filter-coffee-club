@@ -88,9 +88,7 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         with client.app.state.session_factory() as db:
             assert db.get(Profile, 1).pin_hash.startswith("$argon2")
         public_profile = client.get("/api/v1/auth/profiles").json()[0]
-        assert "failed_login_attempts" not in public_profile
-        assert "last_failed_login_at" not in public_profile
-        assert "login_blocked_until" not in public_profile
+        assert set(public_profile) == {"id", "display_name"}
 
         grinders = client.get("/api/v1/grinders").json()
         assert grinders[0]["manufacturer"] == "Comandante"
@@ -153,6 +151,185 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert created_preset.status_code == 200
         assert created_preset.json()["name"] == "Club balanced"
         assert len(client.get("/api/v1/presets").json()) == 8
+
+
+def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        profiles = {}
+        for name, pin in (
+            ("Grace", "5678"),
+            ("Linus", "6789"),
+            ("Inactive", "7890"),
+            ("Pending", "8901"),
+        ):
+            profiles[name] = client.post(
+                "/api/v1/people",
+                headers=admin_headers,
+                json={"display_name": name, "pin": pin, "role": "member"},
+            ).json()
+        for name in ("Grace", "Linus"):
+            assert (
+                client.put(
+                    f"/api/v1/people/{profiles[name]['id']}",
+                    headers=admin_headers,
+                    json={"pin_change_required": False},
+                ).status_code
+                == 200
+            )
+        assert (
+            client.put(
+                f"/api/v1/people/{profiles['Inactive']['id']}",
+                headers=admin_headers,
+                json={"active": False},
+            ).status_code
+            == 200
+        )
+
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Directory", "name": "Shared Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+
+        def completed_brew(setting: int) -> dict:
+            brew = client.post(
+                "/api/v1/brews",
+                headers=admin_headers,
+                json={
+                    "coffee_id": coffee["id"],
+                    "grinder_id": grinder["id"],
+                    "dose_g": 15,
+                    "water_g": 240,
+                    "temperature_c": 94,
+                    "grinder_setting": setting,
+                },
+            ).json()
+            return client.post(
+                f"/api/v1/brews/{brew['id']}/finalize",
+                headers=admin_headers,
+                json={"total_brew_time_s": 180},
+            ).json()
+
+        shared_brew = completed_brew(20)
+        grace_brew = completed_brew(21)
+        linus_brew = completed_brew(22)
+        voided_brew = completed_brew(23)
+        rating_payload = {
+            "liking": 7,
+            "acidity": 3,
+            "bitterness": 2,
+            "sweetness": 4,
+            "body": 3,
+            "flavor_tag_ids": [],
+        }
+        for brew in (shared_brew, grace_brew, linus_brew, voided_brew):
+            assert (
+                client.post(
+                    f"/api/v1/brews/{brew['id']}/ratings",
+                    headers=admin_headers,
+                    json=rating_payload,
+                ).status_code
+                == 200
+            )
+
+        def login(name: str, pin: str) -> dict[str, str]:
+            response = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "profile_id": profiles[name]["id"],
+                    "pin": pin,
+                    "device_mode": "personal",
+                },
+            )
+            assert response.status_code == 200, response.text
+            return {"X-CSRF-Token": response.json()["csrf_token"]}
+
+        grace_headers = login("Grace", "5678")
+        for brew in (shared_brew, grace_brew, voided_brew):
+            assert (
+                client.post(
+                    f"/api/v1/brews/{brew['id']}/ratings",
+                    headers=grace_headers,
+                    json=rating_payload,
+                ).status_code
+                == 200
+            )
+        linus_headers = login("Linus", "6789")
+        for brew in (shared_brew, linus_brew, voided_brew):
+            assert (
+                client.post(
+                    f"/api/v1/brews/{brew['id']}/ratings",
+                    headers=linus_headers,
+                    json=rating_payload,
+                ).status_code
+                == 200
+            )
+
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
+        assert (
+            client.post(
+                f"/api/v1/brews/{voided_brew['id']}/void", headers=admin_headers
+            ).status_code
+            == 200
+        )
+
+        login("Grace", "5678")
+        member_directory = client.get("/api/v1/profiles")
+        assert member_directory.status_code == 200
+        member_items = member_directory.json()
+        assert [item["display_name"] for item in member_items] == [
+            "Ada",
+            "Grace",
+            "Linus",
+            "Pending",
+        ]
+        assert all(
+            set(item)
+            == {
+                "id",
+                "display_name",
+                "is_self",
+                "is_complete_history",
+                "rating_count",
+            }
+            for item in member_items
+        )
+        member_by_name = {item["display_name"]: item for item in member_items}
+        assert member_by_name["Grace"] == {
+            "id": profiles["Grace"]["id"],
+            "display_name": "Grace",
+            "is_self": True,
+            "is_complete_history": True,
+            "rating_count": 2,
+        }
+        assert member_by_name["Ada"]["rating_count"] == 2
+        assert member_by_name["Linus"]["rating_count"] == 1
+        assert member_by_name["Linus"]["is_complete_history"] is False
+        assert member_by_name["Pending"]["rating_count"] == 0
+
+        client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        admin_items = client.get("/api/v1/profiles").json()
+        admin_by_name = {item["display_name"]: item for item in admin_items}
+        assert all(item["is_complete_history"] for item in admin_items)
+        assert admin_by_name["Ada"]["rating_count"] == 3
+        assert admin_by_name["Grace"]["rating_count"] == 2
+        assert admin_by_name["Linus"]["rating_count"] == 2
+
+        login("Pending", "8901")
+        assert client.get("/api/v1/profiles").status_code == 403
+        pending_session = client.get("/api/v1/auth/me").json()
+        pending_headers = {"X-CSRF-Token": pending_session["csrf_token"]}
+        assert client.post("/api/v1/auth/logout", headers=pending_headers).status_code == 204
+        assert client.get("/api/v1/profiles").status_code == 401
 
 
 def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> None:
@@ -955,6 +1132,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         )
         assert admin_rating.status_code == 200
         admin_profile = client.get("/api/v1/profiles/1/ratings").json()
+        assert set(admin_profile["profile"]) == {"id", "display_name"}
         assert admin_profile["is_self"] is True
         assert admin_profile["is_complete_history"] is True
         assert admin_profile["rating_count"] == 1
@@ -987,6 +1165,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert pin_change.status_code == 204
         assert client.get("/api/v1/auth/me").json()["profile"]["pin_change_required"] is False
         hidden_profile = client.get("/api/v1/profiles/1/ratings").json()
+        assert set(hidden_profile["profile"]) == {"id", "display_name"}
         assert hidden_profile["is_self"] is False
         assert hidden_profile["is_complete_history"] is False
         assert hidden_profile["rating_count"] == 0
@@ -1445,7 +1624,9 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
             == 403
         )
         analytics = client.get("/api/v1/analytics").json()
-        assert analytics["operator_counts"] == {"Grace": 1}
+        assert analytics["operator_counts"] == [
+            {"profile_id": grace["id"], "display_name": "Grace", "brew_count": 1}
+        ]
 
         admin_headers = login(1, "1234")
         admin_correction = client.put(

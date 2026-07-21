@@ -1,5 +1,6 @@
 <script lang="ts">
   import FlavorRadar from '$lib/FlavorRadar.svelte';
+  import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
   import { formatTime } from '$lib/api';
   import { formatCatalogDate, formatCatalogNumber } from '$lib/catalog';
@@ -51,7 +52,10 @@
               <p class="eyebrow">Brew #{result.brew.id}</p>
               <h3>{formatCatalogDate(result.brew.completed_at)}</h3>
               <span
-                >by {result.brew.operator_name} · {result.aggregate.count}
+                >by <ProfileLink
+                  profileId={result.brew.operator_id}
+                  displayName={result.brew.operator_name}
+                /> · {result.aggregate.count}
                 {result.aggregate.count === 1 ? 'rating' : 'ratings'}</span
               >
             </div>

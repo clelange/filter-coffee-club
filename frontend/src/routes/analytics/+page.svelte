@@ -3,36 +3,11 @@
   import { goto } from '$app/navigation';
   import { loginPath } from '$lib/device';
   import { api, ensureSession } from '$lib/api';
+  import ProfileLink from '$lib/ProfileLink.svelte';
+  import type { components } from '$lib/generated-api';
 
-  interface Point {
-    brew_id: number;
-    coffee_id: number;
-    coffee: string;
-    liking: number;
-    ratings: number;
-    ratio: number;
-    temperature_c: number;
-    grinder_id: number;
-    grinder_name: string;
-    grinder_setting: number;
-    total_brew_time_s: number | null;
-    target_flow_g_s: number | null;
-  }
-  interface RankedRecipe {
-    brew_id: number;
-    name: string;
-    recipe: string;
-    average: number;
-    ratings: number;
-  }
-  interface Analytics {
-    counts: { brews: number; ratings: number; coffees: number };
-    top_coffees: { coffee_id: number; name: string; average: number; ratings: number }[];
-    top_recipes: RankedRecipe[];
-    flavor_counts: Record<string, number>;
-    operator_counts: Record<string, number>;
-    scatter: Point[];
-  }
+  type Analytics = components['schemas']['AnalyticsResponse'];
+  type Point = components['schemas']['AnalyticsPoint'];
 
   let data = $state<Analytics | null>(null);
   let variable:
@@ -252,8 +227,10 @@
       <section class="card">
         <p class="eyebrow">Operators</p>
         <div class="operator-list">
-          {#each Object.entries(data.operator_counts) as [name, count]}<span
-              >{name}<b>{count} brew{count === 1 ? '' : 's'}</b></span
+          {#each data.operator_counts as operator}<span
+              ><ProfileLink profileId={operator.profile_id} displayName={operator.display_name} /><b
+                >{operator.brew_count} brew{operator.brew_count === 1 ? '' : 's'}</b
+              ></span
             >{/each}
         </div>
       </section>

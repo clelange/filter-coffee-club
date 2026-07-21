@@ -5,6 +5,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
+  import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
   import {
     api,
@@ -15,7 +16,7 @@
     sessionStore,
     setSession
   } from '$lib/api';
-  import type { Brew, Profile, RatingAggregate } from '$lib/types';
+  import type { Brew, ProfileIdentity, RatingAggregate } from '$lib/types';
 
   let brew: Brew | null = $state(null);
   let ratingInsights: RatingAggregate | null = $state(null);
@@ -29,7 +30,7 @@
   let statusAction: 'cancel' | 'void' | null = $state(null);
   let changingStatus = $state(false);
   let operatorDialog = $state(false);
-  let operators: Profile[] = $state([]);
+  let operators: ProfileIdentity[] = $state([]);
   let selectedOperatorId = $state(0);
   let changingOperator = $state(false);
   let wakeLock: WakeLockSentinel | null = null;
@@ -138,7 +139,7 @@
     if (!brew) return;
     error = '';
     try {
-      if (!operators.length) operators = await api<Profile[]>('/auth/profiles');
+      if (!operators.length) operators = await api<ProfileIdentity[]>('/auth/profiles');
       selectedOperatorId = brew.operator_id;
       operatorDialog = true;
     } catch (caught) {
@@ -219,7 +220,12 @@
       <div>
         <p class="eyebrow">Brew mode · settings locked on screen</p>
         <h1>{brew.coffee_name}</h1>
-        <p class="lede">{brew.coffee_roaster} · operator {brew.operator_name}</p>
+        <p class="lede">
+          {brew.coffee_roaster} · operator <ProfileLink
+            profileId={brew.operator_id}
+            displayName={brew.operator_name}
+          />
+        </p>
       </div>
       <span class="status draft">draft #{brew.id}</span>
     </div>
@@ -325,8 +331,10 @@
       <p class="eyebrow">Brew #{brew.id} is ready</p>
       <h1>Taste. Scan. Rate.</h1>
       <p class="lede">
-        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by {brew.operator_name}
-        in {formatTime(brew.total_brew_time_s)}.
+        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by <ProfileLink
+          profileId={brew.operator_id}
+          displayName={brew.operator_name}
+        /> in {formatTime(brew.total_brew_time_s)}.
       </p>
       <div class="brew-summary">
         <span>1:{brew.ratio}</span><span>{brew.grinder_setting} {brew.grinder_unit}</span><span

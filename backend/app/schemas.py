@@ -12,12 +12,25 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProfileIdentity(ORMModel):
+    id: int
+    display_name: str
+
+
 class ProfilePublic(ORMModel):
     id: int
     display_name: str
     role: str
     active: bool
     pin_change_required: bool
+
+
+class ProfileDirectoryItem(BaseModel):
+    id: int
+    display_name: str
+    is_self: bool
+    is_complete_history: bool
+    rating_count: int
 
 
 class BootstrapInput(BaseModel):
@@ -387,7 +400,7 @@ class ProfileRatingResult(RatingComparison):
 
 
 class ProfileRatingsResponse(BaseModel):
-    profile: ProfilePublic
+    profile: ProfileIdentity
     is_self: bool
     is_complete_history: bool
     rating_count: int
@@ -395,6 +408,57 @@ class ProfileRatingsResponse(BaseModel):
     favorite_coffees: list[ProfileCoffeePreference] = Field(default_factory=list)
     ratings: list[ProfileRatingResult] = Field(default_factory=list)
     next_offset: int | None = None
+
+
+class AnalyticsCounts(BaseModel):
+    brews: int
+    ratings: int
+    coffees: int
+
+
+class AnalyticsCoffeeRank(BaseModel):
+    coffee_id: int
+    name: str
+    average: float
+    ratings: int
+
+
+class AnalyticsRecipeRank(BaseModel):
+    brew_id: int
+    name: str
+    recipe: str
+    average: float
+    ratings: int
+
+
+class AnalyticsOperatorCount(BaseModel):
+    profile_id: int
+    display_name: str
+    brew_count: int
+
+
+class AnalyticsPoint(BaseModel):
+    brew_id: int
+    coffee_id: int
+    coffee: str
+    liking: float
+    ratings: int
+    ratio: float
+    temperature_c: float
+    grinder_id: int
+    grinder_name: str
+    grinder_setting: float
+    total_brew_time_s: int | None
+    target_flow_g_s: float | None
+
+
+class AnalyticsResponse(BaseModel):
+    counts: AnalyticsCounts
+    top_coffees: list[AnalyticsCoffeeRank]
+    top_recipes: list[AnalyticsRecipeRank]
+    flavor_counts: dict[str, int]
+    operator_counts: list[AnalyticsOperatorCount]
+    scatter: list[AnalyticsPoint]
 
 
 class RatingLinkResponse(BaseModel):

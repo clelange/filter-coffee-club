@@ -13,7 +13,7 @@ from statistics import mean
 import segno
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from .calculations import brew_ratio, overall_throughput
@@ -44,6 +44,7 @@ from .models import (
     RecipePreset,
 )
 from .schemas import (
+    AnalyticsResponse,
     AppSettingsResponse,
     AppSettingsUpdate,
     BootstrapInput,
@@ -75,6 +76,8 @@ from .schemas import (
     PresetUpdate,
     ProfileCoffeePreference,
     ProfileCreate,
+    ProfileDirectoryItem,
+    ProfileIdentity,
     ProfilePublic,
     ProfileRatingResult,
     ProfileRatingsResponse,
@@ -451,7 +454,7 @@ def bootstrap(
     return session_payload(login_session)
 
 
-@router.get("/auth/profiles", response_model=list[ProfilePublic])
+@router.get("/auth/profiles", response_model=list[ProfileIdentity])
 def list_public_profiles(db: Session = Depends(session_dependency)) -> list[Profile]:
     return list(
         db.scalars(select(Profile).where(Profile.active.is_(True)).order_by(Profile.display_name))
@@ -1706,6 +1709,54 @@ def get_ratings(
     return rating_summary(load_brew(db, brew_id), viewer, db)
 
 
+def profile_rating_filters(profile_id: int, viewer: Profile) -> tuple[bool, list]:
+    complete_history = viewer.id == profile_id or viewer.role == "admin"
+    filters = [Rating.profile_id == profile_id, Brew.status == "completed"]
+    if not complete_history:
+        viewer_rating = aliased(Rating)
+        shared_brew_ids = select(viewer_rating.brew_id).where(viewer_rating.profile_id == viewer.id)
+        filters.append(Brew.id.in_(shared_brew_ids))
+    return complete_history, filters
+
+
+@router.get("/profiles", response_model=list[ProfileDirectoryItem])
+def list_profiles(
+    db: Session = Depends(session_dependency), viewer: Profile = Depends(require_user)
+) -> list[ProfileDirectoryItem]:
+    profiles = list(
+        db.scalars(select(Profile).where(Profile.active.is_(True)).order_by(Profile.display_name))
+    )
+    if not profiles:
+        return []
+
+    count_filters = [
+        Rating.profile_id.in_([profile.id for profile in profiles]),
+        Brew.status == "completed",
+    ]
+    if viewer.role != "admin":
+        viewer_rating = aliased(Rating)
+        shared_brew_ids = select(viewer_rating.brew_id).where(viewer_rating.profile_id == viewer.id)
+        count_filters.append(or_(Rating.profile_id == viewer.id, Brew.id.in_(shared_brew_ids)))
+    count_rows = db.execute(
+        select(Rating.profile_id, func.count(Rating.id))
+        .join(Rating.brew)
+        .where(*count_filters)
+        .group_by(Rating.profile_id)
+    )
+    counts = {profile_id: rating_count for profile_id, rating_count in count_rows}
+
+    return [
+        ProfileDirectoryItem(
+            id=profile.id,
+            display_name=profile.display_name,
+            is_self=profile.id == viewer.id,
+            is_complete_history=profile.id == viewer.id or viewer.role == "admin",
+            rating_count=counts.get(profile.id, 0),
+        )
+        for profile in profiles
+    ]
+
+
 @router.get("/profiles/{profile_id}/ratings", response_model=ProfileRatingsResponse)
 def get_profile_ratings(
     profile_id: int,
@@ -1718,12 +1769,7 @@ def get_profile_ratings(
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    complete_history = viewer.id == profile.id or viewer.role == "admin"
-    filters = [Rating.profile_id == profile.id, Brew.status == "completed"]
-    if not complete_history:
-        viewer_rating = aliased(Rating)
-        shared_brew_ids = select(viewer_rating.brew_id).where(viewer_rating.profile_id == viewer.id)
-        filters.append(Brew.id.in_(shared_brew_ids))
+    complete_history, filters = profile_rating_filters(profile.id, viewer)
 
     rating_count = db.scalar(select(func.count(Rating.id)).join(Rating.brew).where(*filters)) or 0
     average_row = db.execute(
@@ -1796,7 +1842,7 @@ def get_profile_ratings(
     next_offset = offset + len(target_ratings)
 
     return ProfileRatingsResponse(
-        profile=ProfilePublic.model_validate(profile),
+        profile=ProfileIdentity.model_validate(profile),
         is_self=viewer.id == profile.id,
         is_complete_history=complete_history,
         rating_count=rating_count,
@@ -1881,10 +1927,10 @@ def submit_rating(
     return rating_summary(load_brew(db, brew.id), login_session.profile, db)
 
 
-@router.get("/analytics")
+@router.get("/analytics", response_model=AnalyticsResponse)
 def analytics(
     db: Session = Depends(session_dependency), _viewer: Profile = Depends(require_user)
-) -> dict:
+) -> AnalyticsResponse:
     brews = list(
         db.scalars(
             select(Brew)
@@ -1932,7 +1978,8 @@ def analytics(
     ]
     top_recipes.sort(key=lambda item: (-item["average"], -item["ratings"]))
     flavor_counts = Counter(tag.name for rating in all_ratings for tag in rating.flavor_tags)
-    operator_counts = Counter(brew.operator.display_name for brew in brews)
+    operator_counts: Counter[int] = Counter(brew.operator_id for brew in brews)
+    operators_by_id = {brew.operator_id: brew.operator.display_name for brew in brews}
     scatter = []
     for brew in brews:
         if not brew.ratings:
@@ -1953,14 +2000,21 @@ def analytics(
                 "target_flow_g_s": brew.target_flow_g_s,
             }
         )
-    return {
-        "counts": {"brews": len(brews), "ratings": len(all_ratings), "coffees": len(coffee_scores)},
-        "top_coffees": top_coffees[:10],
-        "top_recipes": top_recipes[:10],
-        "flavor_counts": dict(flavor_counts.most_common(12)),
-        "operator_counts": dict(operator_counts.most_common()),
-        "scatter": scatter,
-    }
+    return AnalyticsResponse(
+        counts={"brews": len(brews), "ratings": len(all_ratings), "coffees": len(coffee_scores)},
+        top_coffees=top_coffees[:10],
+        top_recipes=top_recipes[:10],
+        flavor_counts=dict(flavor_counts.most_common(12)),
+        operator_counts=[
+            {
+                "profile_id": profile_id,
+                "display_name": operators_by_id[profile_id],
+                "brew_count": brew_count,
+            }
+            for profile_id, brew_count in operator_counts.most_common()
+        ],
+        scatter=scatter,
+    )
 
 
 @router.get("/settings", response_model=AppSettingsResponse)
