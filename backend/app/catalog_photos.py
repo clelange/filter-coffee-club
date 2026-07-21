@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 register_heif_opener()
 
-SUPPORTED_FORMATS = {"JPEG", "PNG", "WEBP", "HEIF"}
-SUPPORTED_FORMATS_LABEL = "JPEG, PNG, WebP, HEIC, or HEIF"
+MULTI_PICTURE_STILL_FORMATS = {"MPO"}
 
 
 class CatalogPhotoOwner(Protocol):
@@ -31,12 +30,11 @@ class CatalogPhotoOwner(Protocol):
 def _normalized_webp(content: bytes, settings: Settings) -> bytes:
     try:
         with Image.open(io.BytesIO(content)) as source:
-            if source.format not in SUPPORTED_FORMATS:
-                raise HTTPException(
-                    status_code=415, detail=f"Photo must be {SUPPORTED_FORMATS_LABEL}"
-                )
-            if getattr(source, "is_animated", False) or getattr(source, "n_frames", 1) != 1:
+            if getattr(source, "is_animated", False) and (
+                source.format not in MULTI_PICTURE_STILL_FORMATS
+            ):
                 raise HTTPException(status_code=415, detail="Animated photos are not supported")
+            source.seek(0)
             if source.width * source.height > settings.max_catalog_photo_pixels:
                 raise HTTPException(status_code=413, detail="Photo resolution is too large")
 
