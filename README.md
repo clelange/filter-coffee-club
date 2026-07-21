@@ -116,7 +116,7 @@ All environment variables use the `FCC_` prefix. Important values are:
 | `FCC_ALLOWED_ORIGINS` | empty                             | Optional comma-separated additional trusted origins.                         |
 | `FCC_DATA_DIR`        | `data` locally, `/data` in Docker | SQLite, branding, and catalog-photo storage.                                 |
 | `FCC_DATABASE_URL`    | derived SQLite URL                | Override only for local/testing scenarios.                                   |
-| `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB) | Maximum accepted coffee or equipment photo upload.                           |
+| `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB) | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
 | `FCC_LOG_LEVEL`       | `info`                            | Application and structured request log level.                                |
 | `FCC_DEMO_MODE`       | `false`                           | Seed fictional data and enable public-demo protections.                      |
 

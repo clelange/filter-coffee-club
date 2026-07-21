@@ -10,6 +10,7 @@ from typing import Protocol
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -17,11 +18,17 @@ from .config import Settings
 
 logger = logging.getLogger(__name__)
 
+register_heif_opener()
+
 SUPPORTED_TYPES = {
     "image/jpeg": "JPEG",
     "image/png": "PNG",
     "image/webp": "WEBP",
+    "image/heic": "HEIF",
+    "image/heif": "HEIF",
 }
+
+SUPPORTED_TYPES_LABEL = "JPEG, PNG, WebP, HEIC, or HEIF"
 
 
 class CatalogPhotoOwner(Protocol):
@@ -31,7 +38,7 @@ class CatalogPhotoOwner(Protocol):
 def _normalized_webp(content: bytes, content_type: str | None, settings: Settings) -> bytes:
     expected_format = SUPPORTED_TYPES.get(content_type or "")
     if expected_format is None:
-        raise HTTPException(status_code=415, detail="Photo must be JPEG, PNG, or WebP")
+        raise HTTPException(status_code=415, detail=f"Photo must be {SUPPORTED_TYPES_LABEL}")
 
     try:
         with Image.open(io.BytesIO(content)) as source:

@@ -24,9 +24,13 @@
 
 <div class="photo-picker">
   <label
-    >{label}<input type="file" accept="image/jpeg,image/png,image/webp" onchange={choose} /></label
+    >{label}<input
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+      onchange={choose}
+    /></label
   >
-  <small>JPEG, PNG, or WebP · up to 12 MB</small>
+  <small>JPEG, PNG, WebP, HEIC, or HEIF · up to 12 MB</small>
   {#if previewUrl}
     <div class="preview"><img src={previewUrl} alt="Selected catalog item" /></div>
   {/if}
