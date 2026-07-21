@@ -330,13 +330,16 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         assert removed.json()["photo_path"] is None
         assert client.get(replacement_path).status_code == 404
 
-        mismatch = client.put(
+        ios_converted_upload = client.put(
             f"/api/v1/coffees/{coffee['id']}/photo",
             headers=headers,
-            files={"photo": ("not-really.png", image_upload("JPEG"), "image/png")},
+            files={"photo": ("iphone.heic", image_upload("JPEG"), "image/heic")},
         )
-        assert mismatch.status_code == 415
-        assert mismatch.json()["detail"] == "Photo contents do not match its file type"
+        assert ios_converted_upload.status_code == 200, ios_converted_upload.text
+        ios_converted_path = ios_converted_upload.json()["photo_path"]
+        with Image.open(io.BytesIO(client.get(ios_converted_path).content)) as image:
+            assert image.format == "WEBP"
+            assert image.size == (1600, 800)
 
         client.post("/api/v1/auth/logout", headers=headers)
         kiosk_login = client.post(
@@ -378,7 +381,7 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
         unsupported = client.put(
             "/api/v1/grinders/1/photo",
             headers=headers,
-            files={"photo": ("photo.gif", b"GIF89a", "image/gif")},
+            files={"photo": ("photo.jpg", image_upload("GIF", (5, 5)), "image/jpeg")},
         )
         assert unsupported.status_code == 415
         assert unsupported.json()["detail"] == "Photo must be JPEG, PNG, WebP, HEIC, or HEIF"
