@@ -268,6 +268,16 @@ export interface CoffeeRatingInsights {
   next_offset: number | null;
 }
 
+export type AnalyticsAxisKey =
+  | 'ratio'
+  | 'temperature_c'
+  | 'grinder_setting'
+  | 'total_brew_time_s'
+  | 'target_flow_g_s'
+  | 'overall_throughput_g_s';
+
+export type AnalyticsRatingKey = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
+
 export interface RatingSummary {
   can_view: boolean;
   own_rating: RatingItem | null;

@@ -437,19 +437,36 @@ class AnalyticsOperatorCount(BaseModel):
     brew_count: int
 
 
+class AnalyticsRatingMetric(BaseModel):
+    average: float
+    minimum: int
+    maximum: int
+
+
+class AnalyticsRatingMetrics(BaseModel):
+    liking: AnalyticsRatingMetric
+    acidity: AnalyticsRatingMetric
+    bitterness: AnalyticsRatingMetric
+    sweetness: AnalyticsRatingMetric
+    body: AnalyticsRatingMetric
+
+
 class AnalyticsPoint(BaseModel):
     brew_id: int
     coffee_id: int
     coffee: str
     liking: float
     ratings: int
+    rating_metrics: AnalyticsRatingMetrics
     ratio: float
     temperature_c: float
     grinder_id: int
     grinder_name: str
+    grinder_unit: str
     grinder_setting: float
     total_brew_time_s: int | None
     target_flow_g_s: float | None
+    overall_throughput_g_s: float | None
 
 
 class AnalyticsResponse(BaseModel):

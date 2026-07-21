@@ -11,7 +11,7 @@ from app import api as api_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
-from app.models import Profile
+from app.models import Brew, Profile
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -914,6 +914,41 @@ def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
             },
             member_headers,
         )
+
+        with client.app.state.session_factory() as db:
+            legacy_brew = db.get(Brew, second_brew["id"])
+            assert legacy_brew is not None
+            legacy_brew.total_brew_time_s = None
+            db.commit()
+
+        analytics_response = client.get("/api/v1/analytics")
+        assert analytics_response.status_code == 200, analytics_response.text
+        analytics = analytics_response.json()
+        assert analytics["counts"] == {"brews": 3, "ratings": 3, "coffees": 1}
+        assert {point["brew_id"] for point in analytics["scatter"]} == {
+            first_brew["id"],
+            second_brew["id"],
+        }
+        first_point = next(
+            point for point in analytics["scatter"] if point["brew_id"] == first_brew["id"]
+        )
+        assert first_point["liking"] == 8
+        assert first_point["ratings"] == 2
+        assert first_point["rating_metrics"] == {
+            "liking": {"average": 8, "minimum": 7, "maximum": 9},
+            "acidity": {"average": 4, "minimum": 3, "maximum": 5},
+            "bitterness": {"average": 2, "minimum": 1, "maximum": 3},
+            "sweetness": {"average": 3, "minimum": 2, "maximum": 4},
+            "body": {"average": 4, "minimum": 3, "maximum": 5},
+        }
+        assert first_point["grinder_unit"] == "clicks"
+        assert first_point["target_flow_g_s"] is None
+        assert first_point["overall_throughput_g_s"] == 1.2
+        second_point = next(
+            point for point in analytics["scatter"] if point["brew_id"] == second_brew["id"]
+        )
+        assert second_point["total_brew_time_s"] is None
+        assert second_point["overall_throughput_g_s"] is None
 
         first_page = client.get(
             f"/api/v1/coffees/{coffee['id']}/rating-insights?limit=1&offset=0"

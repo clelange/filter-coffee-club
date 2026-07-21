@@ -1,26 +1,52 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import AnalyticsScatterPlot from '$lib/AnalyticsScatterPlot.svelte';
   import { loginPath } from '$lib/device';
   import { api, ensureSession } from '$lib/api';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import type { components } from '$lib/generated-api';
+  import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
 
-  type Analytics = components['schemas']['AnalyticsResponse'];
-  type Point = components['schemas']['AnalyticsPoint'];
+  type AnalyticsResponse = components['schemas']['AnalyticsResponse'];
+  type AnalyticsScatterPoint = components['schemas']['AnalyticsPoint'];
 
-  let data = $state<Analytics | null>(null);
-  let variable:
-    'ratio' | 'temperature_c' | 'grinder_setting' | 'total_brew_time_s' | 'target_flow_g_s' =
-    $state('ratio');
+  const axisOptions: { key: AnalyticsAxisKey; label: string }[] = [
+    { key: 'ratio', label: 'Ratio' },
+    { key: 'temperature_c', label: 'Temperature' },
+    { key: 'grinder_setting', label: 'Grinder setting' },
+    { key: 'total_brew_time_s', label: 'Brew time' },
+    { key: 'target_flow_g_s', label: 'Target flow' },
+    { key: 'overall_throughput_g_s', label: 'Overall throughput' }
+  ];
+  const ratingOptions: { key: AnalyticsRatingKey; label: string }[] = [
+    { key: 'liking', label: 'Liking' },
+    { key: 'acidity', label: 'Acidity' },
+    { key: 'bitterness', label: 'Bitterness' },
+    { key: 'sweetness', label: 'Sweetness' },
+    { key: 'body', label: 'Body' }
+  ];
+
+  let data = $state<AnalyticsResponse | null>(null);
+  let variable = $state<AnalyticsAxisKey>('ratio');
   let coffeeFilter = $state('all');
   let grinderFilter = $state('all');
+  let mapCoffeeFilter = $state('');
+  let mapGrinderFilter = $state('');
+  let mapX = $state<AnalyticsAxisKey>('ratio');
+  let mapY = $state<AnalyticsAxisKey>('temperature_c');
+  let mapColor = $state<AnalyticsRatingKey>('liking');
   let error = $state('');
-  function points(): Point[] {
+
+  function hasMeasurement(point: AnalyticsScatterPoint, key: AnalyticsAxisKey): boolean {
+    return point[key] !== null && Number.isFinite(Number(point[key]));
+  }
+
+  function points(): AnalyticsScatterPoint[] {
     return data
       ? data.scatter.filter(
           (point) =>
-            point[variable] !== null &&
+            hasMeasurement(point, variable) &&
             (coffeeFilter === 'all' || String(point.coffee_id) === coffeeFilter) &&
             (variable !== 'grinder_setting' ||
               (grinderFilter !== 'all' && String(point.grinder_id) === grinderFilter))
@@ -28,42 +54,69 @@
       : [];
   }
   function coffees(): { id: number; name: string }[] {
-    return data
-      ? [
-          ...new Map(
-            data.scatter.map((point) => [
-              point.coffee_id,
-              { id: point.coffee_id, name: point.coffee }
-            ])
-          ).values()
-        ]
-      : [];
+    if (!data) return [];
+    return [
+      ...new Map(
+        data.scatter.map((point) => [point.coffee_id, { id: point.coffee_id, name: point.coffee }])
+      ).values()
+    ].sort((left, right) => left.name.localeCompare(right.name));
   }
-  function grinders(): { id: number; name: string }[] {
-    return data
-      ? [
-          ...new Map(
-            data.scatter.map((point) => [
-              point.grinder_id,
-              { id: point.grinder_id, name: point.grinder_name }
-            ])
-          ).values()
-        ]
-      : [];
+
+  function grinderOptions(coffeeId: string | null = null): { id: number; name: string }[] {
+    if (!data) return [];
+    const candidates = coffeeId
+      ? data.scatter.filter((point) => String(point.coffee_id) === coffeeId)
+      : data.scatter;
+    return [
+      ...new Map(
+        candidates.map((point) => [
+          point.grinder_id,
+          { id: point.grinder_id, name: point.grinder_name }
+        ])
+      ).values()
+    ].sort((left, right) => left.name.localeCompare(right.name));
   }
-  function xValues(): number[] {
-    return points().map((point) => Number(point[variable]));
+
+  function mapNeedsGrinder(): boolean {
+    return mapX === 'grinder_setting' || mapY === 'grinder_setting';
   }
-  function minX(): number {
-    const values = xValues();
-    return values.length ? Math.min(...values) : 0;
+
+  function mapPoints(): AnalyticsScatterPoint[] {
+    if (!data || !mapCoffeeFilter || (mapNeedsGrinder() && !mapGrinderFilter)) return [];
+    return data.scatter.filter(
+      (point) =>
+        String(point.coffee_id) === mapCoffeeFilter &&
+        hasMeasurement(point, mapX) &&
+        hasMeasurement(point, mapY) &&
+        (!mapNeedsGrinder() || String(point.grinder_id) === mapGrinderFilter)
+    );
   }
-  function maxX(): number {
-    const values = xValues();
-    return values.length ? Math.max(...values) : 1;
-  }
+
   function maxFlavor(): number {
     return Math.max(1, ...Object.values(data?.flavor_counts ?? {}));
+  }
+
+  function axisLabel(key: AnalyticsAxisKey, selectedGrinder = ''): string {
+    const grinderUnit = data?.scatter.find(
+      (point) => !selectedGrinder || String(point.grinder_id) === selectedGrinder
+    )?.grinder_unit;
+    return {
+      ratio: 'Brew ratio (1:x)',
+      temperature_c: 'Temperature (°C)',
+      grinder_setting: `Grinder setting${grinderUnit ? ` (${grinderUnit})` : ''}`,
+      total_brew_time_s: 'Brew time (s)',
+      target_flow_g_s: 'Target flow (g/s)',
+      overall_throughput_g_s: 'Overall throughput (g/s)'
+    }[key];
+  }
+
+  function ratingLabel(key: AnalyticsRatingKey): string {
+    return ratingOptions.find((option) => option.key === key)?.label ?? key;
+  }
+
+  function changeMapCoffee(event: Event): void {
+    mapCoffeeFilter = (event.currentTarget as HTMLSelectElement).value;
+    mapGrinderFilter = '';
   }
 
   onMount(async () => {
@@ -72,26 +125,12 @@
       return;
     }
     try {
-      data = await api<Analytics>('/analytics');
+      data = await api<AnalyticsResponse>('/analytics');
+      if (coffees().length === 1) mapCoffeeFilter = String(coffees()[0].id);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load analytics.';
     }
   });
-  function x(value: number): number {
-    return maxX() === minX() ? 300 : 45 + ((value - minX()) / (maxX() - minX())) * 510;
-  }
-  function y(value: number): number {
-    return 300 - ((value - 1) / 8) * 250;
-  }
-  function variableLabel(): string {
-    return {
-      ratio: 'Ratio',
-      temperature_c: 'Temperature °C',
-      grinder_setting: 'Grinder setting',
-      total_brew_time_s: 'Brew time seconds',
-      target_flow_g_s: 'Target flow g/s'
-    }[variable];
-  }
 </script>
 
 <svelte:head><title>Analytics · Filter Coffee Club</title></svelte:head>
@@ -117,74 +156,116 @@
     </article>
   </section>
   <div class="dashboard section">
-    <section class="panel chart-panel">
-      <div class="chart-heading">
-        <div>
-          <p class="eyebrow">Recipe comparison</p>
-          <h2>Settings versus liking</h2>
-        </div>
-        <div class="chart-filters">
-          <label
-            >Coffee<select bind:value={coffeeFilter}
-              ><option value="all">All coffees</option>{#each coffees() as coffee}<option
-                  value={String(coffee.id)}>{coffee.name}</option
-                >{/each}</select
-            ></label
-          ><label
-            >Horizontal axis<select bind:value={variable}
-              ><option value="ratio">Ratio</option><option value="temperature_c">Temperature</option
-              ><option value="grinder_setting">Grinder setting</option><option
-                value="total_brew_time_s">Brew time</option
-              ><option value="target_flow_g_s">Target flow</option></select
-            ></label
-          >{#if variable === 'grinder_setting'}<label
-              >Grinder<select bind:value={grinderFilter}
-                ><option value="all">Choose one grinder</option>{#each grinders() as grinder}<option
-                    value={String(grinder.id)}>{grinder.name}</option
+    <div class="chart-stack">
+      <section class="panel chart-panel">
+        <div class="chart-heading">
+          <div>
+            <p class="eyebrow">Recipe comparison</p>
+            <h2>Settings versus liking</h2>
+          </div>
+          <div class="chart-filters">
+            <label
+              >Coffee<select bind:value={coffeeFilter}
+                ><option value="all">All coffees</option>{#each coffees() as coffee}<option
+                    value={String(coffee.id)}>{coffee.name}</option
                   >{/each}</select
               ></label
-            >{/if}
+            ><label
+              >Horizontal axis<select bind:value={variable}
+                >{#each axisOptions as option}<option value={option.key}>{option.label}</option
+                  >{/each}</select
+              ></label
+            >{#if variable === 'grinder_setting'}<label
+                >Grinder<select bind:value={grinderFilter}
+                  ><option value="all">Choose one grinder</option
+                  >{#each grinderOptions() as grinder}<option value={String(grinder.id)}
+                      >{grinder.name}</option
+                    >{/each}</select
+                ></label
+              >{/if}
+          </div>
         </div>
-      </div>
-      {#if points().length === 0}<div class="empty">
-          No rated brews have this measurement yet.
-        </div>{:else}
-        <svg
-          viewBox="0 0 600 340"
-          role="img"
-          aria-label={`${variableLabel()} versus liking scatter plot`}
-        >
-          <line x1="45" y1="300" x2="570" y2="300" /><line x1="45" y1="40" x2="45" y2="300" />
-          {#each [1, 3, 5, 7, 9] as tick}<text x="30" y={y(tick) + 4}>{tick}</text><line
-              class="grid"
-              x1="45"
-              y1={y(tick)}
-              x2="570"
-              y2={y(tick)}
-            />{/each}
-          {#each points() as point}<a href={`/brews/${point.brew_id}`}
-              ><circle
-                cx={x(Number(point[variable]))}
-                cy={y(point.liking)}
-                r={6 + Math.min(point.ratings, 6)}
-                ><title
-                  >{point.coffee}: {point.liking}/9 from {point.ratings} ratings · {variableLabel()}
-                  {point[variable]}</title
-                ></circle
-              ></a
-            >{/each}
-          <text class="axis" x="300" y="332">{variableLabel()}</text><text
-            class="axis y"
-            x="15"
-            y="175">Liking</text
-          >
-        </svg>
-      {/if}
-      <p class="hint">
-        Each circle is one brew; larger circles have more ratings. Filter grinder-setting views to
-        one grinder before interpreting them. Observational, not causal.
-      </p>
-    </section>
+        {#if points().length === 0}<div class="empty">
+            {variable === 'grinder_setting' && grinderFilter === 'all'
+              ? 'Choose one grinder before comparing its settings.'
+              : 'No rated brews have this measurement yet.'}
+          </div>{:else}<AnalyticsScatterPlot
+            points={points()}
+            xKey={variable}
+            yKey="liking"
+            xLabel={axisLabel(variable, grinderFilter === 'all' ? '' : grinderFilter)}
+            yLabel="Liking (1–9)"
+          />{/if}
+        <p class="hint">
+          Each circle is one brew; larger circles have more ratings. Filter grinder-setting views to
+          one grinder before interpreting them. Observational, not causal.
+        </p>
+      </section>
+
+      <section class="panel chart-panel recipe-map">
+        <div class="chart-heading">
+          <div>
+            <p class="eyebrow">Within one coffee</p>
+            <h2>Recipe map</h2>
+          </div>
+          <div class="chart-filters map-filters">
+            <label
+              >Map coffee<select value={mapCoffeeFilter} onchange={changeMapCoffee}
+                ><option value="">Choose a coffee</option>{#each coffees() as coffee}<option
+                    value={String(coffee.id)}>{coffee.name}</option
+                  >{/each}</select
+              ></label
+            ><label
+              >X axis<select bind:value={mapX}
+                >{#each axisOptions as option}<option
+                    value={option.key}
+                    disabled={option.key === mapY}>{option.label}</option
+                  >{/each}</select
+              ></label
+            ><label
+              >Y axis<select bind:value={mapY}
+                >{#each axisOptions as option}<option
+                    value={option.key}
+                    disabled={option.key === mapX}>{option.label}</option
+                  >{/each}</select
+              ></label
+            ><label
+              >Colour<select bind:value={mapColor}
+                >{#each ratingOptions as option}<option value={option.key}>{option.label}</option
+                  >{/each}</select
+              ></label
+            >{#if mapNeedsGrinder()}<label
+                >Map grinder<select bind:value={mapGrinderFilter}
+                  ><option value="">Choose a grinder</option
+                  >{#each grinderOptions(mapCoffeeFilter) as grinder}<option
+                      value={String(grinder.id)}>{grinder.name}</option
+                    >{/each}</select
+                ></label
+              >{/if}
+          </div>
+        </div>
+        {#if !mapCoffeeFilter}<div class="empty">
+            Choose one coffee to compare recipes without mixing different beans.
+          </div>{:else if mapNeedsGrinder() && !mapGrinderFilter}<div class="empty">
+            Choose one grinder before comparing grinder settings.
+          </div>{:else if mapPoints().length === 0}<div class="empty">
+            No rated brews have both selected measurements yet.
+          </div>{:else}<AnalyticsScatterPlot
+            points={mapPoints()}
+            xKey={mapX}
+            yKey={mapY}
+            xLabel={axisLabel(mapX, mapGrinderFilter)}
+            yLabel={axisLabel(mapY, mapGrinderFilter)}
+            colorKey={mapColor}
+            colorLabel={ratingLabel(mapColor)}
+          />{/if}
+        <p class="hint">
+          Colour shows the brew’s average rating; the detail panel also shows the individual min–max
+          range. Points with identical values are offset slightly, while their detail values stay
+          exact. Sensory measures describe intensity, not quality. Observational, not causal.
+        </p>
+      </section>
+    </div>
     <aside class="stack">
       <section class="card">
         <p class="eyebrow">Qualified favorites</p>
@@ -250,6 +331,14 @@
     gap: 18px;
     align-items: start;
   }
+  .chart-stack {
+    display: grid;
+    gap: 18px;
+    min-width: 0;
+  }
+  .chart-panel {
+    min-width: 0;
+  }
   .chart-heading {
     display: flex;
     justify-content: space-between;
@@ -268,35 +357,8 @@
   .chart-filters select {
     min-width: 0;
   }
-  svg {
-    width: 100%;
-    min-height: 340px;
-  }
-  svg line {
-    stroke: var(--line);
-    stroke-width: 2;
-  }
-  svg .grid {
-    stroke-width: 1;
-    stroke-dasharray: 3 5;
-  }
-  svg circle {
-    fill: var(--cyan);
-    fill-opacity: 0.72;
-    stroke: var(--surface);
-    stroke-width: 2;
-  }
-  svg text {
-    fill: var(--muted);
-    font-size: 11px;
-  }
-  svg .axis {
-    text-anchor: middle;
-    font-weight: 700;
-  }
-  .axis.y {
-    transform: rotate(-90deg);
-    transform-origin: 15px 175px;
+  .recipe-map {
+    border-color: color-mix(in srgb, var(--cyan) 32%, var(--line));
   }
   .ranking {
     margin: 0;
