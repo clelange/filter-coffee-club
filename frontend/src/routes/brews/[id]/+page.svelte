@@ -3,7 +3,9 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { deviceModeStore, loginPath } from '$lib/device';
+  import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
+  import RatingMetrics from '$lib/RatingMetrics.svelte';
   import {
     api,
     ensureSession,
@@ -13,9 +15,11 @@
     sessionStore,
     setSession
   } from '$lib/api';
-  import type { Brew, Profile } from '$lib/types';
+  import type { Brew, Profile, RatingAggregate } from '$lib/types';
 
   let brew: Brew | null = $state(null);
+  let ratingInsights: RatingAggregate | null = $state(null);
+  let ratingInsightsError = $state('');
   let error = $state('');
   let finishing = $state(false);
   let finalMinutes = $state(3);
@@ -41,6 +45,8 @@
         return;
       }
       await keepAwake();
+    } else if (brew?.status === 'completed' && session && !session.profile.pin_change_required) {
+      await loadRatingInsights();
     }
   });
 
@@ -56,6 +62,17 @@
       }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load this brew.';
+    }
+  }
+
+  async function loadRatingInsights() {
+    if (!brew) return;
+    ratingInsightsError = '';
+    try {
+      ratingInsights = await api<RatingAggregate>(`/brews/${brew.id}/rating-insights`);
+    } catch (caught) {
+      ratingInsightsError =
+        caught instanceof Error ? caught.message : 'Tasting results are temporarily unavailable.';
     }
   }
 
@@ -339,6 +356,40 @@
       >
     </div>
   </section>
+  {#if ratingInsights}
+    <section class="group-results" aria-labelledby="group-results-heading">
+      <div class="group-results-heading">
+        <p class="eyebrow">Group response</p>
+        <h2 id="group-results-heading">How this brew landed.</h2>
+        <p class="muted">
+          Anonymous averages from {ratingInsights.count}
+          {ratingInsights.count === 1 ? 'rating' : 'ratings'}.
+        </p>
+      </div>
+      <div class="group-results-layout">
+        <RatingMetrics aggregate={ratingInsights} />
+        <div class="group-radar panel">
+          <FlavorRadar axes={ratingInsights.flavor_axes} subject={`brew ${brew.id}`} />
+        </div>
+      </div>
+    </section>
+  {:else if ratingInsightsError}
+    <p class="error partial" role="status">
+      The brew is available, but tasting results could not be loaded: {ratingInsightsError}
+    </p>
+  {:else if !$sessionStore}
+    <section class="results-signin panel" aria-labelledby="results-signin-heading">
+      <p class="eyebrow">Group response</p>
+      <h2 id="results-signin-heading">Sign in to see this brew’s tasting results.</h2>
+      <a class="button" href={loginPath(`/brews/${brew.id}`)}>Sign in</a>
+    </section>
+  {:else if $sessionStore.profile.pin_change_required}
+    <section class="results-signin panel" aria-labelledby="results-pin-heading">
+      <p class="eyebrow">Group response</p>
+      <h2 id="results-pin-heading">Finish setting up your PIN to see tasting results.</h2>
+      <a class="button" href="/account/pin">Change PIN</a>
+    </section>
+  {/if}
 {:else}
   <div class="panel">
     <p class="eyebrow">Brew #{brew.id}</p>
@@ -552,6 +603,42 @@
     align-items: center;
     min-height: 68vh;
   }
+  .group-results,
+  .group-results-heading,
+  .results-signin {
+    display: grid;
+  }
+  .group-results {
+    gap: 18px;
+    margin-top: clamp(30px, 6vw, 70px);
+  }
+  .group-results-heading,
+  .results-signin {
+    gap: 8px;
+  }
+  .group-results-heading > *,
+  .results-signin > * {
+    margin: 0;
+  }
+  .group-results-heading h2,
+  .results-signin h2 {
+    font-size: clamp(1.8rem, 4vw, 2.7rem);
+  }
+  .group-results-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+    gap: clamp(18px, 4vw, 40px);
+    align-items: center;
+    min-width: 0;
+  }
+  .group-radar {
+    min-width: 0;
+    padding: clamp(12px, 3vw, 24px);
+  }
+  .results-signin {
+    justify-items: start;
+    margin-top: clamp(30px, 6vw, 70px);
+  }
   .brew-summary {
     display: flex;
     flex-wrap: wrap;
@@ -652,6 +739,9 @@
       min-height: 110px;
     }
     .invitation {
+      grid-template-columns: 1fr;
+    }
+    .group-results-layout {
       grid-template-columns: 1fr;
     }
     .qr-card {

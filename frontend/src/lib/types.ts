@@ -233,6 +233,32 @@ export interface RatingItem extends RatingInput {
   updated_at: string;
 }
 
+export interface FlavorAxisSummary {
+  id: number;
+  label: string;
+  mentions: number;
+  total: number;
+}
+
+export interface RatingAggregate {
+  count: number;
+  averages: Record<string, number>;
+  flavor_axes: FlavorAxisSummary[];
+}
+
+export interface RatedBrewInsight {
+  brew: Brew;
+  aggregate: RatingAggregate;
+}
+
+export interface CoffeeRatingInsights {
+  coffee_id: number;
+  aggregate: RatingAggregate;
+  rated_brew_count: number;
+  rated_brews: RatedBrewInsight[];
+  next_offset: number | null;
+}
+
 export interface RatingSummary {
   can_view: boolean;
   own_rating: RatingItem | null;
@@ -240,6 +266,7 @@ export interface RatingSummary {
   count: number;
   averages: Record<string, number>;
   flavor_counts: Record<string, number>;
+  flavor_axes: FlavorAxisSummary[];
 }
 
 export interface ProfileCoffeePreference {

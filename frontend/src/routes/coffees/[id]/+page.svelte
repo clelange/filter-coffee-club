@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import CatalogMetrics from '$lib/CatalogMetrics.svelte';
   import CatalogPhoto from '$lib/CatalogPhoto.svelte';
+  import CoffeeTastingAnalysis from '$lib/CoffeeTastingAnalysis.svelte';
   import CoffeeFields from '$lib/CoffeeFields.svelte';
   import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import PhotoPicker from '$lib/PhotoPicker.svelte';
@@ -18,11 +18,12 @@
     uploadCatalogPhoto
   } from '$lib/api';
   import { coffeePayload, coffeeToForm, emptyCoffeeForm, formatCatalogDate } from '$lib/catalog';
-  import { deviceModeStore } from '$lib/device';
-  import type { CatalogInsights, Coffee } from '$lib/types';
+  import { deviceModeStore, loginPath } from '$lib/device';
+  import type { CatalogInsights, Coffee, CoffeeRatingInsights } from '$lib/types';
 
   let coffee: Coffee | null = $state(null);
   let insights: CatalogInsights | null = $state(null);
+  let ratingInsights: CoffeeRatingInsights | null = $state(null);
   let form = $state(emptyCoffeeForm());
   let baseline = $state('');
   let editMode = $state(false);
@@ -30,6 +31,8 @@
   let notFound = $state(false);
   let error = $state('');
   let insightsError = $state('');
+  let ratingInsightsError = $state('');
+  let loadMoreError = $state('');
   let success = $state('');
   let photoError = $state('');
   let photoFile: File | null = $state(null);
@@ -38,6 +41,7 @@
   let cloning = $state(false);
   let archiveOpen = $state(false);
   let archiving = $state(false);
+  let loadingMore = $state(false);
 
   const id = $derived(Number($page.params.id));
   const dirty = $derived(
@@ -70,6 +74,7 @@
   async function load() {
     loading = true;
     error = '';
+    loadMoreError = '';
     notFound = false;
     try {
       coffee = await api<Coffee>(`/coffees/${id}`);
@@ -81,6 +86,20 @@
       } catch (caught) {
         insightsError =
           caught instanceof Error ? caught.message : 'Brew results are temporarily unavailable.';
+      }
+      ratingInsights = null;
+      ratingInsightsError = '';
+      if ($sessionStore && !$sessionStore.profile.pin_change_required) {
+        try {
+          ratingInsights = await api<CoffeeRatingInsights>(
+            `/coffees/${id}/rating-insights?limit=12&offset=0`
+          );
+        } catch (caught) {
+          ratingInsightsError =
+            caught instanceof Error
+              ? caught.message
+              : 'Tasting results are temporarily unavailable.';
+        }
       }
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 404) notFound = true;
@@ -190,6 +209,30 @@
       archiveOpen = false;
     } finally {
       archiving = false;
+    }
+  }
+
+  async function loadMoreBrews() {
+    if (!ratingInsights || ratingInsights.next_offset === null) return;
+    loadingMore = true;
+    loadMoreError = '';
+    try {
+      const next = await api<CoffeeRatingInsights>(
+        `/coffees/${id}/rating-insights?limit=12&offset=${ratingInsights.next_offset}`
+      );
+      const existingIds = new Set(ratingInsights.rated_brews.map((result) => result.brew.id));
+      ratingInsights = {
+        ...next,
+        rated_brews: [
+          ...ratingInsights.rated_brews,
+          ...next.rated_brews.filter((result) => !existingIds.has(result.brew.id))
+        ]
+      };
+    } catch (caught) {
+      loadMoreError =
+        caught instanceof Error ? caught.message : 'Could not load older rated brews.';
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -368,7 +411,32 @@
     {#if insightsError}<p class="error partial" role="status">
         Coffee details are available, but brew results could not be loaded: {insightsError}
       </p>{/if}
-    {#if insights}<CatalogMetrics {insights} /><RecentBrews {insights} />{/if}
+    {#if ratingInsightsError}<p class="error partial" role="status">
+        Coffee details are available, but tasting results could not be loaded: {ratingInsightsError}
+      </p>{/if}
+    {#if ratingInsights}
+      <CoffeeTastingAnalysis
+        {coffee}
+        insights={ratingInsights}
+        {loadingMore}
+        {loadMoreError}
+        onloadmore={loadMoreBrews}
+      />
+    {:else if !$sessionStore}
+      <section class="analysis-signin panel" aria-labelledby="analysis-signin-heading">
+        <p class="eyebrow">Tasting results</p>
+        <h2 id="analysis-signin-heading">Sign in to see the club’s tasting analysis.</h2>
+        <p class="muted">Coffee details and Latest activity remain available to everyone.</p>
+        <a class="button" href={loginPath(`/coffees/${coffee.id}`)}>Sign in</a>
+      </section>
+    {:else if $sessionStore.profile.pin_change_required}
+      <section class="analysis-signin panel" aria-labelledby="analysis-pin-heading">
+        <p class="eyebrow">Tasting results</p>
+        <h2 id="analysis-pin-heading">Finish setting up your PIN to see tasting analysis.</h2>
+        <a class="button" href="/account/pin">Change PIN</a>
+      </section>
+    {/if}
+    {#if insights}<RecentBrews {insights} />{/if}
   {/if}
 </div>
 
@@ -415,7 +483,8 @@
   .section-heading,
   .metadata-section,
   .edit-panel,
-  .photo-edit {
+  .photo-edit,
+  .analysis-signin {
     display: grid;
   }
   .detail-identity {
@@ -493,6 +562,14 @@
   }
   .photo-edit {
     gap: 12px;
+  }
+  .analysis-signin {
+    justify-items: start;
+    gap: 12px;
+  }
+  .analysis-signin h2 {
+    margin: 0;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
   }
   .photo-edit button {
     width: fit-content;

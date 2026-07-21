@@ -19,6 +19,17 @@ interface EditableFlavorTag {
   sort_order: number;
 }
 
+interface CoffeeRatingInsightsFixture {
+  coffee_id: number;
+  aggregate: Record<string, unknown>;
+  rated_brew_count: number;
+  rated_brews: Array<{
+    brew: { id: number; completed_at: string | null; [key: string]: unknown };
+    aggregate: Record<string, unknown>;
+  }>;
+  next_offset: number | null;
+}
+
 async function enterKioskPin(page: Page, pin: string, label = 'PIN') {
   const pad = page.getByRole('group', { name: label, exact: true });
   for (const digit of pin) await pad.getByRole('button', { name: digit, exact: true }).click();
@@ -198,7 +209,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .setInputFiles(colombiaPhoto);
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
-  const detailPhoto = page.getByRole('img', { name: 'PSI Roasters Collider Blend' });
+  const detailPhoto = page
+    .getByTestId('detail-photo')
+    .getByRole('img', { name: 'PSI Roasters Collider Blend', exact: true });
   await expect.poll(() => detailPhoto.getAttribute('src')).not.toBe(firstPhotoPath);
   const detailGeometry = await page.evaluate(() => {
     const photo = document.querySelector<HTMLElement>('[data-testid="detail-photo"]');
@@ -611,7 +624,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(
     phone.getByText('No broad flavour categories configured.', { exact: true })
   ).toBeVisible();
-  await expect(phone.locator('[data-testid="flavor-radar"] [role="img"]')).toHaveCount(0);
+  await expect(phone.locator('[data-testid="flavor-radar"] [role="img"]')).toHaveAttribute(
+    'aria-label',
+    /Broad flavour profile for .+\. No broad flavour categories are configured\./
+  );
   for (const tag of parentTags) await updateFlavorTag(tag, { active: true });
   await phone.reload();
   await expect(phone.locator('[data-testid="flavor-radar"] .axis-label')).toHaveCount(8);
@@ -660,7 +676,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.locator('.result-panel .tags')).toContainText('Fruity · 1');
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+  await expect(
+    page.getByLabel('Main navigation').getByRole('link', { name: 'Sign in' })
+  ).toBeVisible();
 
   const invitationPath = new URL(page.url()).pathname;
   await page.goto('/coffees');
@@ -677,8 +695,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     })
     .click();
   await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
-  await expect(page.getByText('Average liking', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Ratings', { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Sign in to see the club’s tasting analysis.' })
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What the club tasted.' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
 
@@ -696,6 +716,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await grinderCard.getByRole('link', { name: 'View details for C40' }).click();
   await expect(page).toHaveURL(/\/equipment\/grinders\/\d+$/);
   await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  await expect(page.getByText('Average ratio', { exact: true })).toBeVisible();
+  await expect(page.getByText('Average temperature', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await page.goto('/equipment');
@@ -719,6 +741,36 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How this brew landed.' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Broad flavour profile for brew/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 1 of 2 tasters \(50%\)/
+  );
+  await page.route('**/api/v1/brews/*/rating-insights', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      flavor_axes: Array<{ id: number; label: string; mentions: number; total: number }>;
+    };
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        count: 0,
+        averages: {},
+        flavor_axes: body.flavor_axes.map((axis) => ({ ...axis, mentions: 0, total: 0 }))
+      }
+    });
+  });
+  await page.reload();
+  await expect(page.locator('.group-results .radar-zero-label')).toHaveText(
+    'No broad flavour notes yet.'
+  );
+  await expect(page.getByRole('img', { name: /Broad flavour profile for brew/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 0 of 0 tasters \(0%\)/
+  );
+  await page.unroute('**/api/v1/brews/*/rating-insights');
+  await page.reload();
   const personalRatingPath = await page
     .getByRole('link', { name: 'Rate on this screen' })
     .getAttribute('href');
@@ -864,14 +916,104 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   });
   expect(desktopCatalogGeometry.actionBottomSpread).toBeLessThanOrEqual(1);
   expect(desktopCatalogGeometry.noOverflow).toBe(true);
+
+  let firstCoffeeBrewInsight: CoffeeRatingInsightsFixture['rated_brews'][number] | null = null;
+  await page.route('**/api/v1/coffees/*/rating-insights?*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as CoffeeRatingInsightsFixture;
+    const offset = new URL(route.request().url()).searchParams.get('offset');
+    if (offset === '0' && body.rated_brews.length > 0) {
+      firstCoffeeBrewInsight = body.rated_brews[0];
+      await route.fulfill({
+        response,
+        json: { ...body, rated_brew_count: 2, next_offset: 1 }
+      });
+      return;
+    }
+    if (offset === '1' && firstCoffeeBrewInsight) {
+      const older = structuredClone(firstCoffeeBrewInsight);
+      older.brew.id += 10_000;
+      older.brew.completed_at = '2026-07-01T12:00:00Z';
+      await route.fulfill({
+        response,
+        json: { ...body, rated_brews: [older], rated_brew_count: 2, next_offset: null }
+      });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   await signedBrewedCard
     .getByRole('link', {
       name: 'View details for Ethiopia Guji Hambela Buku Abel Extended Lot Name'
     })
     .click();
-  await expect(page.getByText('Average liking', { exact: true })).toBeVisible();
-  await expect(page.getByText('Ratings', { exact: true })).toBeVisible();
+  const tastingSection = page.locator('.tasting-section');
+  await expect(page.getByRole('heading', { name: 'What the club tasted.' })).toBeVisible();
+  for (const metric of ['Liking', 'Acidity', 'Bitterness', 'Sweetness', 'Body', 'Ratings']) {
+    await expect(tastingSection.getByText(metric, { exact: true })).toBeVisible();
+  }
+  const aggregateMetrics = tastingSection.getByTestId('rating-metrics');
+  await expect(
+    aggregateMetrics.locator('.rating-metric').filter({ hasText: 'Liking' })
+  ).toContainText('/9');
+  for (const metric of ['Acidity', 'Bitterness', 'Sweetness', 'Body']) {
+    await expect(
+      aggregateMetrics.locator('.rating-metric').filter({ hasText: metric })
+    ).toContainText('/5');
+  }
+  for (const removedMetric of [
+    'Average ratio',
+    'Average temperature',
+    'Average brew time',
+    'Average throughput'
+  ]) {
+    await expect(page.getByText(removedMetric, { exact: true })).toHaveCount(0);
+  }
+  await expect(tastingSection.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
+    'aria-label',
+    /Fruity: 1 of 2 responses \(50%\)/
+  );
+  const comparisonGrid = page.locator('[data-testid="brew-comparison-grid"]');
+  await expect(page.locator('[data-testid="brew-comparison-card"]')).toHaveCount(1);
+  const firstComparisonCard = page.locator('[data-testid="brew-comparison-card"]').first();
+  for (const contextLabel of ['Ratio', 'Temperature', 'Grinder', 'Brew time', 'Throughput']) {
+    await expect(firstComparisonCard.getByText(contextLabel, { exact: true })).toBeVisible();
+  }
+  await expect(
+    firstComparisonCard.getByRole('img', { name: /Broad flavour profile for brew/ })
+  ).toHaveAttribute('aria-label', /Fruity: 1 of 2 tasters \(50%\)/);
+  const firstBrewLink = firstComparisonCard.getByRole('link', { name: 'View brew' });
+  const loadMoreBrews = page.getByRole('button', { name: 'Load more brews' });
+  await firstBrewLink.focus();
+  await page.keyboard.press('Tab');
+  await expect(loadMoreBrews).toBeFocused();
+  expect(
+    await comparisonGrid.evaluate(
+      (grid) => getComputedStyle(grid).gridTemplateColumns.split(' ').length
+    )
+  ).toBe(2);
+  await loadMoreBrews.click();
+  await expect(page.locator('[data-testid="brew-comparison-card"]')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Load more brews' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Recent completed brews.' })).toBeVisible();
+  for (const viewport of [
+    { width: 768, height: 1024 },
+    { width: 393, height: 851 }
+  ]) {
+    await page.setViewportSize(viewport);
+    expect(
+      await comparisonGrid.evaluate(
+        (grid) => getComputedStyle(grid).gridTemplateColumns.split(' ').length
+      )
+    ).toBe(1);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+      )
+    ).toBe(true);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.unroute('**/api/v1/coffees/*/rating-insights?*');
 
   await page.goto('/coffees');
   const personalColliderCard = page

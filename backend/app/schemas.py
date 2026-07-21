@@ -327,6 +327,32 @@ class RatingItem(RatingInput):
     updated_at: datetime
 
 
+class FlavorAxisSummary(BaseModel):
+    id: int
+    label: str
+    mentions: int
+    total: int
+
+
+class RatingAggregate(BaseModel):
+    count: int = 0
+    averages: dict[str, float] = Field(default_factory=dict)
+    flavor_axes: list[FlavorAxisSummary] = Field(default_factory=list)
+
+
+class RatedBrewInsight(BaseModel):
+    brew: BrewResponse
+    aggregate: RatingAggregate
+
+
+class CoffeeRatingInsights(BaseModel):
+    coffee_id: int
+    aggregate: RatingAggregate
+    rated_brew_count: int
+    rated_brews: list[RatedBrewInsight] = Field(default_factory=list)
+    next_offset: int | None = None
+
+
 class RatingSummary(BaseModel):
     can_view: bool
     own_rating: RatingItem | None
@@ -334,6 +360,7 @@ class RatingSummary(BaseModel):
     count: int = 0
     averages: dict[str, float] = Field(default_factory=dict)
     flavor_counts: dict[str, int] = Field(default_factory=dict)
+    flavor_axes: list[FlavorAxisSummary] = Field(default_factory=list)
 
 
 class ProfileCoffeePreference(BaseModel):

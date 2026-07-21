@@ -194,6 +194,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coffees/{coffee_id}/rating-insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Coffee Rating Insights */
+        get: operations["get_coffee_rating_insights_api_v1_coffees__coffee_id__rating_insights_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/coffees/{coffee_id}/photo": {
         parameters: {
             query?: never;
@@ -592,6 +609,23 @@ export interface paths {
         get: operations["get_brew_api_v1_brews__brew_id__get"];
         /** Update Brew */
         put: operations["update_brew_api_v1_brews__brew_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/brews/{brew_id}/rating-insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Brew Rating Insights */
+        get: operations["get_brew_rating_insights_api_v1_brews__brew_id__rating_insights_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1291,6 +1325,18 @@ export interface components {
             /** Package Notes */
             package_notes?: string | null;
         };
+        /** CoffeeRatingInsights */
+        CoffeeRatingInsights: {
+            /** Coffee Id */
+            coffee_id: number;
+            aggregate: components["schemas"]["RatingAggregate"];
+            /** Rated Brew Count */
+            rated_brew_count: number;
+            /** Rated Brews */
+            rated_brews?: components["schemas"]["RatedBrewInsight"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
         /** CoffeeResponse */
         CoffeeResponse: {
             /** Roaster */
@@ -1372,6 +1418,17 @@ export interface components {
             photo_path: string | null;
             /** Archived */
             archived: boolean;
+        };
+        /** FlavorAxisSummary */
+        FlavorAxisSummary: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Mentions */
+            mentions: number;
+            /** Total */
+            total: number;
         };
         /** FlavorTagInput */
         FlavorTagInput: {
@@ -1642,6 +1699,25 @@ export interface components {
             /** Pin */
             pin?: string | null;
         };
+        /** RatedBrewInsight */
+        RatedBrewInsight: {
+            brew: components["schemas"]["BrewResponse"];
+            aggregate: components["schemas"]["RatingAggregate"];
+        };
+        /** RatingAggregate */
+        RatingAggregate: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Averages */
+            averages?: {
+                [key: string]: number;
+            };
+            /** Flavor Axes */
+            flavor_axes?: components["schemas"]["FlavorAxisSummary"][];
+        };
         /** RatingComparison */
         RatingComparison: {
             /** Brew Id */
@@ -1731,6 +1807,8 @@ export interface components {
             flavor_counts?: {
                 [key: string]: number;
             };
+            /** Flavor Axes */
+            flavor_axes?: components["schemas"]["FlavorAxisSummary"][];
         };
         /** SessionResponse */
         SessionResponse: {
@@ -2158,6 +2236,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_coffee_rating_insights_api_v1_coffees__coffee_id__rating_insights_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeRatingInsights"];
                 };
             };
             /** @description Validation Error */
@@ -3318,6 +3430,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_brew_rating_insights_api_v1_brews__brew_id__rating_insights_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                brew_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingAggregate"];
                 };
             };
             /** @description Validation Error */
