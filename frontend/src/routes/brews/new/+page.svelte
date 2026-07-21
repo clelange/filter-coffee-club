@@ -5,18 +5,31 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
-  import type { Brew, BrewFilter, BrewInput, Coffee, Dripper, Grinder, Preset } from '$lib/types';
+  import type {
+    Brew,
+    BrewFilter,
+    BrewInput,
+    Coffee,
+    Dripper,
+    Grinder,
+    Preset,
+    Profile
+  } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
   let grinders: Grinder[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
   let presets: Preset[] = $state([]);
+  let operators: Profile[] = $state([]);
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
   let correctionId = $state<number | null>(null);
   let correctionMinutes = $state(3);
   let correctionSeconds = $state(0);
+  let correctionOperatorId = $state(0);
+  let originalOperatorId = $state(0);
+  let originalOperatorName = $state('');
   let selectedRatio = $state(16);
   let showCoffeeForm = $state(false);
   let coffeeError = $state('');
@@ -57,7 +70,8 @@
   }
 
   onMount(async () => {
-    if (!(await ensureSession())) {
+    const session = await ensureSession();
+    if (!session) {
       await goto(loginPath($page.url.pathname + $page.url.search));
       return;
     }
@@ -67,19 +81,15 @@
         await goto(`/brews/${correctionId}`);
         return;
       }
-      const session = await ensureSession();
-      if (session?.profile.role !== 'admin') {
-        await goto(`/brews/${correctionId}`);
-        return;
-      }
     }
     try {
-      [coffees, grinders, drippers, filters, presets] = await Promise.all([
+      [coffees, grinders, drippers, filters, presets, operators] = await Promise.all([
         api<Coffee[]>('/coffees'),
         api<Grinder[]>('/grinders'),
         api<Dripper[]>('/drippers'),
         api<BrewFilter[]>('/filters'),
-        api<Preset[]>('/presets')
+        api<Preset[]>('/presets'),
+        correctionId ? api<Profile[]>('/auth/profiles') : Promise.resolve([])
       ]);
       form.coffee_id = Number($page.url.searchParams.get('coffee')) || coffees[0]?.id || 0;
       form.grinder_id = grinders[0]?.id ?? 0;
@@ -87,10 +97,23 @@
       const repeatId = Number($page.url.searchParams.get('repeat')) || null;
       if (editId || repeatId || correctionId) {
         const source = await api<Brew>(`/brews/${editId || repeatId || correctionId}`);
+        if (
+          correctionId &&
+          session.profile.role !== 'admin' &&
+          session.profile.id !== source.operator_id
+        ) {
+          await goto(`/brews/${correctionId}`);
+          return;
+        }
         copyBrew(source);
-        if (correctionId && source.total_brew_time_s) {
-          correctionMinutes = Math.floor(source.total_brew_time_s / 60);
-          correctionSeconds = source.total_brew_time_s % 60;
+        if (correctionId) {
+          correctionOperatorId = source.operator_id;
+          originalOperatorId = source.operator_id;
+          originalOperatorName = source.operator_name;
+          if (source.total_brew_time_s) {
+            correctionMinutes = Math.floor(source.total_brew_time_s / 60);
+            correctionSeconds = source.total_brew_time_s % 60;
+          }
         }
       }
       await loadHistory();
@@ -195,7 +218,12 @@
         method: editId || correctionId ? 'PUT' : 'POST',
         body: jsonBody(
           correctionId
-            ? { ...form, total_brew_time_s: correctionMinutes * 60 + correctionSeconds }
+            ? {
+                ...form,
+                operator_id:
+                  correctionOperatorId !== originalOperatorId ? correctionOperatorId : undefined,
+                total_brew_time_s: correctionMinutes * 60 + correctionSeconds
+              }
             : form
         )
       });
@@ -453,6 +481,19 @@
       {#if correctionId}
         <fieldset>
           <legend>Recorded result</legend>
+          <label>
+            Operator
+            <select bind:value={correctionOperatorId} required>
+              {#if !operators.some((operator) => operator.id === originalOperatorId)}
+                <option value={originalOperatorId}
+                  >{originalOperatorName} (current; inactive)</option
+                >
+              {/if}
+              {#each operators as operator}
+                <option value={operator.id}>{operator.display_name}</option>
+              {/each}
+            </select>
+          </label>
           <div class="field-grid correction-time">
             <label
               >Minutes<input

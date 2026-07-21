@@ -599,6 +599,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/brews/{brew_id}/operator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Brew Operator */
+        put: operations["update_brew_operator_api_v1_brews__brew_id__operator_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/brews/{brew_id}/correction": {
         parameters: {
             query?: never;
@@ -993,6 +1010,8 @@ export interface components {
             pour_count?: number | null;
             /** Technique Note */
             technique_note?: string | null;
+            /** Operator Id */
+            operator_id?: number | null;
             /** Total Brew Time S */
             total_brew_time_s: number;
         };
@@ -1038,6 +1057,11 @@ export interface components {
             pour_count?: number | null;
             /** Technique Note */
             technique_note?: string | null;
+        };
+        /** BrewOperatorUpdate */
+        BrewOperatorUpdate: {
+            /** Operator Id */
+            operator_id: number;
         };
         /** BrewResponse */
         BrewResponse: {
@@ -3284,6 +3308,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["BrewInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_brew_operator_api_v1_brews__brew_id__operator_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                brew_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrewOperatorUpdate"];
             };
         };
         responses: {

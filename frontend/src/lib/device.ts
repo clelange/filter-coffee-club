@@ -60,8 +60,10 @@ export function currentDeviceMode(): DeviceMode {
   return get(deviceModeStore);
 }
 
-export function loginPath(next?: string): string {
-  if (!next) return '/login';
-  const params = new URLSearchParams({ next });
+export function loginPath(next?: string, profileId?: number): string {
+  if (!next && !profileId) return '/login';
+  const params = new URLSearchParams();
+  if (next) params.set('next', next);
+  if (profileId) params.set('profile', String(profileId));
   return `/login?${params.toString()}`;
 }

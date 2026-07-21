@@ -235,7 +235,12 @@ class BrewFinalize(BaseModel):
     total_brew_time_s: int = Field(gt=0, le=3600)
 
 
+class BrewOperatorUpdate(BaseModel):
+    operator_id: int
+
+
 class BrewCorrection(BrewInput):
+    operator_id: int | None = None
     total_brew_time_s: int = Field(gt=0, le=3600)
 
 

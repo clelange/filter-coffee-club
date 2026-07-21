@@ -4,8 +4,16 @@
   import { page } from '$app/stores';
   import { deviceModeStore, loginPath } from '$lib/device';
   import NumberStepper from '$lib/NumberStepper.svelte';
-  import { api, ensureSession, formatTime, jsonBody, logout, sessionStore } from '$lib/api';
-  import type { Brew } from '$lib/types';
+  import {
+    api,
+    ensureSession,
+    formatTime,
+    jsonBody,
+    logout,
+    sessionStore,
+    setSession
+  } from '$lib/api';
+  import type { Brew, Profile } from '$lib/types';
 
   let brew: Brew | null = $state(null);
   let error = $state('');
@@ -16,6 +24,10 @@
   let copied = $state(false);
   let statusAction: 'cancel' | 'void' | null = $state(null);
   let changingStatus = $state(false);
+  let operatorDialog = $state(false);
+  let operators: Profile[] = $state([]);
+  let selectedOperatorId = $state(0);
+  let changingOperator = $state(false);
   let wakeLock: WakeLockSentinel | null = null;
 
   const id = $derived(Number($page.params.id));
@@ -95,6 +107,61 @@
       $sessionStore &&
       ($sessionStore.profile.id === brew.operator_id || $sessionStore.profile.role === 'admin')
     );
+  }
+
+  function canCorrectCompleted(): boolean {
+    return Boolean(
+      brew &&
+      $sessionStore &&
+      ($sessionStore.profile.id === brew.operator_id || $sessionStore.profile.role === 'admin')
+    );
+  }
+
+  async function openOperatorDialog() {
+    if (!brew) return;
+    error = '';
+    try {
+      if (!operators.length) operators = await api<Profile[]>('/auth/profiles');
+      selectedOperatorId = brew.operator_id;
+      operatorDialog = true;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not load the operator list.';
+    }
+  }
+
+  async function changeOperator() {
+    if (!brew || selectedOperatorId === brew.operator_id) return;
+    changingOperator = true;
+    error = '';
+    const session = $sessionStore;
+    try {
+      brew = await api<Brew>(`/brews/${brew.id}/operator`, {
+        method: 'PUT',
+        body: jsonBody({ operator_id: selectedOperatorId })
+      });
+      operatorDialog = false;
+      if (session?.profile.role !== 'admin' && session?.profile.id !== brew.operator_id) {
+        try {
+          await wakeLock?.release();
+        } catch {
+          // The handoff must continue even if the browser cannot release its wake lock cleanly.
+        }
+        wakeLock = null;
+        const nextOperatorId = brew.operator_id;
+        const nextBrewId = brew.id;
+        try {
+          await logout();
+        } catch {
+          // A subsequent login replaces the cookie; clear local identity so the handoff can proceed.
+          setSession(null);
+        }
+        await goto(loginPath(`/brews/${nextBrewId}`, nextOperatorId));
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not change the operator.';
+    } finally {
+      changingOperator = false;
+    }
   }
 
   async function changeStatus() {
@@ -181,6 +248,7 @@
     <div class="actions brew-actions">
       {#if canManageDraft()}
         <button class="danger" onclick={() => (statusAction = 'cancel')}>Cancel brew</button>
+        <button class="secondary" onclick={openOperatorDialog}>Change operator</button>
         <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
         <button class="primary" onclick={() => (finishing = true)}>Finish brew</button>
       {/if}
@@ -251,8 +319,10 @@
       <div class="actions">
         <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
-        {#if $sessionStore?.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
+        {#if canCorrectCompleted() && $deviceModeStore !== 'kiosk'}
           <a class="button secondary" href={`/brews/new?correct=${brew.id}`}>Correct brew</a>
+        {/if}
+        {#if $sessionStore?.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
           <button class="danger" onclick={() => (statusAction = 'void')}>Void brew</button>
         {/if}
       </div>
@@ -275,6 +345,51 @@
     <h1>This brew is {brew.status}.</h1>
     <p class="lede">It is kept in the log but cannot be rated.</p>
     <a class="button secondary" href="/">Return home</a>
+  </div>
+{/if}
+
+{#if operatorDialog && brew}
+  <div class="modal-backdrop" role="presentation">
+    <div
+      class="modal panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="operator-title"
+      tabindex="-1"
+    >
+      <div class="modal-heading">
+        <p class="eyebrow">Operator handoff</p>
+        <h2 id="operator-title">Change operator</h2>
+        <p class="muted">
+          {$sessionStore?.profile.role === 'admin'
+            ? 'The selected profile will be recorded as the brewer. You can continue managing the draft as an administrator.'
+            : 'You will be signed out, then the new operator can sign in and continue this brew.'}
+        </p>
+      </div>
+      <label>
+        New operator
+        <select bind:value={selectedOperatorId} disabled={changingOperator}>
+          {#each operators as operator}
+            <option value={operator.id}>{operator.display_name}</option>
+          {/each}
+        </select>
+      </label>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <div class="actions">
+        <button
+          class="primary"
+          onclick={changeOperator}
+          disabled={changingOperator || selectedOperatorId === brew.operator_id}
+        >
+          {changingOperator ? 'Changing…' : 'Change operator'}
+        </button>
+        <button
+          class="secondary"
+          onclick={() => (operatorDialog = false)}
+          disabled={changingOperator}>Keep current operator</button
+        >
+      </div>
+    </div>
   </div>
 {/if}
 
