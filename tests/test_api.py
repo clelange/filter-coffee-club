@@ -684,8 +684,40 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert b'width="328"' in qr.content
         assert client.get("/api/v1/settings").json()["public_base_url"] == "http://fcc.test"
 
+        fruity = next(
+            item
+            for item in client.get("/api/v1/flavor-tags").json()
+            if item["name"] == "Fruity" and item["parent_id"] is None
+        )
+        admin_rating = client.post(
+            f"/api/v1/brews/{brew['id']}/ratings",
+            headers=headers,
+            json={
+                "liking": 7,
+                "acidity": 4,
+                "bitterness": 2,
+                "sweetness": 3,
+                "body": 4,
+                "flavor_tag_ids": [fruity["id"]],
+            },
+        )
+        assert admin_rating.status_code == 200
+        admin_profile = client.get("/api/v1/profiles/1/ratings").json()
+        assert admin_profile["is_self"] is True
+        assert admin_profile["is_complete_history"] is True
+        assert admin_profile["rating_count"] == 1
+        assert admin_profile["favorite_coffees"][0]["average_liking"] == 7
+        admin_comparison = admin_profile["ratings"][0]
+        assert admin_comparison["selected_flavors"] == ["Fruity"]
+        assert admin_comparison["peer_count"] == 0
+        assert admin_comparison["peer_averages"] == {}
+        assert admin_comparison["peer_deltas"] == {}
+        assert admin_profile["next_offset"] is None
+
         client.post("/api/v1/auth/logout", headers=headers)
         assert client.get("/api/v1/auth/me").status_code == 401
+        assert client.get("/api/v1/profiles/1/ratings").status_code == 401
+        assert client.get(f"/api/v1/ratings/me/comparisons?brew_id={brew['id']}").status_code == 401
         assert client.get(f"/api/v1/rating-links/{finalized['rating_token']}").status_code == 200
         assert client.get("/api/v1/rating-links/not-a-token").status_code == 404
         login = client.post(
@@ -702,6 +734,13 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         )
         assert pin_change.status_code == 204
         assert client.get("/api/v1/auth/me").json()["profile"]["pin_change_required"] is False
+        hidden_profile = client.get("/api/v1/profiles/1/ratings").json()
+        assert hidden_profile["is_self"] is False
+        assert hidden_profile["is_complete_history"] is False
+        assert hidden_profile["rating_count"] == 0
+        assert hidden_profile["ratings"] == []
+        assert hidden_profile["averages"] == {}
+        assert client.get("/api/v1/profiles/99999/ratings").status_code == 404
         updated_grinder = client.put(
             f"/api/v1/grinders/{grinder['id']}",
             headers=member_headers,
@@ -736,11 +775,6 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             "averages": {},
             "flavor_counts": {},
         }
-        fruity = next(
-            item
-            for item in client.get("/api/v1/flavor-tags").json()
-            if item["name"] == "Fruity" and item["parent_id"] is None
-        )
         too_many_tags = client.post(
             f"/api/v1/brews/{brew['id']}/ratings",
             headers=member_headers,
@@ -770,7 +804,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         )
         assert rated.status_code == 200, rated.text
         assert rated.json()["can_view"] is True
-        assert rated.json()["averages"]["liking"] == 8
+        assert rated.json()["averages"]["liking"] == 7.5
         updated = client.post(
             f"/api/v1/brews/{brew['id']}/ratings",
             headers=member_headers,
@@ -784,17 +818,156 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             },
         )
         assert updated.status_code == 200
-        assert updated.json()["count"] == 1
-        assert updated.json()["averages"]["liking"] == 9
+        assert updated.json()["count"] == 2
+        assert updated.json()["averages"]["liking"] == 8
+
+        own_profile = client.get(f"/api/v1/profiles/{member['id']}/ratings").json()
+        assert own_profile["is_self"] is True
+        assert own_profile["is_complete_history"] is True
+        assert own_profile["averages"] == {
+            "liking": 9,
+            "acidity": 2,
+            "bitterness": 1,
+            "sweetness": 5,
+            "body": 3,
+        }
+        assert own_profile["favorite_coffees"] == [
+            {
+                "coffee_id": coffee["id"],
+                "coffee_name": "Collider Blend",
+                "coffee_roaster": "PSI Roasters",
+                "rating_count": 1,
+                "average_liking": 9,
+            }
+        ]
+        comparison = own_profile["ratings"][0]
+        assert comparison["total_rating_count"] == 2
+        assert comparison["peer_count"] == 1
+        assert comparison["peer_averages"] == {
+            "liking": 7,
+            "acidity": 4,
+            "bitterness": 2,
+            "sweetness": 3,
+            "body": 4,
+        }
+        assert comparison["peer_deltas"] == {
+            "liking": 2,
+            "acidity": -2,
+            "bitterness": -1,
+            "sweetness": 2,
+            "body": -1,
+        }
+        assert comparison["peer_flavor_counts"] == {"Fruity": 1}
+
+        shared_admin_profile = client.get("/api/v1/profiles/1/ratings").json()
+        assert shared_admin_profile["rating_count"] == 1
+        assert shared_admin_profile["ratings"][0]["rating"]["liking"] == 7
+        assert shared_admin_profile["ratings"][0]["peer_deltas"]["liking"] == -2
+
+        scoped_comparisons = client.get(
+            f"/api/v1/ratings/me/comparisons?brew_id={brew['id']}"
+        ).json()
+        assert [item["brew_id"] for item in scoped_comparisons] == [brew["id"]]
+        assert scoped_comparisons[0]["peer_averages"]["liking"] == 7
+        assert client.get("/api/v1/ratings/me/comparisons").status_code == 422
+        duplicate_ids = client.get(
+            f"/api/v1/ratings/me/comparisons?brew_id={brew['id']}&brew_id={brew['id']}"
+        )
+        assert duplicate_ids.status_code == 422
+        too_many_ids = "&".join(f"brew_id={item}" for item in range(1, 52))
+        assert client.get(f"/api/v1/ratings/me/comparisons?{too_many_ids}").status_code == 422
+
+        second_coffee = client.post(
+            "/api/v1/coffees",
+            headers=member_headers,
+            json={"roaster": "Quiet Roasters", "name": "Solo Lot"},
+        ).json()
+        second_brew = client.post(
+            "/api/v1/brews",
+            headers=member_headers,
+            json={
+                "coffee_id": second_coffee["id"],
+                "grinder_id": grinder["id"],
+                "dripper_id": dripper["id"],
+                "filter_id": brew_filter["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 92,
+                "grinder_setting": 29,
+            },
+        ).json()
+        client.post(
+            f"/api/v1/brews/{second_brew['id']}/finalize",
+            headers=member_headers,
+            json={"total_brew_time_s": 190},
+        )
+        second_rating = client.post(
+            f"/api/v1/brews/{second_brew['id']}/ratings",
+            headers=member_headers,
+            json={
+                "liking": 6,
+                "acidity": 1,
+                "bitterness": 4,
+                "sweetness": 2,
+                "body": 5,
+                "flavor_tag_ids": [],
+            },
+        )
+        assert second_rating.status_code == 200
+
+        comparison_ids = (second_brew["id"], brew["id"])
+        comparison_query = "&".join(f"brew_id={item}" for item in comparison_ids)
+        comparisons = client.get(f"/api/v1/ratings/me/comparisons?{comparison_query}").json()
+        assert [item["brew_id"] for item in comparisons] == list(comparison_ids)
+        assert comparisons[0]["peer_count"] == 0
+        assert comparisons[0]["peer_averages"] == {}
+        assert comparisons[0]["peer_deltas"] == {}
+        assert comparisons[1]["peer_count"] == 1
+
+        first_page = client.get(f"/api/v1/profiles/{member['id']}/ratings?limit=1&offset=0").json()
+        assert first_page["rating_count"] == 2
+        assert first_page["next_offset"] == 1
+        assert [item["brew"]["id"] for item in first_page["ratings"]] == [second_brew["id"]]
+        assert first_page["averages"] == {
+            "liking": 7.5,
+            "acidity": 1.5,
+            "bitterness": 2.5,
+            "sweetness": 3.5,
+            "body": 4,
+        }
+        assert [item["coffee_name"] for item in first_page["favorite_coffees"]] == [
+            "Collider Blend",
+            "Solo Lot",
+        ]
+        second_page = client.get(f"/api/v1/profiles/{member['id']}/ratings?limit=1&offset=1").json()
+        assert second_page["rating_count"] == 2
+        assert second_page["next_offset"] is None
+        assert [item["brew"]["id"] for item in second_page["ratings"]] == [brew["id"]]
+        assert second_page["averages"] == first_page["averages"]
+        assert second_page["favorite_coffees"] == first_page["favorite_coffees"]
+        assert client.get(f"/api/v1/profiles/{member['id']}/ratings?limit=101").status_code == 422
+        assert client.get(f"/api/v1/profiles/{member['id']}/ratings?offset=-1").status_code == 422
 
         client.post("/api/v1/auth/logout", headers=member_headers)
         admin_login = client.post(
             "/api/v1/auth/login",
             json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
         ).json()
+        admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
+        complete_member_profile = client.get(f"/api/v1/profiles/{member['id']}/ratings").json()
+        assert complete_member_profile["rating_count"] == 2
+        assert (
+            client.post(
+                f"/api/v1/brews/{second_brew['id']}/void", headers=admin_headers
+            ).status_code
+            == 200
+        )
+        profile_after_void = client.get(f"/api/v1/profiles/{member['id']}/ratings").json()
+        assert profile_after_void["rating_count"] == 1
+        assert [item["brew"]["id"] for item in profile_after_void["ratings"]] == [brew["id"]]
         corrected = client.put(
             f"/api/v1/brews/{brew['id']}/correction",
-            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+            headers=admin_headers,
             json={
                 "coffee_id": coffee["id"],
                 "grinder_id": grinder["id"],
@@ -818,12 +991,12 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert corrected.json()["temperature_c"] == 93
         voided = client.post(
             f"/api/v1/brews/{brew['id']}/void",
-            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+            headers=admin_headers,
         )
         assert voided.status_code == 200
         repeat_void = client.post(
             f"/api/v1/brews/{brew['id']}/void",
-            headers={"X-CSRF-Token": admin_login["csrf_token"]},
+            headers=admin_headers,
         )
         assert repeat_void.status_code == 409
         assert repeat_void.json()["detail"] == "Only completed brews can be voided"

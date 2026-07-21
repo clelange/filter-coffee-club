@@ -241,3 +241,37 @@ export interface RatingSummary {
   averages: Record<string, number>;
   flavor_counts: Record<string, number>;
 }
+
+export interface ProfileCoffeePreference {
+  coffee_id: number;
+  coffee_name: string;
+  coffee_roaster: string;
+  rating_count: number;
+  average_liking: number;
+}
+
+export interface RatingComparison {
+  brew_id: number;
+  rating: RatingItem;
+  total_rating_count: number;
+  peer_count: number;
+  peer_averages: Record<string, number>;
+  peer_deltas: Record<string, number>;
+  selected_flavors: string[];
+  peer_flavor_counts: Record<string, number>;
+}
+
+export interface ProfileRatingResult extends RatingComparison {
+  brew: Brew;
+}
+
+export interface ProfileRatings {
+  profile: Profile;
+  is_self: boolean;
+  is_complete_history: boolean;
+  rating_count: number;
+  averages: Record<string, number>;
+  favorite_coffees: ProfileCoffeePreference[];
+  ratings: ProfileRatingResult[];
+  next_offset: number | null;
+}
