@@ -2,6 +2,40 @@
 
 A small, touch-first pour-over tracker for the High-Energy Physics coffee breaks at PSI. It runs as one FastAPI container, stores its state in SQLite, and serves a compiled Svelte 5 single-page interface with no runtime CDN dependencies.
 
+## How this has been built
+
+I've built this web app with the Codex/ChatGPT app using GPT 5.6 Extra High Effort for all steps on macOS,
+outlining how I would initially have thought that this app could work.
+The overall idea was to have a filter coffee brewing tracker for our coffee breaks such that we can compare different
+kinds of coffees but in particular also how brewing a respective coffee differently would affect the results.
+I deliberately left a few options open for discussion to also receive some advice from the LLM.
+From a colleague, I had received a PDF with some coffee brewing instructions that I also added to my initial prompt.
+I asked for the app to be created using FastAPI as backend and SvelteKit as frontend since I'm familiar with both
+and have previously obtained good results with it.
+One constraint was that this app should work on a shared (Raspberry Pi) touch screen so that the brewing process
+can easily be followed by the person brewing the coffee.
+Furthermore, the whole app should run in a container for easier deployment.
+Also, all people drinking the coffee should be able to quickly vote on.
+
+The initial planning took about half an hour. Then Codex worked for more than an hour and produced a first version
+of the app, which I then tested.
+After identifying and compiling a list of bugs that I found, I sent those to Codex, which took about another half
+hour to get those bugs fixed.
+I then asked in a new session to deploy the container to my PC where I was already running podman with systemd and
+cloudflared, then linked this to a Cloudflare tunnel follow instructions from Codex.
+After receiving some feedback from beta testers, I largely forwarded the feedback to Codex to fix the identified
+issues.
+Over the following days, we then tested the app "in production".
+During that time, I also asked for more user feedback, which I then rephrased into more technical prompts to get
+it implemented.
+In the end, I was able to build most of the app while watching sports, cooking, and performing other tasks that I
+could interrupt from time to time to check the progress of Codex.
+To make sure that the code that's pushed to Github works, I've set up extensive pre-comit hooks and CI testing.
+I also often asked Codex to review the changes it had implemented, which in a large number of cases actually
+surfaced some implementation issues that I then got fixed.
+
+AI-generated text below!
+
 ## What is included
 
 - First-run administrator setup; Argon2-hashed four-digit PINs; self-service PIN changes; CSRF-protected, server-side sessions.
