@@ -49,6 +49,30 @@ def image_upload(format_name: str = "PNG", size: tuple[int, int] = (2000, 1000))
     return output.getvalue()
 
 
+def multipicture_jpeg_upload() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (2000, 1000), "#8f4f38").save(
+        output,
+        format="MPO",
+        save_all=True,
+        append_images=[Image.new("RGB", (320, 180), "#ffffff")],
+    )
+    return output.getvalue()
+
+
+def animated_gif_upload() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (5, 5), "#8f4f38").save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=[Image.new("RGB", (5, 5), "#ffffff")],
+        duration=100,
+        loop=0,
+    )
+    return output.getvalue()
+
+
 def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         assert client.get("/api/v1/auth/bootstrap-status").json() == {"required": True}
@@ -341,6 +365,17 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
             assert image.format == "WEBP"
             assert image.size == (1600, 800)
 
+        multipicture_upload = client.put(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers=headers,
+            files={"photo": ("iphone.jpg", multipicture_jpeg_upload(), "image/jpeg")},
+        )
+        assert multipicture_upload.status_code == 200, multipicture_upload.text
+        multipicture_path = multipicture_upload.json()["photo_path"]
+        with Image.open(io.BytesIO(client.get(multipicture_path).content)) as image:
+            assert image.format == "WEBP"
+            assert image.size == (1600, 800)
+
         client.post("/api/v1/auth/logout", headers=headers)
         kiosk_login = client.post(
             "/api/v1/auth/login",
@@ -381,10 +416,10 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
         unsupported = client.put(
             "/api/v1/grinders/1/photo",
             headers=headers,
-            files={"photo": ("photo.jpg", image_upload("GIF", (5, 5)), "image/jpeg")},
+            files={"photo": ("photo.jpg", animated_gif_upload(), "image/jpeg")},
         )
         assert unsupported.status_code == 415
-        assert unsupported.json()["detail"] == "Photo must be JPEG, PNG, WebP, HEIC, or HEIF"
+        assert unsupported.json()["detail"] == "Animated photos are not supported"
 
 
 def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> None:
