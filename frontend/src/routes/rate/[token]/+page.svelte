@@ -9,7 +9,7 @@
 
   let brew: Brew | null = $state(null);
   let session: Session | null = $state(null);
-  let allTags: FlavorTag[] = $state([]);
+  let tags: FlavorTag[] = $state([]);
   let summary: RatingSummary | null = $state(null);
   let inactive = $state(false);
   let loading = $state(true);
@@ -28,10 +28,9 @@
   });
 
   const token = $derived($page.params.token);
-  const activeTags = $derived(allTags.filter((tag) => tag.active));
-  const activeTagIds = $derived(new Set(activeTags.map((tag) => tag.id)));
+  const activeTagIds = $derived(new Set(tags.map((tag) => tag.id)));
   const parents = $derived(
-    activeTags
+    tags
       .filter((tag) => tag.parent_id === null)
       .sort(
         (left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name)
@@ -51,7 +50,7 @@
         await goto(loginPath(`/rate/${token}`));
         return;
       }
-      allTags = await api<FlavorTag[]>('/flavor-tags?active_only=false');
+      tags = await api<FlavorTag[]>('/flavor-tags');
       summary = await api<RatingSummary>(`/brews/${brew.id}/ratings`);
       if (summary.own_rating)
         rating = {
@@ -127,34 +126,7 @@
   }
 
   function children(parentId: number): FlavorTag[] {
-    return activeTags.filter((tag) => tag.parent_id === parentId);
-  }
-
-  function flavorAxes() {
-    const categoryByTagId = new Map(
-      allTags.map((tag) => [tag.id, tag.parent_id === null ? tag.id : tag.parent_id])
-    );
-    const mentions = new Map(parents.map((parent) => [parent.id, 0]));
-
-    for (const response of summary?.ratings ?? []) {
-      const responseCategories = new Set(
-        response.flavor_tag_ids
-          .map((tagId) => categoryByTagId.get(tagId))
-          .filter(
-            (categoryId): categoryId is number =>
-              categoryId !== undefined && mentions.has(categoryId)
-          )
-      );
-      for (const categoryId of responseCategories)
-        mentions.set(categoryId, (mentions.get(categoryId) ?? 0) + 1);
-    }
-
-    return parents.map((parent) => ({
-      id: parent.id,
-      label: parent.name,
-      mentions: mentions.get(parent.id) ?? 0,
-      total: summary?.count ?? 0
-    }));
+    return tags.filter((tag) => tag.parent_id === parentId);
   }
 </script>
 
@@ -202,7 +174,7 @@
             <b>{summary.averages[key] ?? '—'}</b><span>{key}</span>
           </div>{/each}
       </div>
-      <FlavorRadar axes={flavorAxes()} />
+      <FlavorRadar axes={summary.flavor_axes} subject={brew.coffee_name} />
       {#if Object.keys(summary.flavor_counts).length}<div class="tags">
           {#each Object.entries(summary.flavor_counts) as [name, count]}<span class="tag"
               >{name} · {count}</span

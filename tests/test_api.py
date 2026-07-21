@@ -592,6 +592,256 @@ def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> No
         assert pin_required["rating_count"] is None
 
 
+def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        member = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Insight Roasters", "name": "Weighted Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+
+        def completed_brew(setting: int) -> dict:
+            created = client.post(
+                "/api/v1/brews",
+                headers=admin_headers,
+                json={
+                    "coffee_id": coffee["id"],
+                    "grinder_id": grinder["id"],
+                    "dose_g": 15,
+                    "water_g": 240,
+                    "temperature_c": 92,
+                    "grinder_setting": setting,
+                },
+            ).json()
+            finalized = client.post(
+                f"/api/v1/brews/{created['id']}/finalize",
+                headers=admin_headers,
+                json={"total_brew_time_s": 180 + setting},
+            )
+            assert finalized.status_code == 200, finalized.text
+            return finalized.json()
+
+        first_brew = completed_brew(20)
+        second_brew = completed_brew(21)
+        unrated_brew = completed_brew(22)
+        voided_brew = completed_brew(23)
+        draft_brew = client.post(
+            "/api/v1/brews",
+            headers=admin_headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 92,
+                "grinder_setting": 24,
+            },
+        ).json()
+
+        tags = client.get("/api/v1/flavor-tags?active_only=false").json()
+        fruity = next(tag for tag in tags if tag["name"] == "Fruity" and tag["parent_id"] is None)
+        fruity_child = next(tag for tag in tags if tag["parent_id"] == fruity["id"])
+
+        def submit_rating(brew: dict, payload: dict, headers: dict[str, str]) -> None:
+            response = client.post(
+                f"/api/v1/brews/{brew['id']}/ratings", headers=headers, json=payload
+            )
+            assert response.status_code == 200, response.text
+
+        submit_rating(
+            first_brew,
+            {
+                "liking": 9,
+                "acidity": 5,
+                "bitterness": 1,
+                "sweetness": 4,
+                "body": 3,
+                "flavor_tag_ids": [fruity["id"], fruity_child["id"]],
+            },
+            admin_headers,
+        )
+        submit_rating(
+            second_brew,
+            {
+                "liking": 3,
+                "acidity": 1,
+                "bitterness": 5,
+                "sweetness": 1,
+                "body": 1,
+                "flavor_tag_ids": [],
+            },
+            admin_headers,
+        )
+        submit_rating(
+            voided_brew,
+            {
+                "liking": 1,
+                "acidity": 1,
+                "bitterness": 5,
+                "sweetness": 0,
+                "body": 1,
+                "flavor_tag_ids": [fruity["id"]],
+            },
+            admin_headers,
+        )
+        assert (
+            client.post(
+                f"/api/v1/brews/{voided_brew['id']}/void", headers=admin_headers
+            ).status_code
+            == 200
+        )
+
+        client.post("/api/v1/auth/logout", headers=admin_headers)
+        assert client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").status_code == 401
+        assert client.get(f"/api/v1/brews/{first_brew['id']}/rating-insights").status_code == 401
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+        )
+        member_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+        assert login.json()["profile"]["pin_change_required"] is True
+        assert client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").status_code == 403
+        assert client.get(f"/api/v1/brews/{first_brew['id']}/rating-insights").status_code == 403
+        assert (
+            client.post(
+                "/api/v1/auth/pin",
+                headers=member_headers,
+                json={"current_pin": "5678", "new_pin": "6789"},
+            ).status_code
+            == 204
+        )
+
+        visible_without_own_rating = client.get(f"/api/v1/brews/{first_brew['id']}/rating-insights")
+        assert visible_without_own_rating.status_code == 200
+        assert visible_without_own_rating.json()["count"] == 1
+        assert client.get(f"/api/v1/brews/{draft_brew['id']}/rating-insights").status_code == 409
+        assert client.get("/api/v1/coffees/99999/rating-insights").status_code == 404
+
+        submit_rating(
+            first_brew,
+            {
+                "liking": 7,
+                "acidity": 3,
+                "bitterness": 3,
+                "sweetness": 2,
+                "body": 5,
+                "flavor_tag_ids": [fruity_child["id"]],
+            },
+            member_headers,
+        )
+
+        first_page = client.get(
+            f"/api/v1/coffees/{coffee['id']}/rating-insights?limit=1&offset=0"
+        ).json()
+        assert first_page["rated_brew_count"] == 2
+        assert first_page["next_offset"] == 1
+        assert [item["brew"]["id"] for item in first_page["rated_brews"]] == [second_brew["id"]]
+        assert first_page["rated_brews"][0]["brew"]["rating_token"] is None
+        assert "ratings" not in first_page["rated_brews"][0]
+        assert "profile" not in first_page["rated_brews"][0]
+        assert first_page["aggregate"]["count"] == 3
+        assert first_page["aggregate"]["averages"] == {
+            "liking": 6.33,
+            "acidity": 3,
+            "bitterness": 3,
+            "sweetness": 2.33,
+            "body": 3,
+        }
+        coffee_fruity = next(
+            axis for axis in first_page["aggregate"]["flavor_axes"] if axis["label"] == "Fruity"
+        )
+        assert coffee_fruity == {
+            "id": fruity["id"],
+            "label": "Fruity",
+            "mentions": 2,
+            "total": 3,
+        }
+
+        second_page = client.get(
+            f"/api/v1/coffees/{coffee['id']}/rating-insights?limit=1&offset=1"
+        ).json()
+        assert second_page["next_offset"] is None
+        assert [item["brew"]["id"] for item in second_page["rated_brews"]] == [first_brew["id"]]
+        assert second_page["aggregate"] == first_page["aggregate"]
+        first_brew_aggregate = second_page["rated_brews"][0]["aggregate"]
+        assert first_brew_aggregate["averages"] == {
+            "liking": 8,
+            "acidity": 4,
+            "bitterness": 2,
+            "sweetness": 3,
+            "body": 4,
+        }
+        first_brew_fruity = next(
+            axis for axis in first_brew_aggregate["flavor_axes"] if axis["label"] == "Fruity"
+        )
+        assert first_brew_fruity["mentions"] == 2
+        assert first_brew_fruity["total"] == 2
+
+        empty_aggregate = client.get(f"/api/v1/brews/{unrated_brew['id']}/rating-insights").json()
+        assert empty_aggregate["count"] == 0
+        assert empty_aggregate["averages"] == {}
+        assert all(
+            axis["mentions"] == 0 and axis["total"] == 0 for axis in empty_aggregate["flavor_axes"]
+        )
+
+        client.post("/api/v1/auth/logout", headers=member_headers)
+        admin_login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
+
+        def update_tag(
+            tag: dict, *, active: bool | None = None, sort_order: int | None = None
+        ) -> None:
+            response = client.put(
+                f"/api/v1/flavor-tags/{tag['id']}",
+                headers=admin_headers,
+                json={
+                    "name": tag["name"],
+                    "parent_id": tag["parent_id"],
+                    "active": tag["active"] if active is None else active,
+                    "sort_order": tag["sort_order"] if sort_order is None else sort_order,
+                },
+            )
+            assert response.status_code == 200, response.text
+
+        reordered_parent = next(
+            tag for tag in reversed(tags) if tag["parent_id"] is None and tag["id"] != fruity["id"]
+        )
+        update_tag(reordered_parent, sort_order=-1)
+        reordered = client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").json()
+        assert reordered["aggregate"]["flavor_axes"][0]["id"] == reordered_parent["id"]
+        update_tag(reordered_parent, sort_order=reordered_parent["sort_order"])
+
+        update_tag(fruity_child, active=False)
+        historical_child = client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").json()
+        historical_fruity = next(
+            axis
+            for axis in historical_child["aggregate"]["flavor_axes"]
+            if axis["label"] == "Fruity"
+        )
+        assert historical_fruity["mentions"] == 2
+
+        update_tag(fruity, active=False)
+        inactive_axis = client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").json()
+        assert "Fruity" not in {axis["label"] for axis in inactive_axis["aggregate"]["flavor_axes"]}
+        for parent in (
+            tag for tag in tags if tag["parent_id"] is None and tag["id"] != fruity["id"]
+        ):
+            update_tag(parent, active=False)
+        no_axes = client.get(f"/api/v1/coffees/{coffee['id']}/rating-insights").json()
+        assert no_axes["aggregate"]["flavor_axes"] == []
+
+
 def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
@@ -776,6 +1026,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             "count": 0,
             "averages": {},
             "flavor_counts": {},
+            "flavor_axes": [],
         }
         too_many_tags = client.post(
             f"/api/v1/brews/{brew['id']}/ratings",

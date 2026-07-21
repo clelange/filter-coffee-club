@@ -1,12 +1,10 @@
 <script lang="ts">
-  interface FlavorAxis {
-    id: number;
-    label: string;
-    mentions: number;
-    total: number;
-  }
+  import type { FlavorAxisSummary } from '$lib/types';
 
-  export let axes: FlavorAxis[] = [];
+  export let axes: FlavorAxisSummary[] = [];
+  export let subject = 'this tasting';
+  export let responseUnit: 'taster' | 'response' = 'taster';
+  export let compact = false;
 
   const center = 200;
   const radius = 145;
@@ -15,20 +13,21 @@
   const maximumLabelLength = 11;
 
   $: hasMentions = axes.some((axis) => axis.mentions > 0);
+  $: pluralUnit = `${responseUnit}s`;
   $: accessibleLabel = axes.length
-    ? `Broad flavour profile. ${axes
+    ? `Broad flavour profile for ${subject}. ${axes
         .map(
           (axis) =>
-            `${axis.label}: ${axis.mentions} of ${axis.total} ${axis.total === 1 ? 'taster' : 'tasters'} (${percentage(axis)}%)`
+            `${axis.label}: ${axis.mentions} of ${axis.total} ${axis.total === 1 ? responseUnit : pluralUnit} (${percentage(axis)}%)`
         )
         .join('. ')}.`
-    : 'Broad flavour profile. No broad flavour categories are configured.';
+    : `Broad flavour profile for ${subject}. No broad flavour categories are configured.`;
 
-  function share(axis: FlavorAxis): number {
+  function share(axis: FlavorAxisSummary): number {
     return axis.total > 0 ? axis.mentions / axis.total : 0;
   }
 
-  function percentage(axis: FlavorAxis): number {
+  function percentage(axis: FlavorAxisSummary): number {
     return Math.round(share(axis) * 100);
   }
 
@@ -77,9 +76,11 @@
   }
 </script>
 
-<figure class="flavor-radar" data-testid="flavor-radar">
+<figure class:compact class="flavor-radar" data-testid="flavor-radar">
   {#if axes.length === 0}
-    <div class="configuration-empty" role="status">No broad flavour categories configured.</div>
+    <div class="configuration-empty" role="img" aria-label={accessibleLabel}>
+      No broad flavour categories configured.
+    </div>
   {:else if axes.length < 3}
     <div class="category-bars" role="img" aria-label={accessibleLabel}>
       {#each axes as axis}
@@ -129,24 +130,28 @@
             >
               <title
                 >{axis.label}: {axis.mentions} of {axis.total}
-                {axis.total === 1 ? 'taster' : 'tasters'} ({percentage(axis)}%)</title
+                {axis.total === 1 ? responseUnit : pluralUnit} ({percentage(axis)}%)</title
               >
             </circle>
           {/if}
         {/each}
       {:else}
         <circle class="radar-zero" cx={center} cy={center} r="5" />
+        <text class="radar-zero-label" x={center} y={center - 15} text-anchor="middle">
+          No broad flavour notes yet.
+        </text>
       {/if}
     </svg>
   {/if}
   {#if axes.length > 0}
     <figcaption>
       {#if !hasMentions}
-        <strong>No broad flavour notes yet.</strong> The chart will grow as tasters add notes.
+        {#if axes.length < 3}<strong>No broad flavour notes yet.</strong>{/if}
+        The chart will grow as more flavour notes are added.
       {:else if axes.length < 3}
-        Bar length shows the share of tasters who mentioned each broad category.
+        Bar length shows the share of {pluralUnit} mentioning each broad category.
       {:else}
-        Distance from the centre shows the share of tasters who mentioned each broad category.
+        Distance from the centre shows the share of {pluralUnit} mentioning each broad category.
       {/if}
     </figcaption>
   {/if}
@@ -246,6 +251,11 @@
     stroke: var(--muted);
     stroke-width: 2;
   }
+  .radar-zero-label {
+    fill: var(--ink);
+    font-size: 13px;
+    font-weight: 800;
+  }
   figcaption {
     color: var(--muted);
     font-size: 0.78rem;
@@ -254,6 +264,13 @@
   }
   figcaption strong {
     color: var(--ink);
+  }
+  .flavor-radar.compact {
+    gap: 0;
+    margin: 0;
+  }
+  .flavor-radar.compact figcaption {
+    font-size: 0.72rem;
   }
   @media (max-width: 420px) {
     .axis-label {

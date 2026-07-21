@@ -58,11 +58,13 @@ from .schemas import (
     CatalogUsageItem,
     CatalogUsageResponse,
     CoffeeInput,
+    CoffeeRatingInsights,
     CoffeeResponse,
     DripperResponse,
     EquipmentInput,
     FilterInput,
     FilterResponse,
+    FlavorAxisSummary,
     FlavorTagInput,
     FlavorTagResponse,
     GrinderInput,
@@ -77,6 +79,8 @@ from .schemas import (
     ProfileRatingResult,
     ProfileRatingsResponse,
     ProfileUpdate,
+    RatedBrewInsight,
+    RatingAggregate,
     RatingComparison,
     RatingInput,
     RatingItem,
@@ -302,24 +306,70 @@ def rating_item(rating: Rating) -> RatingItem:
     )
 
 
-def rating_summary(brew: Brew, viewer: Profile) -> RatingSummary:
+def load_flavor_tags(db: Session) -> list[FlavorTag]:
+    return list(
+        db.scalars(
+            select(FlavorTag).order_by(FlavorTag.parent_id, FlavorTag.sort_order, FlavorTag.name)
+        )
+    )
+
+
+def rating_aggregate(ratings: list[Rating], flavor_tags: list[FlavorTag]) -> RatingAggregate:
+    active_parents = sorted(
+        (tag for tag in flavor_tags if tag.active and tag.parent_id is None),
+        key=lambda tag: (tag.sort_order, tag.name),
+    )
+    active_parent_ids = {tag.id for tag in active_parents}
+    category_by_tag_id = {
+        tag.id: tag.id if tag.parent_id is None else tag.parent_id for tag in flavor_tags
+    }
+    mentions: Counter[int] = Counter()
+    for rating in ratings:
+        mentioned_categories = {
+            category_id
+            for tag in rating.flavor_tags
+            if (category_id := category_by_tag_id.get(tag.id)) in active_parent_ids
+        }
+        mentions.update(mentioned_categories)
+    averages = (
+        {
+            field: round(mean(getattr(rating, field) for rating in ratings), 2)
+            for field in RATING_FIELDS
+        }
+        if ratings
+        else {}
+    )
+    return RatingAggregate(
+        count=len(ratings),
+        averages=averages,
+        flavor_axes=[
+            FlavorAxisSummary(
+                id=parent.id,
+                label=parent.name,
+                mentions=mentions[parent.id],
+                total=len(ratings),
+            )
+            for parent in active_parents
+        ],
+    )
+
+
+def rating_summary(brew: Brew, viewer: Profile, db: Session) -> RatingSummary:
     own = next((rating for rating in brew.ratings if rating.profile_id == viewer.id), None)
     can_view = own is not None or viewer.role == "admin"
     if not can_view:
         return RatingSummary(can_view=False, own_rating=None)
     ratings = [rating_item(item) for item in brew.ratings]
-    averages: dict[str, float] = {}
-    if ratings:
-        for field in RATING_FIELDS:
-            averages[field] = round(mean(getattr(item, field) for item in ratings), 2)
+    aggregate = rating_aggregate(brew.ratings, load_flavor_tags(db))
     flavor_counts = Counter(tag.name for item in brew.ratings for tag in item.flavor_tags)
     return RatingSummary(
         can_view=True,
         own_rating=rating_item(own) if own else None,
         ratings=ratings,
-        count=len(ratings),
-        averages=averages,
+        count=aggregate.count,
+        averages=aggregate.averages,
         flavor_counts=dict(flavor_counts.most_common()),
+        flavor_axes=aggregate.flavor_axes,
     )
 
 
@@ -624,6 +674,72 @@ def get_coffee(coffee_id: int, db: Session = Depends(session_dependency)) -> Cof
     if coffee is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
     return coffee
+
+
+@router.get("/coffees/{coffee_id}/rating-insights", response_model=CoffeeRatingInsights)
+def get_coffee_rating_insights(
+    coffee_id: int,
+    limit: int = Query(default=12, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(session_dependency),
+    _viewer: Profile = Depends(require_user),
+) -> CoffeeRatingInsights:
+    if db.get(Coffee, coffee_id) is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    all_ratings = list(
+        db.scalars(
+            select(Rating)
+            .join(Rating.brew)
+            .options(selectinload(Rating.flavor_tags))
+            .where(Brew.coffee_id == coffee_id, Brew.status == "completed")
+        )
+    )
+    rated_brew_count = (
+        db.scalar(
+            select(func.count(Brew.id)).where(
+                Brew.coffee_id == coffee_id,
+                Brew.status == "completed",
+                Brew.ratings.any(),
+            )
+        )
+        or 0
+    )
+    page = list(
+        db.scalars(
+            select(Brew)
+            .options(
+                selectinload(Brew.coffee),
+                selectinload(Brew.operator),
+                selectinload(Brew.grinder),
+                selectinload(Brew.dripper),
+                selectinload(Brew.brew_filter),
+                selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
+            )
+            .where(
+                Brew.coffee_id == coffee_id,
+                Brew.status == "completed",
+                Brew.ratings.any(),
+            )
+            .order_by(Brew.completed_at.desc(), Brew.created_at.desc(), Brew.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    flavor_tags = load_flavor_tags(db)
+    next_offset = offset + len(page) if offset + len(page) < rated_brew_count else None
+    return CoffeeRatingInsights(
+        coffee_id=coffee_id,
+        aggregate=rating_aggregate(all_ratings, flavor_tags),
+        rated_brew_count=rated_brew_count,
+        rated_brews=[
+            RatedBrewInsight(
+                brew=brew_payload(brew, include_token=False),
+                aggregate=rating_aggregate(brew.ratings, flavor_tags),
+            )
+            for brew in page
+        ],
+        next_offset=next_offset,
+    )
 
 
 @router.put("/coffees/{coffee_id}", response_model=CoffeeResponse)
@@ -1320,6 +1436,18 @@ def get_brew(brew_id: int, db: Session = Depends(session_dependency)) -> BrewRes
     return brew_payload(load_brew(db, brew_id), include_token=True)
 
 
+@router.get("/brews/{brew_id}/rating-insights", response_model=RatingAggregate)
+def get_brew_rating_insights(
+    brew_id: int,
+    db: Session = Depends(session_dependency),
+    _viewer: Profile = Depends(require_user),
+) -> RatingAggregate:
+    brew = load_brew(db, brew_id)
+    if brew.status != "completed":
+        raise HTTPException(status_code=409, detail="Only completed brews have rating insights")
+    return rating_aggregate(brew.ratings, load_flavor_tags(db))
+
+
 @router.put("/brews/{brew_id}", response_model=BrewResponse)
 def update_brew(
     brew_id: int,
@@ -1575,7 +1703,7 @@ def get_ratings(
     db: Session = Depends(session_dependency),
     viewer: Profile = Depends(require_user),
 ) -> RatingSummary:
-    return rating_summary(load_brew(db, brew_id), viewer)
+    return rating_summary(load_brew(db, brew_id), viewer, db)
 
 
 @router.get("/profiles/{profile_id}/ratings", response_model=ProfileRatingsResponse)
@@ -1750,7 +1878,7 @@ def submit_rating(
             setattr(rating, key, value)
     rating.flavor_tags = tags
     db.commit()
-    return rating_summary(load_brew(db, brew.id), login_session.profile)
+    return rating_summary(load_brew(db, brew.id), login_session.profile, db)
 
 
 @router.get("/analytics")
