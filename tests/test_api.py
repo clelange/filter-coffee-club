@@ -153,6 +153,78 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         assert len(client.get("/api/v1/presets").json()) == 8
 
 
+def test_coffee_purchase_location_lifecycle_and_exports(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+
+        without_location = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Unknown source"},
+        )
+        assert without_location.status_code == 200
+        assert without_location.json()["purchase_location"] is None
+
+        blank_location = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={
+                "roaster": "Orbit",
+                "name": "Blank source",
+                "purchase_location": "   ",
+            },
+        )
+        assert blank_location.status_code == 200
+        assert blank_location.json()["purchase_location"] is None
+
+        payload = {
+            "roaster": "MAME",
+            "name": "Ethiopia Bombe",
+            "country": "Ethiopia",
+            "purchase_location": "  MAME, Zurich  ",
+        }
+        created = client.post("/api/v1/coffees", headers=headers, json=payload)
+        assert created.status_code == 200, created.text
+        coffee = created.json()
+        assert coffee["purchase_location"] == "MAME, Zurich"
+        assert client.get(f"/api/v1/coffees/{coffee['id']}").json()["purchase_location"] == (
+            "MAME, Zurich"
+        )
+        assert any(
+            item["id"] == coffee["id"] and item["purchase_location"] == "MAME, Zurich"
+            for item in client.get("/api/v1/coffees").json()
+        )
+
+        updated = client.put(
+            f"/api/v1/coffees/{coffee['id']}",
+            headers=headers,
+            json={**payload, "purchase_location": "Coffee Collective, Copenhagen"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["purchase_location"] == "Coffee Collective, Copenhagen"
+
+        clone = client.post(f"/api/v1/coffees/{coffee['id']}/clone", headers=headers, json={})
+        assert clone.status_code == 200, clone.text
+        assert clone.json()["purchase_location"] == "Coffee Collective, Copenhagen"
+
+        too_long = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Long trip", "purchase_location": "x" * 161},
+        )
+        assert too_long.status_code == 422
+
+        exported = client.get("/api/v1/exports/json").json()
+        exported_coffee = next(item for item in exported["coffees"] if item["id"] == coffee["id"])
+        assert exported_coffee["purchase_location"] == "Coffee Collective, Copenhagen"
+
+        csv_response = client.get("/api/v1/exports/csv")
+        with zipfile.ZipFile(io.BytesIO(csv_response.content)) as archive:
+            coffees_csv = archive.read("coffees.csv").decode()
+        assert "purchase_location" in coffees_csv
+        assert "Coffee Collective, Copenhagen" in coffees_csv
+
+
 def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, admin_headers = bootstrap(client)

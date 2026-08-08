@@ -373,6 +373,10 @@
             <dd>{recorded(coffee.producer)}</dd>
           </div>
           <div>
+            <dt>Purchased from</dt>
+            <dd>{recorded(coffee.purchase_location)}</dd>
+          </div>
+          <div>
             <dt>Variety</dt>
             <dd>{recorded(coffee.variety)}</dd>
           </div>

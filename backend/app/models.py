@@ -75,6 +75,7 @@ class Coffee(TimestampMixin, Base):
     country: Mapped[str | None] = mapped_column(String(100))
     region: Mapped[str | None] = mapped_column(String(160))
     producer: Mapped[str | None] = mapped_column(String(160))
+    purchase_location: Mapped[str | None] = mapped_column(String(160))
     process: Mapped[str | None] = mapped_column(String(100))
     roast_level: Mapped[str | None] = mapped_column(String(60))
     roast_date: Mapped[date | None] = mapped_column(Date)

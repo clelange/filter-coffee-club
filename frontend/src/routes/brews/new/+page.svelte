@@ -38,7 +38,14 @@
   let error = $state('');
   let saving = $state(false);
   let ready = $state(false);
-  let newCoffee = $state({ roaster: '', name: '', country: '', process: '', roast_level: '' });
+  let newCoffee = $state({
+    roaster: '',
+    name: '',
+    country: '',
+    purchase_location: '',
+    process: '',
+    roast_level: ''
+  });
   let form: BrewInput = $state({
     coffee_id: 0,
     grinder_id: 0,
@@ -184,13 +191,21 @@
         body: jsonBody({
           ...newCoffee,
           country: newCoffee.country || null,
+          purchase_location: newCoffee.purchase_location || null,
           process: newCoffee.process || null,
           roast_level: newCoffee.roast_level || null
         })
       });
       coffees = [...coffees, coffee];
       form.coffee_id = coffee.id;
-      newCoffee = { roaster: '', name: '', country: '', process: '', roast_level: '' };
+      newCoffee = {
+        roaster: '',
+        name: '',
+        country: '',
+        purchase_location: '',
+        process: '',
+        roast_level: ''
+      };
       showCoffeeForm = false;
       await loadHistory();
     } catch (caught) {
@@ -314,6 +329,14 @@
               >Coffee name<input bind:value={newCoffee.name} required form="coffee-form" /></label
             >
             <label>Country<input bind:value={newCoffee.country} form="coffee-form" /></label>
+            <label
+              >Purchased from<input
+                bind:value={newCoffee.purchase_location}
+                maxlength="160"
+                placeholder="Shop, city, or country"
+                form="coffee-form"
+              /></label
+            >
             <label>Process<input bind:value={newCoffee.process} form="coffee-form" /></label>
           </div>
           {#if coffeeError}<p class="error" role="alert">{coffeeError}</p>{/if}

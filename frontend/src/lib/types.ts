@@ -50,6 +50,7 @@ export interface Coffee {
   country?: string | null;
   region?: string | null;
   producer?: string | null;
+  purchase_location?: string | null;
   process?: string | null;
   roast_level?: string | null;
   roast_date?: string | null;
@@ -67,6 +68,7 @@ export interface CoffeeFormData {
   country: string;
   region: string;
   producer: string;
+  purchase_location: string;
   process: string;
   roast_level: string;
   roast_date: string;
