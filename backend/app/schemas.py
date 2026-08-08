@@ -265,13 +265,23 @@ class BrewInput(BaseModel):
     technique_note: str | None = Field(default=None, max_length=1000)
 
 
+class BrewUpdate(BrewInput):
+    revision: int = Field(ge=1)
+
+
 class BrewFinalize(BaseModel):
     water_g: float | None = Field(default=None, gt=0, le=5000)
     total_brew_time_s: int = Field(gt=0, le=3600)
+    revision: int = Field(ge=1)
 
 
 class BrewOperatorUpdate(BaseModel):
     operator_id: int
+    revision: int = Field(ge=1)
+
+
+class BrewStatusChange(BaseModel):
+    revision: int = Field(ge=1)
 
 
 class BrewCorrection(BrewInput):
@@ -283,6 +293,8 @@ class BrewResponse(BrewInput):
     id: int
     operator_id: int
     operator_name: str
+    operators: list[ProfileIdentity]
+    revision: int
     coffee_name: str
     coffee_roaster: str
     grinder_name: str
@@ -297,6 +309,13 @@ class BrewResponse(BrewInput):
     created_at: datetime
     cloned_from_id: int | None
     rating_token: str | None = None
+
+
+class ActiveBrewsResponse(BaseModel):
+    brews: list[BrewResponse]
+    active_count: int
+    max_active_brews: int
+    can_start: bool
 
 
 class CatalogUsageItem(BaseModel):
@@ -516,6 +535,7 @@ class AppSettingsResponse(ORMModel):
     color_coffee: str
     color_cyan: str
     color_amber: str
+    max_active_brews: int
     public_url_needs_configuration: bool = False
     demo_mode: bool = False
     demo_notice: str | None = None
@@ -533,6 +553,7 @@ class AppSettingsUpdate(BaseModel):
     color_coffee: str
     color_cyan: str
     color_amber: str
+    max_active_brews: int = Field(ge=1, le=20)
 
     @field_validator(
         "color_cream", "color_surface", "color_ink", "color_coffee", "color_cyan", "color_amber"

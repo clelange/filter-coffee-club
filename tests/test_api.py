@@ -5,14 +5,14 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 from app import api as api_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
-from app.models import Brew, Coffee, Profile
+from app.models import AppSettings, Brew, Coffee, Profile
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy.exc import IntegrityError
@@ -361,6 +361,456 @@ def test_unrelated_integrity_error_is_not_an_idempotency_conflict(
         assert client.get("/api/v1/coffees").json() == []
 
 
+def settings_payload(settings: dict, max_active_brews: int) -> dict:
+    return {
+        "app_name": settings["app_name"],
+        "subtitle": settings["subtitle"],
+        "public_base_url": settings["public_base_url"],
+        "color_cream": settings["color_cream"],
+        "color_surface": settings["color_surface"],
+        "color_ink": settings["color_ink"],
+        "color_coffee": settings["color_coffee"],
+        "color_cyan": settings["color_cyan"],
+        "color_amber": settings["color_amber"],
+        "max_active_brews": max_active_brews,
+    }
+
+
+def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Parallel", "name": "Capacity Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+
+        def start_brew(_attempt: int) -> tuple[int, dict]:
+            response = client.post("/api/v1/brews", headers=headers, json=brew_input)
+            return response.status_code, response.json()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            results = list(executor.map(start_brew, range(3)))
+
+        assert sorted(status for status, _body in results) == [200, 200, 409]
+        active = client.get("/api/v1/brews/active").json()
+        assert active["active_count"] == 2
+        assert active["max_active_brews"] == 2
+        assert active["can_start"] is False
+
+        settings = client.get("/api/v1/settings").json()
+        raised = client.put(
+            "/api/v1/settings",
+            headers=headers,
+            json=settings_payload(settings, max_active_brews=3),
+        )
+        assert raised.status_code == 200
+        third = client.post("/api/v1/brews", headers=headers, json=brew_input).json()
+        assert third["status"] == "draft"
+
+        lowered = client.put(
+            "/api/v1/settings",
+            headers=headers,
+            json=settings_payload(raised.json(), max_active_brews=1),
+        )
+        assert lowered.status_code == 200
+        assert client.post("/api/v1/brews", headers=headers, json=brew_input).status_code == 409
+
+        drafts = client.get("/api/v1/brews/active").json()["brews"]
+        for index, brew in enumerate(drafts):
+            cancelled = client.post(
+                f"/api/v1/brews/{brew['id']}/cancel",
+                headers=headers,
+                json={"revision": brew["revision"]},
+            )
+            assert cancelled.status_code == 200
+            state = client.get("/api/v1/brews/active").json()
+            assert state["can_start"] is (index == len(drafts) - 1)
+
+        replacement = client.post("/api/v1/brews", headers=headers, json=brew_input)
+        assert replacement.status_code == 200
+        with client.app.state.session_factory() as db:
+            assert db.get(AppSettings, 1).active_brew_count == 1
+
+
+def test_startup_reconciles_the_active_brew_counter(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Recovery", "name": "Counter drift"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        assert client.post("/api/v1/brews", headers=headers, json=brew_input).status_code == 200
+        with client.app.state.session_factory() as db:
+            settings = db.get(AppSettings, 1)
+            assert settings is not None
+            settings.active_brew_count = 0
+            db.commit()
+
+    with build_client(tmp_path) as restarted_client:
+        login = restarted_client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        ).json()
+        headers = {"X-CSRF-Token": login["csrf_token"]}
+        assert (
+            restarted_client.post("/api/v1/brews", headers=headers, json=brew_input).status_code
+            == 200
+        )
+        assert (
+            restarted_client.post("/api/v1/brews", headers=headers, json=brew_input).status_code
+            == 409
+        )
+
+
+def test_collaborators_join_edit_finalize_and_receive_analytics_credit(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        grace = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        linus = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Linus", "pin": "6789", "role": "member"},
+        ).json()
+        for profile in (grace, linus):
+            client.put(
+                f"/api/v1/people/{profile['id']}",
+                headers=admin_headers,
+                json={"pin_change_required": False},
+            )
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Together", "name": "Shared Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        brew = client.post("/api/v1/brews", headers=admin_headers, json=brew_input).json()
+
+        def login(profile: dict, pin: str) -> dict[str, str]:
+            response = client.post(
+                "/api/v1/auth/login",
+                json={"profile_id": profile["id"], "pin": pin, "device_mode": "personal"},
+            ).json()
+            return {"X-CSRF-Token": response["csrf_token"]}
+
+        grace_headers = login(grace, "5678")
+        joined = client.post(
+            f"/api/v1/brews/{brew['id']}/join", headers=grace_headers, json={}
+        ).json()
+        assert [operator["display_name"] for operator in joined["operators"]] == ["Ada", "Grace"]
+        replay = client.post(
+            f"/api/v1/brews/{brew['id']}/join", headers=grace_headers, json={}
+        ).json()
+        assert replay["revision"] == joined["revision"]
+
+        linus_headers = login(linus, "6789")
+        forbidden = client.put(
+            f"/api/v1/brews/{brew['id']}",
+            headers=linus_headers,
+            json={**brew_input, "revision": joined["revision"]},
+        )
+        assert forbidden.status_code == 403
+        linus_joined = client.post(
+            f"/api/v1/brews/{brew['id']}/join", headers=linus_headers, json={}
+        ).json()
+        edited = client.put(
+            f"/api/v1/brews/{brew['id']}",
+            headers=linus_headers,
+            json={**brew_input, "temperature_c": 92, "revision": linus_joined["revision"]},
+        )
+        assert edited.status_code == 200
+        grace_headers = login(grace, "5678")
+        stale = client.put(
+            f"/api/v1/brews/{brew['id']}",
+            headers=grace_headers,
+            json={**brew_input, "revision": linus_joined["revision"]},
+        )
+        assert stale.status_code == 409
+        assert stale.json()["detail"] == "Brew changed; refresh and try again"
+
+        collaborator_cancel = client.post(
+            f"/api/v1/brews/{brew['id']}/cancel",
+            headers=grace_headers,
+            json={"revision": edited.json()["revision"]},
+        )
+        assert collaborator_cancel.status_code == 403
+        finalized = client.post(
+            f"/api/v1/brews/{brew['id']}/finalize",
+            headers=grace_headers,
+            json={"total_brew_time_s": 180, "revision": edited.json()["revision"]},
+        )
+        assert finalized.status_code == 200
+        assert {operator["display_name"] for operator in finalized.json()["operators"]} == {
+            "Ada",
+            "Grace",
+            "Linus",
+        }
+        analytics = client.get("/api/v1/analytics").json()
+        assert analytics["operator_counts"] == [
+            {"profile_id": 1, "display_name": "Ada", "brew_count": 1},
+            {"profile_id": grace["id"], "display_name": "Grace", "brew_count": 1},
+            {"profile_id": linus["id"], "display_name": "Linus", "brew_count": 1},
+        ]
+
+
+def test_concurrent_duplicate_joins_are_idempotent(tmp_path: Path, monkeypatch) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        bob = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Bob", "pin": "5678", "role": "member"},
+        ).json()
+        client.put(
+            f"/api/v1/people/{bob['id']}",
+            headers=admin_headers,
+            json={"pin_change_required": False},
+        )
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Race", "name": "Duplicate join"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew = client.post(
+            "/api/v1/brews",
+            headers=admin_headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+            },
+        ).json()
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": bob["id"], "pin": "5678", "device_mode": "personal"},
+        ).json()
+        bob_headers = {"X-CSRF-Token": login["csrf_token"]}
+
+        barrier = Barrier(2)
+        original_is_brew_operator = api_module.is_brew_operator
+
+        def synchronized_membership_check(loaded_brew: Brew, profile_id: int) -> bool:
+            result = original_is_brew_operator(loaded_brew, profile_id)
+            if profile_id == bob["id"] and not result:
+                barrier.wait(timeout=5)
+            return result
+
+        monkeypatch.setattr(api_module, "is_brew_operator", synchronized_membership_check)
+
+        def join(_attempt: int):
+            return client.post(f"/api/v1/brews/{brew['id']}/join", headers=bob_headers, json={})
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(join, range(2)))
+
+        assert [response.status_code for response in responses] == [200, 200]
+        assert {response.json()["revision"] for response in responses} == {brew["revision"] + 1}
+        current = client.get(f"/api/v1/brews/{brew['id']}").json()
+        assert [operator["display_name"] for operator in current["operators"]] == ["Ada", "Bob"]
+
+
+def test_join_cannot_race_with_finalization(tmp_path: Path, monkeypatch) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        bob = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Bob", "pin": "5678", "role": "member"},
+        ).json()
+        client.put(
+            f"/api/v1/people/{bob['id']}",
+            headers=admin_headers,
+            json={"pin_change_required": False},
+        )
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=admin_headers,
+            json={"roaster": "Race", "name": "Finalize while joining"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew = client.post(
+            "/api/v1/brews",
+            headers=admin_headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": 15,
+                "water_g": 240,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+            },
+        ).json()
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": bob["id"], "pin": "5678", "device_mode": "personal"},
+        ).json()
+        bob_headers = {"X-CSRF-Token": login["csrf_token"]}
+
+        join_checked = Event()
+        allow_join = Event()
+        original_is_brew_operator = api_module.is_brew_operator
+
+        def pause_join_after_membership_check(loaded_brew: Brew, profile_id: int) -> bool:
+            result = original_is_brew_operator(loaded_brew, profile_id)
+            if profile_id == bob["id"] and not result and not join_checked.is_set():
+                join_checked.set()
+                assert allow_join.wait(timeout=5)
+            return result
+
+        monkeypatch.setattr(api_module, "is_brew_operator", pause_join_after_membership_check)
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_join = executor.submit(
+                client.post,
+                f"/api/v1/brews/{brew['id']}/join",
+                headers=bob_headers,
+                json={},
+            )
+            assert join_checked.wait(timeout=5)
+            with build_client(tmp_path) as admin_client:
+                admin_login = admin_client.post(
+                    "/api/v1/auth/login",
+                    json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+                ).json()
+                finalized = admin_client.post(
+                    f"/api/v1/brews/{brew['id']}/finalize",
+                    headers={"X-CSRF-Token": admin_login["csrf_token"]},
+                    json={"total_brew_time_s": 180, "revision": brew["revision"]},
+                )
+                assert finalized.status_code == 200
+            allow_join.set()
+            joined = pending_join.result(timeout=5)
+
+        assert joined.status_code == 409
+        current = client.get(f"/api/v1/brews/{brew['id']}").json()
+        assert current["status"] == "completed"
+        assert [operator["display_name"] for operator in current["operators"]] == ["Ada"]
+
+
+def test_concurrent_finalization_releases_capacity_once(tmp_path: Path, monkeypatch) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Race", "name": "Finalize once"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        brew = client.post("/api/v1/brews", headers=headers, json=brew_input).json()
+
+        barrier = Barrier(2)
+        original_commit_guarded = api_module.commit_guarded_brew_update
+
+        def synchronized_commit(*args, **kwargs):
+            barrier.wait(timeout=5)
+            return original_commit_guarded(*args, **kwargs)
+
+        monkeypatch.setattr(api_module, "commit_guarded_brew_update", synchronized_commit)
+
+        def finalize(_attempt: int):
+            return client.post(
+                f"/api/v1/brews/{brew['id']}/finalize",
+                headers=headers,
+                json={"total_brew_time_s": 180, "revision": brew["revision"]},
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(finalize, range(2)))
+
+        assert sorted(response.status_code for response in responses) == [200, 409]
+        assert client.get("/api/v1/brews/active").json()["active_count"] == 0
+        assert client.post("/api/v1/brews", headers=headers, json=brew_input).status_code == 200
+        assert client.post("/api/v1/brews", headers=headers, json=brew_input).status_code == 200
+        assert client.post("/api/v1/brews", headers=headers, json=brew_input).status_code == 409
+
+
+def test_correcting_a_solo_operator_replaces_analytics_attribution(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        bob = client.post(
+            "/api/v1/people",
+            headers=headers,
+            json={"display_name": "Bob", "pin": "5678", "role": "member"},
+        ).json()
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Correction", "name": "Solo operator"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        brew = client.post("/api/v1/brews", headers=headers, json=brew_input).json()
+        completed = client.post(
+            f"/api/v1/brews/{brew['id']}/finalize",
+            headers=headers,
+            json={"total_brew_time_s": 180, "revision": brew["revision"]},
+        ).json()
+
+        corrected = client.put(
+            f"/api/v1/brews/{brew['id']}/correction",
+            headers=headers,
+            json={**brew_input, "operator_id": bob["id"], "total_brew_time_s": 180},
+        )
+
+        assert corrected.status_code == 200
+        assert corrected.json()["operator_id"] == bob["id"]
+        assert corrected.json()["revision"] == completed["revision"] + 1
+        assert [operator["display_name"] for operator in corrected.json()["operators"]] == ["Bob"]
+        assert client.get("/api/v1/analytics").json()["operator_counts"] == [
+            {"profile_id": bob["id"], "display_name": "Bob", "brew_count": 1}
+        ]
+
+
 def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, admin_headers = bootstrap(client)
@@ -417,7 +867,7 @@ def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> No
             return client.post(
                 f"/api/v1/brews/{brew['id']}/finalize",
                 headers=admin_headers,
-                json={"total_brew_time_s": 180},
+                json={"total_brew_time_s": 180, "revision": brew["revision"]},
             ).json()
 
         shared_brew = completed_brew(20)
@@ -482,7 +932,9 @@ def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> No
         admin_headers = {"X-CSRF-Token": admin_login["csrf_token"]}
         assert (
             client.post(
-                f"/api/v1/brews/{voided_brew['id']}/void", headers=admin_headers
+                f"/api/v1/brews/{voided_brew['id']}/void",
+                headers=admin_headers,
+                json={"revision": voided_brew["revision"]},
             ).status_code
             == 200
         )
@@ -635,6 +1087,7 @@ def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> 
                     "color_coffee": settings["color_coffee"],
                     "color_cyan": settings["color_cyan"],
                     "color_amber": settings["color_amber"],
+                    "max_active_brews": settings["max_active_brews"],
                 },
             )
             assert settings_update.status_code == 403
@@ -960,7 +1413,7 @@ def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> No
             finalized = client.post(
                 f"/api/v1/brews/{brew['id']}/finalize",
                 headers=headers,
-                json={"total_brew_time_s": total_time},
+                json={"total_brew_time_s": total_time, "revision": brew["revision"]},
             )
             assert finalized.status_code == 200, finalized.text
             completed.append(finalized.json())
@@ -970,7 +1423,11 @@ def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> No
         draft = client.post(f"/api/v1/brews/{completed[0]['id']}/clone", headers=headers).json()
         cancelled = client.post(f"/api/v1/brews/{completed[0]['id']}/clone", headers=headers).json()
         assert (
-            client.post(f"/api/v1/brews/{cancelled['id']}/cancel", headers=headers).status_code
+            client.post(
+                f"/api/v1/brews/{cancelled['id']}/cancel",
+                headers=headers,
+                json={"revision": cancelled["revision"]},
+            ).status_code
             == 200
         )
         voided = client.post(f"/api/v1/brews/{completed[0]['id']}/clone", headers=headers).json()
@@ -978,11 +1435,19 @@ def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> No
             client.post(
                 f"/api/v1/brews/{voided['id']}/finalize",
                 headers=headers,
-                json={"total_brew_time_s": 200},
+                json={"total_brew_time_s": 200, "revision": voided["revision"]},
             ).status_code
             == 200
         )
-        assert client.post(f"/api/v1/brews/{voided['id']}/void", headers=headers).status_code == 200
+        voided = client.get(f"/api/v1/brews/{voided['id']}").json()
+        assert (
+            client.post(
+                f"/api/v1/brews/{voided['id']}/void",
+                headers=headers,
+                json={"revision": voided["revision"]},
+            ).status_code
+            == 200
+        )
         assert draft["status"] == "draft"
 
         for brew, liking in ((completed[-1], 8), (completed[-2], 6)):
@@ -1099,7 +1564,7 @@ def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
             finalized = client.post(
                 f"/api/v1/brews/{created['id']}/finalize",
                 headers=admin_headers,
-                json={"total_brew_time_s": 180 + setting},
+                json={"total_brew_time_s": 180 + setting, "revision": created["revision"]},
             )
             assert finalized.status_code == 200, finalized.text
             return finalized.json()
@@ -1169,7 +1634,9 @@ def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
         )
         assert (
             client.post(
-                f"/api/v1/brews/{voided_brew['id']}/void", headers=admin_headers
+                f"/api/v1/brews/{voided_brew['id']}/void",
+                headers=admin_headers,
+                json={"revision": voided_brew["revision"]},
             ).status_code
             == 200
         )
@@ -1415,27 +1882,48 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert brew["ratio"] == 16
 
         abandoned = client.post(f"/api/v1/brews/{brew['id']}/clone", headers=headers).json()
-        cancelled = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        cancelled = client.post(
+            f"/api/v1/brews/{abandoned['id']}/cancel",
+            headers=headers,
+            json={"revision": abandoned["revision"]},
+        )
         assert cancelled.status_code == 200
         assert cancelled.json()["status"] == "cancelled"
-        repeat_cancel = client.post(f"/api/v1/brews/{abandoned['id']}/cancel", headers=headers)
+        repeat_cancel = client.post(
+            f"/api/v1/brews/{abandoned['id']}/cancel",
+            headers=headers,
+            json={"revision": cancelled.json()["revision"]},
+        )
         assert repeat_cancel.status_code == 409
         assert repeat_cancel.json()["detail"] == "Only draft brews can be cancelled"
         assert (
-            client.post(f"/api/v1/brews/{abandoned['id']}/void", headers=headers).status_code == 409
+            client.post(
+                f"/api/v1/brews/{abandoned['id']}/void",
+                headers=headers,
+                json={"revision": cancelled.json()["revision"]},
+            ).status_code
+            == 409
         )
 
         finalized_response = client.post(
             f"/api/v1/brews/{brew['id']}/finalize",
             headers=headers,
-            json={"total_brew_time_s": 180, "water_g": 242},
+            json={
+                "total_brew_time_s": 180,
+                "water_g": 242,
+                "revision": brew["revision"],
+            },
         )
         assert finalized_response.status_code == 200, finalized_response.text
         finalized = finalized_response.json()
         assert finalized["status"] == "completed"
         assert finalized["rating_token"]
         assert finalized["overall_throughput_g_s"] == 1.34
-        cancel_completed = client.post(f"/api/v1/brews/{brew['id']}/cancel", headers=headers)
+        cancel_completed = client.post(
+            f"/api/v1/brews/{brew['id']}/cancel",
+            headers=headers,
+            json={"revision": finalized["revision"]},
+        )
         assert cancel_completed.status_code == 409
         assert cancel_completed.json()["detail"] == "Only draft brews can be cancelled"
 
@@ -1527,7 +2015,11 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             == 403
         )
         assert (
-            client.post(f"/api/v1/brews/{brew['id']}/void", headers=member_headers).status_code
+            client.post(
+                f"/api/v1/brews/{brew['id']}/void",
+                headers=member_headers,
+                json={"revision": finalized["revision"]},
+            ).status_code
             == 403
         )
 
@@ -1665,7 +2157,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         client.post(
             f"/api/v1/brews/{second_brew['id']}/finalize",
             headers=member_headers,
-            json={"total_brew_time_s": 190},
+            json={"total_brew_time_s": 190, "revision": second_brew["revision"]},
         )
         second_rating = client.post(
             f"/api/v1/brews/{second_brew['id']}/ratings",
@@ -1724,7 +2216,11 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         assert complete_member_profile["rating_count"] == 2
         assert (
             client.post(
-                f"/api/v1/brews/{second_brew['id']}/void", headers=admin_headers
+                f"/api/v1/brews/{second_brew['id']}/void",
+                headers=admin_headers,
+                json={
+                    "revision": client.get(f"/api/v1/brews/{second_brew['id']}").json()["revision"]
+                },
             ).status_code
             == 200
         )
@@ -1758,11 +2254,13 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
         voided = client.post(
             f"/api/v1/brews/{brew['id']}/void",
             headers=admin_headers,
+            json={"revision": corrected.json()["revision"]},
         )
         assert voided.status_code == 200
         repeat_void = client.post(
             f"/api/v1/brews/{brew['id']}/void",
             headers=admin_headers,
+            json={"revision": voided.json()["revision"]},
         )
         assert repeat_void.status_code == 409
         assert repeat_void.json()["detail"] == "Only completed brews can be voided"
@@ -1831,7 +2329,7 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         admin_reassigned = client.put(
             f"/api/v1/brews/{admin_transfer['id']}/operator",
             headers=admin_headers,
-            json={"operator_id": linus["id"]},
+            json={"operator_id": linus["id"], "revision": admin_transfer["revision"]},
         )
         assert admin_reassigned.status_code == 200
         assert admin_reassigned.json()["operator_name"] == "Linus"
@@ -1841,14 +2339,14 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         missing = client.put(
             f"/api/v1/brews/{brew['id']}/operator",
             headers=grace_headers,
-            json={"operator_id": 99999},
+            json={"operator_id": 99999, "revision": brew["revision"]},
         )
         assert missing.status_code == 404
         assert missing.json()["detail"] == "Operator not found"
         inactive = client.put(
             f"/api/v1/brews/{brew['id']}/operator",
             headers=grace_headers,
-            json={"operator_id": inactive_operator["id"]},
+            json={"operator_id": inactive_operator["id"], "revision": brew["revision"]},
         )
         assert inactive.status_code == 422
         assert inactive.json()["detail"] == "Operator must be active"
@@ -1857,7 +2355,7 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         forbidden = client.put(
             f"/api/v1/brews/{brew['id']}/operator",
             headers=linus_headers,
-            json={"operator_id": linus["id"]},
+            json={"operator_id": linus["id"], "revision": brew["revision"]},
         )
         assert forbidden.status_code == 403
 
@@ -1865,27 +2363,27 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         reassigned = client.put(
             f"/api/v1/brews/{brew['id']}/operator",
             headers=grace_headers,
-            json={"operator_id": linus["id"]},
+            json={"operator_id": linus["id"], "revision": brew["revision"]},
         )
         assert reassigned.status_code == 200
         assert reassigned.json()["operator_id"] == linus["id"]
         assert reassigned.json()["operator_name"] == "Linus"
-        assert (
-            client.put(
-                f"/api/v1/brews/{brew['id']}", headers=grace_headers, json=brew_input
-            ).status_code
-            == 403
+        assert {operator["id"] for operator in reassigned.json()["operators"]} == {
+            grace["id"],
+            linus["id"],
+        }
+        edited = client.put(
+            f"/api/v1/brews/{brew['id']}",
+            headers=grace_headers,
+            json={**brew_input, "revision": reassigned.json()["revision"]},
         )
+        assert edited.status_code == 200
         assert (
             client.post(
-                f"/api/v1/brews/{brew['id']}/finalize",
+                f"/api/v1/brews/{brew['id']}/cancel",
                 headers=grace_headers,
-                json={"total_brew_time_s": 180},
+                json={"revision": edited.json()["revision"]},
             ).status_code
-            == 403
-        )
-        assert (
-            client.post(f"/api/v1/brews/{brew['id']}/cancel", headers=grace_headers).status_code
             == 403
         )
 
@@ -1893,7 +2391,7 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         finalized_response = client.post(
             f"/api/v1/brews/{brew['id']}/finalize",
             headers=linus_headers,
-            json={"total_brew_time_s": 180},
+            json={"total_brew_time_s": 180, "revision": edited.json()["revision"]},
         )
         assert finalized_response.status_code == 200
         finalized = finalized_response.json()
@@ -1903,7 +2401,7 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
             client.put(
                 f"/api/v1/brews/{brew['id']}/operator",
                 headers=linus_headers,
-                json={"operator_id": grace["id"]},
+                json={"operator_id": grace["id"], "revision": finalized["revision"]},
             ).status_code
             == 409
         )
@@ -1954,12 +2452,17 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         )
         assert invalid_correction.status_code == 422
         assert (
-            client.post(f"/api/v1/brews/{brew['id']}/void", headers=grace_headers).status_code
+            client.post(
+                f"/api/v1/brews/{brew['id']}/void",
+                headers=grace_headers,
+                json={"revision": finalized["revision"]},
+            ).status_code
             == 403
         )
         analytics = client.get("/api/v1/analytics").json()
         assert analytics["operator_counts"] == [
-            {"profile_id": grace["id"], "display_name": "Grace", "brew_count": 1}
+            {"profile_id": grace["id"], "display_name": "Grace", "brew_count": 1},
+            {"profile_id": linus["id"], "display_name": "Linus", "brew_count": 1},
         ]
 
         admin_headers = login(1, "1234")
@@ -2017,7 +2520,7 @@ def test_concurrent_operator_transfers_are_atomic(tmp_path: Path, monkeypatch) -
         finalized = client.post(
             f"/api/v1/brews/{completed['id']}/finalize",
             headers=grace_headers,
-            json={"total_brew_time_s": 180},
+            json={"total_brew_time_s": 180, "revision": completed["revision"]},
         )
         assert finalized.status_code == 200
 
@@ -2035,7 +2538,7 @@ def test_concurrent_operator_transfers_are_atomic(tmp_path: Path, monkeypatch) -
             return client.put(
                 f"/api/v1/brews/{draft['id']}/operator",
                 headers=grace_headers,
-                json={"operator_id": operator_id},
+                json={"operator_id": operator_id, "revision": draft["revision"]},
             ).status_code
 
         with ThreadPoolExecutor(max_workers=2) as executor:

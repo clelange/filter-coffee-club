@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
+
 const settings = {
   app_name: 'Filter Coffee Club',
   subtitle: 'Analytics test',
@@ -11,6 +13,7 @@ const settings = {
   color_coffee: '#6b3f2a',
   color_cyan: '#007f9e',
   color_amber: '#d88700',
+  max_active_brews: 2,
   public_url_needs_configuration: false,
   demo_mode: false,
   demo_notice: null,
@@ -267,7 +270,7 @@ test('a touch point opens details first and follows its brew link on the second 
   browser
 }) => {
   const context = await browser.newContext({
-    baseURL: 'http://127.0.0.1:8000',
+    baseURL: e2eBaseURL,
     viewport: { width: 360, height: 800 },
     isMobile: true,
     hasTouch: true

@@ -26,6 +26,13 @@ rating_flavor_tags = Table(
     Column("flavor_tag_id", ForeignKey("flavor_tags.id"), primary_key=True),
 )
 
+brew_operators = Table(
+    "brew_operators",
+    Base.metadata,
+    Column("brew_id", ForeignKey("brews.id", ondelete="CASCADE"), primary_key=True),
+    Column("profile_id", ForeignKey("profiles.id"), primary_key=True, index=True),
+)
+
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
@@ -221,11 +228,13 @@ class Brew(TimestampMixin, Base):
     pour_count: Mapped[int | None] = mapped_column(Integer)
     technique_note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
     rating_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     coffee: Mapped[Coffee] = relationship()
     operator: Mapped[Profile] = relationship()
+    operators: Mapped[list[Profile]] = relationship(secondary=brew_operators)
     grinder: Mapped[Grinder] = relationship()
     dripper: Mapped[Dripper | None] = relationship()
     brew_filter: Mapped[BrewFilter | None] = relationship()
@@ -289,3 +298,5 @@ class AppSettings(Base):
     color_coffee: Mapped[str] = mapped_column(String(7), default="#6B3F2A")
     color_cyan: Mapped[str] = mapped_column(String(7), default="#007F9E")
     color_amber: Mapped[str] = mapped_column(String(7), default="#D88700")
+    max_active_brews: Mapped[int] = mapped_column(Integer, default=2)
+    active_brew_count: Mapped[int] = mapped_column(Integer, default=0)

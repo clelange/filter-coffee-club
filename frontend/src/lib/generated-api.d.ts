@@ -602,6 +602,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/brews/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active Brews */
+        get: operations["active_brews_api_v1_brews_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/brews/{brew_id}": {
         parameters: {
             query?: never;
@@ -631,6 +648,23 @@ export interface paths {
         get: operations["get_brew_rating_insights_api_v1_brews__brew_id__rating_insights_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/brews/{brew_id}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join Brew */
+        post: operations["join_brew_api_v1_brews__brew_id__join_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -932,6 +966,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveBrewsResponse */
+        ActiveBrewsResponse: {
+            /** Brews */
+            brews: components["schemas"]["BrewResponse"][];
+            /** Active Count */
+            active_count: number;
+            /** Max Active Brews */
+            max_active_brews: number;
+            /** Can Start */
+            can_start: boolean;
+        };
         /** AnalyticsCoffeeRank */
         AnalyticsCoffeeRank: {
             /** Coffee Id */
@@ -1061,6 +1106,8 @@ export interface components {
             color_cyan: string;
             /** Color Amber */
             color_amber: string;
+            /** Max Active Brews */
+            max_active_brews: number;
             /**
              * Public Url Needs Configuration
              * @default false
@@ -1098,6 +1145,8 @@ export interface components {
             color_cyan: string;
             /** Color Amber */
             color_amber: string;
+            /** Max Active Brews */
+            max_active_brews: number;
         };
         /** Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put */
         Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put: {
@@ -1207,6 +1256,8 @@ export interface components {
             water_g?: number | null;
             /** Total Brew Time S */
             total_brew_time_s: number;
+            /** Revision */
+            revision: number;
         };
         /** BrewInput */
         BrewInput: {
@@ -1248,6 +1299,8 @@ export interface components {
         BrewOperatorUpdate: {
             /** Operator Id */
             operator_id: number;
+            /** Revision */
+            revision: number;
         };
         /** BrewResponse */
         BrewResponse: {
@@ -1290,6 +1343,10 @@ export interface components {
             operator_id: number;
             /** Operator Name */
             operator_name: string;
+            /** Operators */
+            operators: components["schemas"]["ProfileIdentity"][];
+            /** Revision */
+            revision: number;
             /** Coffee Name */
             coffee_name: string;
             /** Coffee Roaster */
@@ -1321,6 +1378,49 @@ export interface components {
             cloned_from_id: number | null;
             /** Rating Token */
             rating_token?: string | null;
+        };
+        /** BrewStatusChange */
+        BrewStatusChange: {
+            /** Revision */
+            revision: number;
+        };
+        /** BrewUpdate */
+        BrewUpdate: {
+            /** Coffee Id */
+            coffee_id: number;
+            /** Grinder Id */
+            grinder_id: number;
+            /** Dripper Id */
+            dripper_id?: number | null;
+            /** Filter Id */
+            filter_id?: number | null;
+            /** Source Preset Id */
+            source_preset_id?: number | null;
+            /** Dose G */
+            dose_g: number;
+            /** Water G */
+            water_g: number;
+            /** Temperature C */
+            temperature_c: number;
+            /** Grinder Setting */
+            grinder_setting: number;
+            /**
+             * Servings
+             * @default 1
+             */
+            servings: number;
+            /** Target Flow G S */
+            target_flow_g_s?: number | null;
+            /** Bloom Water G */
+            bloom_water_g?: number | null;
+            /** Bloom Time S */
+            bloom_time_s?: number | null;
+            /** Pour Count */
+            pour_count?: number | null;
+            /** Technique Note */
+            technique_note?: string | null;
+            /** Revision */
+            revision: number;
         };
         /** CatalogBrewResult */
         CatalogBrewResult: {
@@ -1363,6 +1463,10 @@ export interface components {
             operator_id: number;
             /** Operator Name */
             operator_name: string;
+            /** Operators */
+            operators: components["schemas"]["ProfileIdentity"][];
+            /** Revision */
+            revision: number;
             /** Coffee Name */
             coffee_name: string;
             /** Coffee Roaster */
@@ -3712,6 +3816,26 @@ export interface operations {
             };
         };
     };
+    active_brews_api_v1_brews_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveBrewsResponse"];
+                };
+            };
+        };
+    };
     get_brew_api_v1_brews__brew_id__get: {
         parameters: {
             query?: never;
@@ -3754,7 +3878,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BrewInput"];
+                "application/json": components["schemas"]["BrewUpdate"];
             };
         };
         responses: {
@@ -3796,6 +3920,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RatingAggregate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_brew_api_v1_brews__brew_id__join_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                brew_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrewResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3954,7 +4109,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrewStatusChange"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3985,7 +4144,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrewStatusChange"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
