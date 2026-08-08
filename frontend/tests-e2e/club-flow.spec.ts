@@ -187,8 +187,22 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Purchased from').fill('CERN Restaurant 1, Meyrin');
   await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(ethiopiaPhoto);
   await expect(page.getByRole('img', { name: 'Selected catalog item' })).toBeVisible();
+  let coffeeCreateRequests = 0;
+  let coffeeCreationKey = '';
+  await page.route('**/api/v1/coffees', async (route) => {
+    if (route.request().method() === 'POST') {
+      coffeeCreateRequests += 1;
+      coffeeCreationKey = route.request().headers()['idempotency-key'] ?? '';
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    await route.continue();
+  });
   await page.getByRole('button', { name: 'Save coffee' }).click();
+  await expect(page.getByRole('button', { name: 'Saving coffee…' })).toBeDisabled();
   await expect(page.getByRole('heading', { name: 'Collider Blend' })).toBeVisible();
+  await page.unroute('**/api/v1/coffees');
+  expect(coffeeCreateRequests).toBe(1);
+  expect(coffeeCreationKey).toMatch(/^[0-9a-f-]{36}$/);
   const colliderCard = page
     .locator('article[data-testid="catalog-card"]')
     .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });

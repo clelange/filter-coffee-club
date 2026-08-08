@@ -6,13 +6,22 @@
   import CatalogCard from '$lib/CatalogCard.svelte';
   import CoffeeFields from '$lib/CoffeeFields.svelte';
   import PhotoPicker from '$lib/PhotoPicker.svelte';
-  import { api, appSettingsStore, jsonBody, sessionStore, uploadCatalogPhoto } from '$lib/api';
+  import {
+    ApiError,
+    api,
+    appSettingsStore,
+    jsonBody,
+    sessionStore,
+    uploadCatalogPhoto
+  } from '$lib/api';
   import { coffeePayload, emptyCoffeeForm, usageFor } from '$lib/catalog';
   import type { CatalogUsageResponse, Coffee } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
   let usage: CatalogUsageResponse['items'] = $state([]);
   let showForm = $state(false);
+  let creating = $state(false);
+  let creationKey = $state('');
   let loading = $state(true);
   let error = $state('');
   let photoFile: File | null = $state(null);
@@ -39,10 +48,15 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
+    if (creating) return;
+    creating = true;
     error = '';
+    const idempotencyKey = creationKey || crypto.randomUUID();
+    creationKey = idempotencyKey;
     try {
       const coffee = await api<Coffee>('/coffees', {
         method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
         body: jsonBody(coffeePayload(form))
       });
       if (photoFile) {
@@ -56,16 +70,27 @@
       form = emptyCoffeeForm();
       photoFile = null;
       showForm = false;
+      creationKey = '';
       await load();
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status < 500) creationKey = crypto.randomUUID();
       error = caught instanceof Error ? caught.message : 'Could not add coffee.';
+    } finally {
+      creating = false;
     }
   }
 
   function closeForm() {
+    if (creating) return;
     showForm = false;
+    creationKey = '';
     photoFile = null;
     form = emptyCoffeeForm();
+  }
+
+  function openForm() {
+    creationKey = crypto.randomUUID();
+    showForm = true;
   }
 </script>
 
@@ -81,7 +106,10 @@
       </p>
     </div>
     {#if $sessionStore && $deviceModeStore !== 'kiosk'}
-      <button class="primary" onclick={() => (showForm ? closeForm() : (showForm = true))}
+      <button
+        class="primary"
+        disabled={creating}
+        onclick={() => (showForm ? closeForm() : openForm())}
         >{showForm ? 'Close' : '+ Add coffee'}</button
       >
     {/if}
@@ -104,8 +132,12 @@
         />{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="actions">
-        <button class="primary">Save coffee</button>
-        <button class="secondary" type="button" onclick={closeForm}>Cancel</button>
+        <button class="primary" disabled={creating}
+          >{creating ? 'Saving coffee…' : 'Save coffee'}</button
+        >
+        <button class="secondary" type="button" disabled={creating} onclick={closeForm}
+          >Cancel</button
+        >
       </div>
     </form>
   {:else if error}

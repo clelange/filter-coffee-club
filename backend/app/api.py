@@ -11,9 +11,10 @@ from pathlib import Path
 from statistics import mean
 
 import segno
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from .calculations import brew_ratio, overall_throughput
@@ -117,6 +118,23 @@ RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
 def ensure_catalog_photo_writes_allowed(request: Request) -> None:
     if request.app.state.settings.demo_mode:
         raise HTTPException(status_code=403, detail="Photo changes are disabled in demo mode")
+
+
+def coffee_matches_creation(coffee: Coffee, payload: CoffeeInput, profile_id: int) -> bool:
+    return coffee.created_by_id == profile_id and all(
+        getattr(coffee, key) == value for key, value in payload.model_dump().items()
+    )
+
+
+def replay_idempotent_coffee_creation(
+    coffee: Coffee | None, payload: CoffeeInput, profile_id: int
+) -> Coffee:
+    if coffee is not None and coffee_matches_creation(coffee, payload, profile_id):
+        return coffee
+    raise HTTPException(
+        status_code=409,
+        detail="Idempotency key was already used for a different coffee creation request",
+    )
 
 
 auth_logger = logging.getLogger("fcc.auth")
@@ -663,11 +681,33 @@ def create_coffee(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> Coffee:
+    if idempotency_key is not None:
+        existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
+        if existing is not None:
+            return replay_idempotent_coffee_creation(existing, payload, login_session.profile_id)
     enforce_demo_capacity(request, db, Coffee)
-    coffee = Coffee(**payload.model_dump(), created_by_id=login_session.profile_id)
+    coffee = Coffee(
+        **payload.model_dump(),
+        created_by_id=login_session.profile_id,
+        creation_token=idempotency_key,
+    )
     db.add(coffee)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        if idempotency_key is None:
+            raise
+        db.rollback()
+        existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
+        return replay_idempotent_coffee_creation(existing, payload, login_session.profile_id)
     db.refresh(coffee)
     return coffee
 

@@ -2301,7 +2301,9 @@ export interface operations {
     create_coffee_api_v1_coffees_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
