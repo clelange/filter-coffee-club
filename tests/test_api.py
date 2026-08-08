@@ -7,13 +7,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 
+import pytest
 from app import api as api_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
-from app.models import Brew, Profile
+from app.models import Brew, Coffee, Profile
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 
 def build_client(tmp_path: Path, **overrides: object) -> TestClient:
@@ -223,6 +226,8 @@ def test_coffee_purchase_location_lifecycle_and_exports(tmp_path: Path) -> None:
             coffees_csv = archive.read("coffees.csv").decode()
         assert "purchase_location" in coffees_csv
         assert "Coffee Collective, Copenhagen" in coffees_csv
+
+
 def test_coffee_creation_is_idempotent(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
@@ -246,12 +251,79 @@ def test_coffee_creation_is_idempotent(tmp_path: Path) -> None:
         assert conflict.json()["detail"].startswith("Idempotency key was already used")
         assert len(client.get("/api/v1/coffees").json()) == 1
 
+        edited_payload = {**payload, "name": "Edited bag"}
+        edited = client.put(
+            f"/api/v1/coffees/{first.json()['id']}", headers=headers, json=edited_payload
+        )
+        replay_after_edit = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
+        changed_request_after_edit = client.post(
+            "/api/v1/coffees", headers=idempotent_headers, json=edited_payload
+        )
 
-def test_concurrent_coffee_creation_with_same_key_commits_once(tmp_path: Path) -> None:
+        assert edited.status_code == 200
+        assert replay_after_edit.status_code == 200
+        assert replay_after_edit.json()["id"] == first.json()["id"]
+        assert replay_after_edit.json()["name"] == "Edited bag"
+        assert changed_request_after_edit.status_code == 409
+
+
+def test_coffee_creation_key_cannot_be_reused_by_another_profile(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        idempotency_key = "profile-scoped-coffee-create"
+        payload = {"roaster": "Orbit", "name": "Single bag"}
+        created = client.post(
+            "/api/v1/coffees",
+            headers={**admin_headers, "Idempotency-Key": idempotency_key},
+            json=payload,
+        )
+        member = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "member"},
+        ).json()
+        assert (
+            client.put(
+                f"/api/v1/people/{member['id']}",
+                headers=admin_headers,
+                json={"pin_change_required": False},
+            ).status_code
+            == 200
+        )
+        member_session = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+        ).json()
+
+        conflict = client.post(
+            "/api/v1/coffees",
+            headers={
+                "X-CSRF-Token": member_session["csrf_token"],
+                "Idempotency-Key": idempotency_key,
+            },
+            json=payload,
+        )
+
+        assert created.status_code == 200
+        assert conflict.status_code == 409
+        assert len(client.get("/api/v1/coffees").json()) == 1
+
+
+def test_concurrent_coffee_creation_with_same_key_commits_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
         idempotent_headers = {**headers, "Idempotency-Key": "concurrent-coffee-create"}
         payload = {"roaster": "Orbit", "name": "Concurrent bag"}
+        barrier = Barrier(2)
+        original_enforce_demo_capacity = api_module.enforce_demo_capacity
+
+        def synchronized_enforce_demo_capacity(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            barrier.wait(timeout=5)
+            original_enforce_demo_capacity(*args, **kwargs)
+
+        monkeypatch.setattr(api_module, "enforce_demo_capacity", synchronized_enforce_demo_capacity)
 
         def create_coffee(_attempt: int) -> tuple[int, int]:
             response = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
@@ -263,6 +335,30 @@ def test_concurrent_coffee_creation_with_same_key_commits_once(tmp_path: Path) -
         assert [status for status, _coffee_id in results] == [200, 200]
         assert len({coffee_id for _status, coffee_id in results}) == 1
         assert len(client.get("/api/v1/coffees").json()) == 1
+
+
+def test_unrelated_integrity_error_is_not_an_idempotency_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        original_commit = Session.commit
+
+        def fail_coffee_commit(db: Session) -> None:
+            if any(isinstance(item, Coffee) for item in db.new):
+                raise IntegrityError("forced statement", {}, RuntimeError("forced failure"))
+            original_commit(db)
+
+        monkeypatch.setattr(Session, "commit", fail_coffee_commit)
+
+        with pytest.raises(IntegrityError, match="forced failure"):
+            client.post(
+                "/api/v1/coffees",
+                headers={**headers, "Idempotency-Key": "unrelated-integrity-error"},
+                json={"roaster": "Orbit", "name": "Failed bag"},
+            )
+
+        assert client.get("/api/v1/coffees").json() == []
 
 
 def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> None:

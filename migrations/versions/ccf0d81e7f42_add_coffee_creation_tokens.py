@@ -18,6 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.add_column("coffees", sa.Column("creation_token", sa.String(length=64), nullable=True))
+    op.add_column(
+        "coffees", sa.Column("creation_request_hash", sa.String(length=64), nullable=True)
+    )
     op.create_index(
         op.f("ix_coffees_creation_token"),
         "coffees",
@@ -28,4 +31,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(op.f("ix_coffees_creation_token"), table_name="coffees")
+    op.drop_column("coffees", "creation_request_hash")
     op.drop_column("coffees", "creation_token")

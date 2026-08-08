@@ -198,6 +198,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     await route.continue();
   });
   await page.getByRole('button', { name: 'Save coffee' }).click();
+  await page.locator('form.create-panel').dispatchEvent('submit');
   await expect(page.getByRole('button', { name: 'Saving coffee…' })).toBeDisabled();
   await expect(page.getByRole('heading', { name: 'Collider Blend' })).toBeVisible();
   await page.unroute('**/api/v1/coffees');
@@ -310,15 +311,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await inlineCoffeeName.fill('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
   await page.getByLabel('Purchased from').fill('  MAME, Zurich  ');
   let failInlineCoffee = true;
+  const inlineCoffeeCreationKeys: string[] = [];
   await page.route('**/api/v1/coffees', async (route) => {
-    if (route.request().method() === 'POST' && failInlineCoffee) {
-      failInlineCoffee = false;
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Temporary coffee failure' })
-      });
-      return;
+    if (route.request().method() === 'POST') {
+      inlineCoffeeCreationKeys.push(route.request().headers()['idempotency-key'] ?? '');
+      if (failInlineCoffee) {
+        failInlineCoffee = false;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Temporary coffee failure' })
+        });
+        return;
+      }
     }
     await route.continue();
   });
@@ -326,13 +331,17 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('alert')).toHaveText('Temporary coffee failure');
   await expect(inlineRoaster).toHaveValue('Responsive Layout Review Roastery');
   await expect(inlineCoffeeName).toHaveValue('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
-  await page.unroute('**/api/v1/coffees');
   await inlineSave.click();
   await expect(
     page.getByRole('combobox', { name: 'Coffee', exact: true }).locator('option:checked')
   ).toHaveText(
     'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   );
+  await page.unroute('**/api/v1/coffees');
+  expect(inlineCoffeeCreationKeys).toHaveLength(2);
+  expect(inlineCoffeeCreationKeys[0]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(new Set(inlineCoffeeCreationKeys).size).toBe(1);
+
   await page.goto('/coffees');
   const inlineCoffeeCard = page.locator('article[data-testid="catalog-card"]').filter({
     has: page.getByRole('heading', {
