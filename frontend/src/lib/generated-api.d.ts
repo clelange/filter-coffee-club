@@ -1436,6 +1436,8 @@ export interface components {
             region?: string | null;
             /** Producer */
             producer?: string | null;
+            /** Purchase Location */
+            purchase_location?: string | null;
             /** Process */
             process?: string | null;
             /** Roast Level */
@@ -1473,6 +1475,8 @@ export interface components {
             region?: string | null;
             /** Producer */
             producer?: string | null;
+            /** Purchase Location */
+            purchase_location?: string | null;
             /** Process */
             process?: string | null;
             /** Roast Level */

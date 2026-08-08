@@ -184,6 +184,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: '+ Add coffee' }).click();
   await page.getByLabel('Roaster / brand').fill('PSI Roasters');
   await page.getByLabel('Coffee name').fill('Collider Blend');
+  await page.getByLabel('Purchased from').fill('CERN Restaurant 1, Meyrin');
   await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(ethiopiaPhoto);
   await expect(page.getByRole('img', { name: 'Selected catalog item' })).toBeVisible();
   await page.getByRole('button', { name: 'Save coffee' }).click();
@@ -193,6 +194,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) });
   const colliderPhoto = colliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' });
   await expect(colliderPhoto).toBeVisible();
+  await expect(colliderCard.getByText('Purchased from CERN Restaurant 1, Meyrin')).toBeVisible();
   await expect(colliderCard.locator('input, textarea, select')).toHaveCount(0);
   await expect(colliderCard.getByRole('button', { name: /Edit|Clone|Archive|photo/i })).toHaveCount(
     0
@@ -234,6 +236,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await colliderCard.getByRole('link', { name: 'View details for Collider Blend' }).click();
   await expect(page).toHaveURL(/\/coffees\/\d+$/);
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(page.getByText('CERN Restaurant 1, Meyrin', { exact: true })).toBeVisible();
   await expect(page.locator('input, textarea, select')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
@@ -243,11 +246,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByText('PSI Roasters', { exact: true }).first()).toBeVisible();
   await expect(page.locator('input, textarea, select')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Purchased from').fill('PSI West Cafeteria, Villigen');
   await page
     .getByLabel('Replacement photo (optional)', { exact: true })
     .setInputFiles(colombiaPhoto);
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(page.getByText('PSI West Cafeteria, Villigen', { exact: true })).toBeVisible();
   const detailPhoto = page
     .getByTestId('detail-photo')
     .getByRole('img', { name: 'PSI Roasters Collider Blend', exact: true });
@@ -289,6 +294,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(inlineRoaster).toBeFocused();
   await inlineRoaster.fill('Responsive Layout Review Roastery');
   await inlineCoffeeName.fill('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
+  await page.getByLabel('Purchased from').fill('  MAME, Zurich  ');
   let failInlineCoffee = true;
   await page.route('**/api/v1/coffees', async (route) => {
     if (route.request().method() === 'POST' && failInlineCoffee) {
@@ -313,6 +319,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   ).toHaveText(
     'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   );
+  await page.goto('/coffees');
+  const inlineCoffeeCard = page.locator('article[data-testid="catalog-card"]').filter({
+    has: page.getByRole('heading', {
+      name: 'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+    })
+  });
+  await expect(inlineCoffeeCard.getByText('Purchased from MAME, Zurich')).toBeVisible();
 
   await page.goto('/?kiosk=1');
   await expect(page.getByRole('link', { name: 'Sign in to brew' })).toBeVisible();

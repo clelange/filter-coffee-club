@@ -10,6 +10,13 @@
   <label>Country<input bind:value={form.country} /></label>
   <label>Region<input bind:value={form.region} /></label>
   <label>Producer / farm<input bind:value={form.producer} /></label>
+  <label
+    >Purchased from<input
+      bind:value={form.purchase_location}
+      maxlength="160"
+      placeholder="Shop, city, or country"
+    /></label
+  >
   <label>Variety<input bind:value={form.variety} /></label>
   <label>Process<input bind:value={form.process} placeholder="Washed, natural, anaerobic…" /></label
   >

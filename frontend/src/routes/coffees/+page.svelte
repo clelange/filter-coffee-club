@@ -127,7 +127,13 @@
             alt={`${coffee.roaster} ${coffee.name}`}
             eyebrow={coffee.roaster}
             title={coffee.name}
-            metadata={[coffee.country, coffee.region, coffee.process, coffee.roast_level]
+            metadata={[
+              coffee.country,
+              coffee.region,
+              coffee.process,
+              coffee.roast_level,
+              coffee.purchase_location ? `Purchased from ${coffee.purchase_location}` : null
+            ]
               .filter(Boolean)
               .join(' · ')}
             notes={coffee.package_notes}

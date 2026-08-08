@@ -103,12 +103,20 @@ class CoffeeInput(BaseModel):
     country: str | None = None
     region: str | None = None
     producer: str | None = None
+    purchase_location: str | None = Field(default=None, max_length=160)
     process: str | None = None
     roast_level: str | None = None
     roast_date: date | None = None
     opened_date: date | None = None
     variety: str | None = None
     package_notes: str | None = None
+
+    @field_validator("purchase_location", mode="before")
+    @classmethod
+    def normalize_purchase_location(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class CoffeeResponse(CoffeeInput, ORMModel):
