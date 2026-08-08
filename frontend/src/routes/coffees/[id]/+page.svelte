@@ -23,6 +23,7 @@
   import type { CatalogInsights, Coffee, CoffeeRatingInsights, PhotoFraming } from '$lib/types';
 
   let coffee: Coffee | null = $state(null);
+  let coffeePeers: Coffee[] = $state([]);
   let insights: CatalogInsights | null = $state(null);
   let ratingInsights: CoffeeRatingInsights | null = $state(null);
   let form = $state(emptyCoffeeForm());
@@ -84,7 +85,12 @@
     loadMoreError = '';
     notFound = false;
     try {
-      coffee = await api<Coffee>(`/coffees/${id}`);
+      const [loadedCoffee, loadedCoffeePeers] = await Promise.all([
+        api<Coffee>(`/coffees/${id}`),
+        api<Coffee[]>('/coffees?include_archived=true').catch(() => [])
+      ]);
+      coffee = loadedCoffee;
+      coffeePeers = loadedCoffeePeers.length ? loadedCoffeePeers : [loadedCoffee];
       form = coffeeToForm(coffee);
       baseline = JSON.stringify(form);
       try {
@@ -341,7 +347,12 @@
           <h2>Update bag details.</h2>
           <p class="muted">Changes stay local until you press Save changes.</p>
         </div>
-        <CoffeeFields bind:form />
+        <CoffeeFields
+          bind:form
+          coffees={coffeePeers}
+          currentCoffeeId={coffee.id}
+          surfaceColor={$appSettingsStore?.color_surface ?? '#FFFDFC'}
+        />
         {#if !$appSettingsStore?.demo_mode}
           <div class="photo-edit">
             <PhotoPicker

@@ -24,7 +24,8 @@ export function emptyCoffeeForm(): CoffeeFormData {
     roast_date: '',
     opened_date: '',
     variety: '',
-    package_notes: ''
+    package_notes: '',
+    chart_color: ''
   };
 }
 
@@ -41,7 +42,8 @@ export function coffeeToForm(coffee: Coffee): CoffeeFormData {
     roast_date: coffee.roast_date ?? '',
     opened_date: coffee.opened_date ?? '',
     variety: coffee.variety ?? '',
-    package_notes: coffee.package_notes ?? ''
+    package_notes: coffee.package_notes ?? '',
+    chart_color: coffee.chart_color
   };
 }
 

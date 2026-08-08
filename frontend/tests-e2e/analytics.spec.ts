@@ -49,6 +49,7 @@ const analytics = {
       brew_id: 101,
       coffee_id: 11,
       coffee: 'Atlas · Alpha',
+      coffee_color: '#0072B2',
       liking: 1,
       ratings: 1,
       rating_metrics: {
@@ -72,6 +73,7 @@ const analytics = {
       brew_id: 102,
       coffee_id: 11,
       coffee: 'Atlas · Alpha',
+      coffee_color: '#0072B2',
       liking: 8,
       ratings: 4,
       rating_metrics: {
@@ -95,6 +97,7 @@ const analytics = {
       brew_id: 103,
       coffee_id: 11,
       coffee: 'Atlas · Alpha',
+      coffee_color: '#0072B2',
       liking: 6,
       ratings: 2,
       rating_metrics: {
@@ -118,6 +121,7 @@ const analytics = {
       brew_id: 201,
       coffee_id: 12,
       coffee: 'Beacon · Beta',
+      coffee_color: '#D55E00',
       liking: 7,
       ratings: 1,
       rating_metrics: {
@@ -173,6 +177,31 @@ test('recipe map exposes comparable axes, ratings, and brew details', async ({ p
   expect(xTickLabels.every((tick) => Number.isFinite(Number(tick)))).toBe(true);
   await expect(settingsChart.getByText('Brew ratio (1:x)', { exact: true })).toBeVisible();
   await expect(settingsChart.getByText('Liking (1–9)', { exact: true })).toBeVisible();
+  const coffeeLegend = settingsChart.getByTestId('coffee-color-legend');
+  await expect(coffeeLegend).toHaveAttribute(
+    'aria-label',
+    'Coffee colors in this recipe comparison'
+  );
+  await expect(coffeeLegend.getByRole('listitem')).toHaveCount(2);
+  await expect(coffeeLegend).toContainText('Atlas · Alpha');
+  await expect(coffeeLegend).toContainText('Beacon · Beta');
+  await expect(settingsChart.locator('.plot-point[data-brew-id="101"] circle')).toHaveAttribute(
+    'fill',
+    '#0072B2'
+  );
+  await expect(settingsChart.locator('.plot-point[data-brew-id="201"] circle')).toHaveAttribute(
+    'fill',
+    '#D55E00'
+  );
+  const comparisonCoffee = settingsChart.getByRole('combobox', {
+    name: 'Coffee',
+    exact: true
+  });
+  await comparisonCoffee.selectOption('11');
+  await expect(coffeeLegend.getByRole('listitem')).toHaveCount(1);
+  await expect(coffeeLegend).toContainText('Atlas · Alpha');
+  await expect(coffeeLegend).not.toContainText('Beacon · Beta');
+  await comparisonCoffee.selectOption('all');
 
   const recipeMap = page.locator('.recipe-map');
   const coffee = recipeMap.getByRole('combobox', { name: 'Map coffee', exact: true });

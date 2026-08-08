@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Literal
 
@@ -120,6 +121,17 @@ class CoffeeInput(BaseModel):
     opened_date: date | None = None
     variety: str | None = None
     package_notes: str | None = None
+    chart_color: str | None = None
+
+    @field_validator("chart_color")
+    @classmethod
+    def validate_chart_color(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.upper()
+        if re.fullmatch(r"#[0-9A-F]{6}", normalized) is None:
+            raise ValueError("Chart color must use #RRGGBB format")
+        return normalized
 
     @field_validator("purchase_location", mode="before")
     @classmethod
@@ -131,6 +143,7 @@ class CoffeeInput(BaseModel):
 
 class CoffeeResponse(CoffeeInput, ORMModel):
     id: int
+    chart_color: str
     photo_path: str | None
     photo_framing: PhotoFraming | None
     archived: bool
@@ -496,6 +509,7 @@ class AnalyticsPoint(BaseModel):
     brew_id: int
     coffee_id: int
     coffee: str
+    coffee_color: str
     liking: float
     ratings: int
     rating_metrics: AnalyticsRatingMetrics

@@ -34,6 +34,7 @@ from .catalog_photos import (
     save_catalog_photo,
     update_catalog_photo_framing,
 )
+from .coffee_colors import next_coffee_color
 from .db import session_dependency, utcnow
 from .demo import (
     DEMO_NOTICE,
@@ -813,7 +814,9 @@ def create_coffee(
             )
     enforce_demo_capacity(request, db, Coffee)
     coffee = Coffee(
-        **payload.model_dump(),
+        **payload.model_dump(exclude={"chart_color"}),
+        chart_color=payload.chart_color
+        or next_coffee_color(db.scalars(select(Coffee.chart_color))),
         created_by_id=login_session.profile_id,
         creation_token=idempotency_key,
         creation_request_hash=request_fingerprint if idempotency_key else None,
@@ -922,8 +925,12 @@ def update_coffee(
     coffee = db.get(Coffee, coffee_id)
     if coffee is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
-    for key, value in payload.model_dump().items():
+    for key, value in payload.model_dump(exclude={"chart_color"}).items():
         setattr(coffee, key, value)
+    if "chart_color" in payload.model_fields_set:
+        coffee.chart_color = payload.chart_color or next_coffee_color(
+            db.scalars(select(Coffee.chart_color).where(Coffee.id != coffee.id))
+        )
     db.commit()
     db.refresh(coffee)
     return coffee
@@ -1026,6 +1033,9 @@ def clone_coffee(
         roast_level=source.roast_level,
         variety=source.variety,
         package_notes=source.package_notes,
+        chart_color=next_coffee_color(
+            db.scalars(select(Coffee.chart_color)), excluded=(source.chart_color,)
+        ),
         cloned_from_id=source.id,
         created_by_id=login_session.profile_id,
     )
@@ -2383,6 +2393,7 @@ def analytics(
                 "brew_id": brew.id,
                 "coffee_id": brew.coffee_id,
                 "coffee": coffee_names[brew.coffee_id],
+                "coffee_color": brew.coffee.chart_color,
                 "liking": round(mean(rating.liking for rating in brew.ratings), 2),
                 "ratings": len(brew.ratings),
                 "rating_metrics": rating_metrics,
@@ -2506,6 +2517,7 @@ def export_rows(db: Session) -> dict[str, list[dict]]:
             "opened_date": item.opened_date,
             "variety": item.variety,
             "package_notes": item.package_notes,
+            "chart_color": item.chart_color,
             "archived": item.archived,
         }
         for item in db.scalars(select(Coffee).order_by(Coffee.id))

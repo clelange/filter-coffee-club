@@ -18,6 +18,7 @@
   import type { CatalogUsageResponse, Coffee, PhotoFraming } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
+  let coffeeColorPeers: Coffee[] = $state([]);
   let usage: CatalogUsageResponse['items'] = $state([]);
   let showForm = $state(false);
   let creating = $state(false);
@@ -35,10 +36,11 @@
     error = '';
     try {
       const [coffeeItems, usageResponse] = await Promise.all([
-        api<Coffee[]>('/coffees'),
+        api<Coffee[]>('/coffees?include_archived=true'),
         api<CatalogUsageResponse>('/catalog/usage')
       ]);
-      coffees = coffeeItems;
+      coffees = coffeeItems.filter((coffee) => !coffee.archived);
+      coffeeColorPeers = coffeeItems;
       usage = usageResponse.items;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load the coffee catalog.';
@@ -128,7 +130,11 @@
         <p class="eyebrow">New catalog item</p>
         <h2>Register a bag.</h2>
       </div>
-      <CoffeeFields bind:form />
+      <CoffeeFields
+        bind:form
+        coffees={coffeeColorPeers}
+        surfaceColor={$appSettingsStore?.color_surface ?? '#FFFDFC'}
+      />
       {#if !$appSettingsStore?.demo_mode}<PhotoPicker
           bind:file={photoFile}
           bind:framing={photoFraming}

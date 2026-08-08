@@ -17,6 +17,7 @@
   export let yLabel: string;
   export let colorKey: AnalyticsRatingKey | null = null;
   export let colorLabel = '';
+  export let colorByCoffee = false;
 
   const width = 680;
   const height = 410;
@@ -31,6 +32,7 @@
   let xScale: ScaleSpec;
   let yScale: ScaleSpec;
   let plottedPoints: { point: AnalyticsScatterPoint; cx: number; cy: number }[];
+  let coffeeSeries: { id: number; name: string; color: string }[];
 
   $: if (activePoint && !points.some((point) => point.brew_id === activePoint?.brew_id)) {
     activePoint = null;
@@ -40,6 +42,16 @@
   $: xScale = scaleSpec(xKey, points);
   $: yScale = scaleSpec(yKey, points);
   $: plottedPoints = displayPoints(points, xKey, yKey, xScale, yScale);
+  $: coffeeSeries = colorByCoffee
+    ? [
+        ...new Map(
+          points.map((point) => [
+            point.coffee_id,
+            { id: point.coffee_id, name: point.coffee, color: point.coffee_color }
+          ])
+        ).values()
+      ].sort((left, right) => left.name.localeCompare(right.name))
+    : [];
 
   function value(point: AnalyticsScatterPoint, key: PlotKey): number {
     return key === 'liking' ? point.liking : Number(point[key]);
@@ -180,7 +192,7 @@
   <svg
     viewBox={`0 0 ${width} ${height}`}
     role="group"
-    aria-label={`Interactive scatter plot of ${xLabel} versus ${yLabel}${colorKey ? `, coloured by ${colorLabel}` : ''}`}
+    aria-label={`Interactive scatter plot of ${xLabel} versus ${yLabel}${colorKey ? `, coloured by ${colorLabel}` : colorByCoffee ? ', coloured by coffee' : ''}`}
   >
     {#each yScale.ticks as tick}
       <line
@@ -235,7 +247,9 @@
           r={6 + Math.min(item.point.ratings, 6)}
           fill={colorKey
             ? interpolateColor(item.point.rating_metrics[colorKey].average)
-            : 'var(--cyan)'}
+            : colorByCoffee
+              ? item.point.coffee_color
+              : 'var(--cyan)'}
         >
           <title>{detailLabel(item.point)}</title>
         </circle>
@@ -257,6 +271,19 @@
   >
     <span>{colorKey === 'liking' ? 1 : 0}</span><i></i><span>{colorKey === 'liking' ? 9 : 5}</span
     ><strong>{colorLabel} average</strong>
+  </div>
+{/if}
+
+{#if colorByCoffee}
+  <div
+    class="series-legend"
+    data-testid="coffee-color-legend"
+    role="list"
+    aria-label="Coffee colors in this recipe comparison"
+  >
+    {#each coffeeSeries as series (series.id)}
+      <span role="listitem"><i style={`--series-color:${series.color}`}></i>{series.name}</span>
+    {/each}
   </div>
 {/if}
 
@@ -374,6 +401,28 @@
     font-size: 0.7rem;
     letter-spacing: 0.05em;
     text-transform: uppercase;
+  }
+  .series-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 14px;
+    margin: -6px 0 12px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .series-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .series-legend i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+    border-radius: 999px;
+    background: var(--series-color);
   }
   .point-details {
     display: flex;

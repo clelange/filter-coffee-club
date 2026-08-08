@@ -53,6 +53,7 @@ export interface Coffee {
   id: number;
   photo_path: string | null;
   photo_framing: PhotoFraming | null;
+  chart_color: string;
   roaster: string;
   name: string;
   country?: string | null;
@@ -83,6 +84,7 @@ export interface CoffeeFormData {
   opened_date: string;
   variety: string;
   package_notes: string;
+  chart_color: string;
 }
 
 export interface Grinder {
