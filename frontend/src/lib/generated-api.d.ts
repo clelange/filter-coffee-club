@@ -1014,6 +1014,8 @@ export interface components {
             coffee_id: number;
             /** Coffee */
             coffee: string;
+            /** Coffee Color */
+            coffee_color: string;
             /** Liking */
             liking: number;
             /** Ratings */
@@ -1582,6 +1584,8 @@ export interface components {
             variety?: string | null;
             /** Package Notes */
             package_notes?: string | null;
+            /** Chart Color */
+            chart_color?: string | null;
         };
         /** CoffeeRatingInsights */
         CoffeeRatingInsights: {
@@ -1621,6 +1625,8 @@ export interface components {
             variety?: string | null;
             /** Package Notes */
             package_notes?: string | null;
+            /** Chart Color */
+            chart_color: string;
             /** Id */
             id: number;
             /** Photo Path */

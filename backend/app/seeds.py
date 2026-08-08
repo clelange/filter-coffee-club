@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .coffee_colors import COFFEE_COLOR_PALETTE
 from .db import utcnow
 from .demo import DEMO_PIN, DEMO_PROFILE_NAMES
 from .models import (
@@ -274,6 +275,7 @@ def seed_demo_database(db: Session, catalog_upload_dir: Path) -> None:
         age = 20 - index * 3
         coffee = Coffee(
             **values,
+            chart_color=COFFEE_COLOR_PALETTE[index % len(COFFEE_COLOR_PALETTE)],
             roast_date=(now - timedelta(days=age + 8)).date(),
             opened_date=(now - timedelta(days=age)).date(),
             created_by_id=profiles[0].id,

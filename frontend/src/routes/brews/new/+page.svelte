@@ -2,9 +2,10 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import { ApiError, api, ensureSession, jsonBody } from '$lib/api';
+  import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
   import type {
     ActiveBrews,
@@ -19,6 +20,7 @@
   } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
+  let coffeeColorPeers: Coffee[] = $state([]);
   let grinders: Grinder[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
@@ -54,7 +56,8 @@
     country: '',
     purchase_location: '',
     process: '',
-    roast_level: ''
+    roast_level: '',
+    chart_color: ''
   });
   let form: BrewInput = $state({
     coffee_id: 0,
@@ -110,14 +113,22 @@
           return;
         }
       }
-      [coffees, grinders, drippers, filters, presets, operators] = await Promise.all([
-        api<Coffee[]>('/coffees'),
-        api<Grinder[]>('/grinders'),
-        api<Dripper[]>('/drippers'),
-        api<BrewFilter[]>('/filters'),
-        api<Preset[]>('/presets'),
-        correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
-      ]);
+      const [coffeeItems, grinderItems, dripperItems, filterItems, presetItems, operatorItems] =
+        await Promise.all([
+          api<Coffee[]>('/coffees?include_archived=true'),
+          api<Grinder[]>('/grinders'),
+          api<Dripper[]>('/drippers'),
+          api<BrewFilter[]>('/filters'),
+          api<Preset[]>('/presets'),
+          correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
+        ]);
+      coffeeColorPeers = coffeeItems;
+      coffees = coffeeItems.filter((coffee) => !coffee.archived);
+      grinders = grinderItems;
+      drippers = dripperItems;
+      filters = filterItems;
+      presets = presetItems;
+      operators = operatorItems;
       form.coffee_id = Number($page.url.searchParams.get('coffee')) || coffees[0]?.id || 0;
       form.grinder_id = grinders[0]?.id ?? 0;
       if (editId || repeatId || correctionId) {
@@ -254,10 +265,12 @@
           country: newCoffee.country || null,
           purchase_location: newCoffee.purchase_location || null,
           process: newCoffee.process || null,
-          roast_level: newCoffee.roast_level || null
+          roast_level: newCoffee.roast_level || null,
+          chart_color: newCoffee.chart_color || null
         })
       });
       coffees = [...coffees, coffee];
+      coffeeColorPeers = [...coffeeColorPeers, coffee];
       form.coffee_id = coffee.id;
       newCoffee = {
         roaster: '',
@@ -265,7 +278,8 @@
         country: '',
         purchase_location: '',
         process: '',
-        roast_level: ''
+        roast_level: '',
+        chart_color: ''
       };
       showCoffeeForm = false;
       coffeeCreationKey = '';
@@ -449,6 +463,11 @@
             >
             <label>Process<input bind:value={newCoffee.process} form="coffee-form" /></label>
           </div>
+          <CoffeeColorPicker
+            bind:value={newCoffee.chart_color}
+            coffees={coffeeColorPeers}
+            surfaceColor={$appSettingsStore?.color_surface ?? '#FFFDFC'}
+          />
           {#if coffeeError}<p class="error" role="alert">{coffeeError}</p>{/if}
           <button class="secondary" type="submit" form="coffee-form" disabled={addingCoffee}
             >{addingCoffee ? 'Saving coffee…' : 'Save coffee'}</button

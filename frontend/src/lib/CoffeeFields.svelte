@@ -1,7 +1,11 @@
 <script lang="ts">
-  import type { CoffeeFormData } from '$lib/types';
+  import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
+  import type { Coffee, CoffeeFormData } from '$lib/types';
 
   export let form: CoffeeFormData;
+  export let coffees: Coffee[] = [];
+  export let currentCoffeeId: number | null = null;
+  export let surfaceColor = '#FFFDFC';
 </script>
 
 <div class="field-grid">
@@ -33,3 +37,4 @@
   <label>Opened date<input type="date" bind:value={form.opened_date} /></label>
 </div>
 <label>Package tasting notes<textarea bind:value={form.package_notes}></textarea></label>
+<CoffeeColorPicker bind:value={form.chart_color} {coffees} {currentCoffeeId} {surfaceColor} />

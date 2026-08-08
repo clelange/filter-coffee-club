@@ -224,6 +224,12 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Roaster / brand').fill('PSI Roasters');
   await page.getByLabel('Coffee name').fill('Collider Blend');
   await page.getByLabel('Purchased from').fill('CERN Restaurant 1, Meyrin');
+  await expect(page.getByRole('button', { name: 'Automatic' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  await page.getByLabel('Custom chart color').fill('#fffdfc');
+  await expect(page.getByText(/difficult to see against the current surface color/)).toBeVisible();
   await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(ethiopiaPhoto);
   await expect(page.getByRole('img', { name: 'Selected catalog item' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit framing' }).click();
@@ -325,6 +331,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(catalogGeometry.noOverflow).toBe(true);
 
   const firstPhotoPath = await colliderPhoto.getAttribute('src');
+  await page.route(/\/api\/v1\/coffees\?include_archived=true$/, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Temporary color peer failure' })
+    })
+  );
   await colliderCard.getByRole('link', { name: 'View details for Collider Blend' }).click();
   await expect(page).toHaveURL(/\/coffees\/\d+$/);
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
@@ -332,9 +345,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(
     page.getByTestId('detail-photo').getByRole('img', { name: 'PSI Roasters Collider Blend' })
   ).toHaveAttribute('style', /scale\(1\.45\)/);
+  await page.unroute(/\/api\/v1\/coffees\?include_archived=true$/);
   await expect(page.locator('input, textarea, select')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
+  await expect(page.getByLabel('Custom chart color')).toHaveValue('#fffdfc');
   await page.getByLabel('Roaster / brand').fill('Temporary roaster');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
@@ -426,6 +441,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await inlineRoaster.fill('Responsive Layout Review Roastery');
   await inlineCoffeeName.fill('Ethiopia Guji Hambela Buku Abel Extended Lot Name');
   await page.getByLabel('Purchased from').fill('  MAME, Zurich  ');
+  await page.getByLabel('Custom chart color').fill('#fffdfc');
+  await expect(page.getByText(/Also used by PSI Roasters · Collider Blend/)).toBeVisible();
   let failInlineCoffee = true;
   const inlineCoffeeCreationKeys: string[] = [];
   await page.route('**/api/v1/coffees', async (route) => {

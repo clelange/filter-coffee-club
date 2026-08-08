@@ -17,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .coffee_colors import COFFEE_COLOR_PALETTE
 from .db import Base, UTCDateTime, utcnow
 
 rating_flavor_tags = Table(
@@ -105,6 +106,7 @@ class Coffee(PhotoFramingMixin, TimestampMixin, Base):
     opened_date: Mapped[date | None] = mapped_column(Date)
     variety: Mapped[str | None] = mapped_column(String(160))
     package_notes: Mapped[str | None] = mapped_column(Text)
+    chart_color: Mapped[str] = mapped_column(String(7), default=COFFEE_COLOR_PALETTE[0])
     photo_path: Mapped[str | None] = mapped_column(String(500))
     creation_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     creation_request_hash: Mapped[str | None] = mapped_column(String(64))

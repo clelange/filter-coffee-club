@@ -195,10 +195,12 @@
             yKey="liking"
             xLabel={axisLabel(variable, grinderFilter === 'all' ? '' : grinderFilter)}
             yLabel="Liking (1–9)"
+            colorByCoffee
           />{/if}
         <p class="hint">
-          Each circle is one brew; larger circles have more ratings. Filter grinder-setting views to
-          one grinder before interpreting them. Observational, not causal.
+          Each color identifies a coffee; each circle is one brew, and larger circles have more
+          ratings. Filter grinder-setting views to one grinder before interpreting them.
+          Observational, not causal.
         </p>
       </section>
 

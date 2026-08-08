@@ -8,6 +8,8 @@ from pathlib import Path
 from threading import Barrier, Event
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from app import api as api_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
@@ -15,6 +17,7 @@ from app.main import create_app
 from app.models import AppSettings, Brew, Coffee, Profile
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -76,6 +79,77 @@ def animated_gif_upload() -> bytes:
         loop=0,
     )
     return output.getvalue()
+
+
+def test_coffee_chart_color_migration_backfills_existing_rows(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'migration.sqlite3'}"
+    project_root = Path(__file__).resolve().parents[1]
+    config = Config(project_root / "alembic.ini")
+    config.set_main_option("script_location", str(project_root / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    config.attributes["skip_logging_config"] = True
+    config.attributes["settings"] = Settings(data_dir=tmp_path, database_url=database_url)
+    command.upgrade(config, "5b0f2ea51d47")
+
+    engine = create_engine(database_url)
+    now = "2026-08-08 00:00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO profiles
+                    (id, display_name, pin_hash, role, active, created_at, updated_at)
+                VALUES
+                    (1, 'Ada', 'hash', 'admin', 1, :now, :now)
+                """
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO coffees
+                    (id, roaster, name, archived, created_by_id, created_at, updated_at)
+                VALUES
+                    (:id, 'Orbit', :name, 0, 1, :now, :now)
+                """
+            ),
+            [{"id": index, "name": f"Lot {index}", "now": now} for index in range(1, 11)],
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        colors = list(
+            connection.execute(text("SELECT chart_color FROM coffees ORDER BY id")).scalars()
+        )
+        nullable = next(
+            column["nullable"]
+            for column in inspect(connection).get_columns("coffees")
+            if column["name"] == "chart_color"
+        )
+    engine.dispose()
+    assert colors == [
+        "#0072B2",
+        "#D55E00",
+        "#009E73",
+        "#CC79A7",
+        "#A6761D",
+        "#6A3D9A",
+        "#B2182B",
+        "#4D4D4D",
+        "#0072B2",
+        "#D55E00",
+    ]
+    assert nullable is False
+
+    command.downgrade(config, "5b0f2ea51d47")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        column_names = {column["name"] for column in inspect(connection).get_columns("coffees")}
+    engine.dispose()
+    assert "chart_color" not in column_names
 
 
 def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
@@ -1282,6 +1356,83 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         assert kiosk_framing.json()["detail"] == "Photo changes are unavailable in kiosk mode"
 
 
+def test_coffee_chart_colors_are_assigned_validated_and_exported(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        first = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Alpha"},
+        ).json()
+        assert first["chart_color"] == "#0072B2"
+
+        preserved = client.put(
+            f"/api/v1/coffees/{first['id']}",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Alpha edited"},
+        ).json()
+        assert preserved["chart_color"] == "#0072B2"
+
+        customized = client.put(
+            f"/api/v1/coffees/{first['id']}",
+            headers=headers,
+            json={
+                "roaster": "Orbit",
+                "name": "Alpha edited",
+                "chart_color": "#abcdef",
+            },
+        ).json()
+        assert customized["chart_color"] == "#ABCDEF"
+
+        second = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Beta"},
+        ).json()
+        assert second["chart_color"] == "#0072B2"
+
+        reassigned = client.put(
+            f"/api/v1/coffees/{first['id']}",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Alpha edited", "chart_color": None},
+        ).json()
+        assert reassigned["chart_color"] == "#D55E00"
+
+        clone = client.post(f"/api/v1/coffees/{first['id']}/clone", headers=headers, json={}).json()
+        assert clone["chart_color"] == "#009E73"
+        assert clone["chart_color"] != reassigned["chart_color"]
+
+        for index in range(5):
+            client.post(
+                "/api/v1/coffees",
+                headers=headers,
+                json={"roaster": "Orbit", "name": f"Palette {index}"},
+            )
+        clone_after_full_palette = client.post(
+            f"/api/v1/coffees/{second['id']}/clone", headers=headers, json={}
+        ).json()
+        assert clone_after_full_palette["chart_color"] != second["chart_color"]
+
+        invalid = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Invalid", "chart_color": "blue"},
+        )
+        assert invalid.status_code == 422
+        assert "Chart color must use #RRGGBB format" in invalid.text
+
+        exported = client.get("/api/v1/exports/json").json()
+        colors_by_id = {coffee["id"]: coffee["chart_color"] for coffee in exported["coffees"]}
+        assert colors_by_id[first["id"]] == "#D55E00"
+        assert colors_by_id[second["id"]] == "#0072B2"
+
+        csv_response = client.get("/api/v1/exports/csv")
+        with zipfile.ZipFile(io.BytesIO(csv_response.content)) as archive:
+            coffees_csv = archive.read("coffees.csv").decode()
+        assert "chart_color" in coffees_csv.splitlines()[0]
+        assert "#D55E00" in coffees_csv
+
+
 def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
     size_path = tmp_path / "size-limit"
     with build_client(size_path, max_catalog_photo_bytes=32) as client:
@@ -1698,6 +1849,7 @@ def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
         first_point = next(
             point for point in analytics["scatter"] if point["brew_id"] == first_brew["id"]
         )
+        assert first_point["coffee_color"] == coffee["chart_color"]
         assert first_point["liking"] == 8
         assert first_point["ratings"] == 2
         assert first_point["rating_metrics"] == {
