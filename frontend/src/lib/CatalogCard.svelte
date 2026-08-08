@@ -2,9 +2,11 @@
   import CatalogPhoto from '$lib/CatalogPhoto.svelte';
   import CatalogUsageSummary from '$lib/CatalogUsageSummary.svelte';
   import type { CatalogUsageItem } from '$lib/types';
+  import type { PhotoFraming } from '$lib/types';
 
   export let href: string;
   export let photoPath: string | null;
+  export let photoFraming: PhotoFraming | null = null;
   export let photoEndpoint: string;
   export let alt: string;
   export let eyebrow: string;
@@ -19,7 +21,14 @@
 
 <article class="catalog-card" data-testid="catalog-card">
   <a class="catalog-summary" {href} aria-label={`View details for ${title}`}>
-    <CatalogPhoto {photoPath} {alt} endpoint={photoEndpoint} compact {beanFallback} />
+    <CatalogPhoto
+      {photoPath}
+      {photoFraming}
+      {alt}
+      endpoint={photoEndpoint}
+      compact
+      {beanFallback}
+    />
     <div class="catalog-copy">
       <p class="eyebrow">{eyebrow}</p>
       <h3>{title}</h3>

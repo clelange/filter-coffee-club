@@ -42,9 +42,16 @@ export interface AppSettings {
   demo_profile_names: string[];
 }
 
+export interface PhotoFraming {
+  focus_x: number;
+  focus_y: number;
+  zoom: number;
+}
+
 export interface Coffee {
   id: number;
   photo_path: string | null;
+  photo_framing: PhotoFraming | null;
   roaster: string;
   name: string;
   country?: string | null;
@@ -80,6 +87,7 @@ export interface CoffeeFormData {
 export interface Grinder {
   id: number;
   photo_path: string | null;
+  photo_framing: PhotoFraming | null;
   manufacturer: string;
   model: string;
   setting_unit: string;
@@ -103,6 +111,7 @@ export interface GrinderFormData {
 export interface Dripper {
   id: number;
   photo_path: string | null;
+  photo_framing: PhotoFraming | null;
   manufacturer: string | null;
   model: string;
   notes: string | null;
@@ -118,6 +127,7 @@ export interface DripperFormData {
 export interface BrewFilter {
   id: number;
   photo_path: string | null;
+  photo_framing: PhotoFraming | null;
   name: string;
   notes: string | null;
   archived: boolean;

@@ -18,7 +18,13 @@
     grinderPayload,
     usageFor
   } from '$lib/catalog';
-  import type { BrewFilter, CatalogUsageResponse, Dripper, Grinder } from '$lib/types';
+  import type {
+    BrewFilter,
+    CatalogUsageResponse,
+    Dripper,
+    Grinder,
+    PhotoFraming
+  } from '$lib/types';
 
   type EquipmentKind = 'grinder' | 'dripper' | 'filter';
 
@@ -31,6 +37,7 @@
   let loading = $state(true);
   let adding: EquipmentKind | null = $state(null);
   let photoFile: File | null = $state(null);
+  let photoFraming: PhotoFraming | null = $state(null);
   let grinderForm = $state(emptyGrinderForm());
   let dripperForm = $state(emptyDripperForm());
   let filterForm = $state(emptyFilterForm());
@@ -67,6 +74,7 @@
   function startAdding(kind: EquipmentKind) {
     adding = adding === kind ? null : kind;
     photoFile = null;
+    photoFraming = null;
     error = '';
     message = '';
   }
@@ -74,6 +82,7 @@
   function closeAdding() {
     adding = null;
     photoFile = null;
+    photoFraming = null;
   }
 
   async function createWithPhoto<T extends { id: number }>(
@@ -87,12 +96,13 @@
       const item = await action();
       if (photoFile) {
         try {
-          await uploadCatalogPhoto(`${endpoint}/${item.id}/photo`, photoFile);
+          await uploadCatalogPhoto(`${endpoint}/${item.id}/photo`, photoFile, photoFraming);
         } catch (caught) {
           message = success;
           error = `The item was saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not upload photo.'}`;
           adding = null;
           photoFile = null;
+          photoFraming = null;
           await load();
           return true;
         }
@@ -100,6 +110,7 @@
       message = success;
       adding = null;
       photoFile = null;
+      photoFraming = null;
       await load();
       return true;
     } catch (caught) {
@@ -196,6 +207,7 @@
           <GrinderFields bind:form={grinderForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
+              bind:framing={photoFraming}
               label="Photo (optional)"
             />{/if}
           <div class="actions">
@@ -215,6 +227,7 @@
           <DripperFields bind:form={dripperForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
+              bind:framing={photoFraming}
               label="Photo (optional)"
             />{/if}
           <div class="actions">
@@ -234,6 +247,7 @@
           <FilterFields bind:form={filterForm} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
+              bind:framing={photoFraming}
               label="Photo (optional)"
             />{/if}
           <div class="actions">
@@ -263,6 +277,7 @@
               <CatalogCard
                 href={`/equipment/grinders/${item.id}`}
                 photoPath={item.photo_path}
+                photoFraming={item.photo_framing}
                 photoEndpoint={`/grinders/${item.id}/photo`}
                 alt={`${item.manufacturer} ${item.model}`}
                 eyebrow={item.manufacturer}
@@ -286,6 +301,7 @@
               <CatalogCard
                 href={`/equipment/drippers/${item.id}`}
                 photoPath={item.photo_path}
+                photoFraming={item.photo_framing}
                 photoEndpoint={`/drippers/${item.id}/photo`}
                 alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
                 eyebrow={item.manufacturer ?? 'Dripper'}
@@ -308,6 +324,7 @@
               <CatalogCard
                 href={`/equipment/filters/${item.id}`}
                 photoPath={item.photo_path}
+                photoFraming={item.photo_framing}
                 photoEndpoint={`/filters/${item.id}/photo`}
                 alt={item.name}
                 eyebrow="Filter"

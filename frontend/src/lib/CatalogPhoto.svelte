@@ -1,7 +1,10 @@
 <script lang="ts">
   import { api, uploadCatalogPhoto } from '$lib/api';
+  import { photoFramingStyle } from '$lib/photo-framing';
+  import type { PhotoFraming } from '$lib/types';
 
   export let photoPath: string | null;
+  export let photoFraming: PhotoFraming | null = null;
   export let alt: string;
   export let endpoint: string;
   export let editable = false;
@@ -45,9 +48,16 @@
 </script>
 
 <div class:compact class="catalog-photo">
-  <div class="photo-frame">
+  <div class:framed={photoFraming} class="photo-frame">
     {#if photoPath}
-      <img src={photoPath} {alt} loading="lazy" decoding="async" />
+      <img
+        class:framed={photoFraming}
+        src={photoPath}
+        {alt}
+        loading="lazy"
+        decoding="async"
+        style={photoFraming ? photoFramingStyle(photoFraming) : undefined}
+      />
     {:else}
       <div class:bean={beanFallback} class="photo-fallback" aria-hidden="true">
         {#if beanFallback}<span></span>{:else}<span class="camera">◇</span>{/if}
@@ -92,12 +102,19 @@
     border-radius: 18px;
     background: var(--cream);
   }
+  .photo-frame.framed {
+    padding: 0;
+  }
   img {
     width: 100%;
     height: 100%;
     display: block;
     object-fit: contain;
     border-radius: 11px;
+  }
+  img.framed {
+    object-fit: cover;
+    border-radius: inherit;
   }
   .photo-fallback {
     color: color-mix(in srgb, var(--coffee) 35%, transparent);

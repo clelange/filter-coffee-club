@@ -15,7 +15,7 @@
     uploadCatalogPhoto
   } from '$lib/api';
   import { coffeePayload, emptyCoffeeForm, usageFor } from '$lib/catalog';
-  import type { CatalogUsageResponse, Coffee } from '$lib/types';
+  import type { CatalogUsageResponse, Coffee, PhotoFraming } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
   let usage: CatalogUsageResponse['items'] = $state([]);
@@ -25,6 +25,7 @@
   let loading = $state(true);
   let error = $state('');
   let photoFile: File | null = $state(null);
+  let photoFraming: PhotoFraming | null = $state(null);
   let form = $state(emptyCoffeeForm());
 
   onMount(load);
@@ -61,7 +62,7 @@
       });
       if (photoFile) {
         try {
-          await uploadCatalogPhoto<Coffee>(`/coffees/${coffee.id}/photo`, photoFile);
+          await uploadCatalogPhoto<Coffee>(`/coffees/${coffee.id}/photo`, photoFile, photoFraming);
         } catch (caught) {
           await goto(`/coffees/${coffee.id}?edit=1&photoError=1`);
           return;
@@ -69,6 +70,7 @@
       }
       form = emptyCoffeeForm();
       photoFile = null;
+      photoFraming = null;
       showForm = false;
       creationKey = '';
       await load();
@@ -85,6 +87,7 @@
     showForm = false;
     creationKey = '';
     photoFile = null;
+    photoFraming = null;
     form = emptyCoffeeForm();
   }
 
@@ -128,6 +131,7 @@
       <CoffeeFields bind:form />
       {#if !$appSettingsStore?.demo_mode}<PhotoPicker
           bind:file={photoFile}
+          bind:framing={photoFraming}
           label="Photo (optional)"
         />{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -155,6 +159,7 @@
           <CatalogCard
             href={`/coffees/${coffee.id}`}
             photoPath={coffee.photo_path}
+            photoFraming={coffee.photo_framing}
             photoEndpoint={`/coffees/${coffee.id}/photo`}
             alt={`${coffee.roaster} ${coffee.name}`}
             eyebrow={coffee.roaster}

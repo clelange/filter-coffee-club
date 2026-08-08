@@ -41,7 +41,7 @@ AI-generated text below!
 - First-run administrator setup; Argon2-hashed four-digit PINs; self-service PIN changes; CSRF-protected, server-side sessions.
 - Temporary PINs for new accounts, enforced replacement on first sign-in, and administrator-controlled PIN-change requirements.
 - Kiosk sign-in for the shared Raspberry Pi and personal sessions that expire exactly 84 hours after login.
-- Coffee bag/lot catalog, extensible grinders/drippers/filters, editable FCC starting presets, and reference-sheet serving calculators.
+- Coffee bag/lot catalog with responsive photo framing, extensible grinders/drippers/filters, editable FCC starting presets, and reference-sheet serving calculators.
 - Draft recipe, high-contrast brew mode with Screen Wake Lock when available, final scale values, permanent QR invitation, and on-device rating handoff.
 - A compact 1–9 liking scale, 0–5 sensory intensities, structured flavor tags, visibility rules, member tasting profiles with favorite coffees and per-brew comparisons, and lightweight SVG analytics.
 - JSON/CSV exports, configurable branding, health endpoints, Alembic migrations, WAL mode, and structured request logs.
@@ -143,16 +143,16 @@ GitHub generates the changelog from merged pull requests. Use the `breaking-chan
 
 All environment variables use the `FCC_` prefix. Important values are:
 
-| Variable              | Default                           | Purpose                                                                      |
-| --------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
-| `FCC_PUBLIC_BASE_URL` | `http://filter-coffee-club.local` | Absolute URL encoded into QR links. Can also be changed in Admin → Branding. |
-| `FCC_COOKIE_SECURE`   | `false`                           | Send the session cookie only over HTTPS.                                     |
-| `FCC_ALLOWED_ORIGINS` | empty                             | Optional comma-separated additional trusted origins.                         |
-| `FCC_DATA_DIR`        | `data` locally, `/data` in Docker | SQLite, branding, and catalog-photo storage.                                 |
-| `FCC_DATABASE_URL`    | derived SQLite URL                | Override only for local/testing scenarios.                                   |
-| `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB) | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
-| `FCC_LOG_LEVEL`       | `info`                            | Application and structured request log level.                                |
-| `FCC_DEMO_MODE`       | `false`                           | Seed fictional data and enable public-demo protections.                      |
+| Variable                      | Default                           | Purpose                                                                                                                                        |
+| ----------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FCC_PUBLIC_BASE_URL`         | `http://filter-coffee-club.local` | Absolute URL encoded into QR links. Can also be changed in Admin → Branding.                                                                   |
+| `FCC_COOKIE_SECURE`           | `false`                           | Send the session cookie only over HTTPS.                                                                                                       |
+| `FCC_ALLOWED_ORIGINS`         | empty                             | Optional comma-separated additional trusted origins.                                                                                           |
+| `FCC_DATA_DIR`                | `data` locally, `/data` in Docker | SQLite, branding, and catalog-photo storage.                                                                                                   |
+| `FCC_DATABASE_URL`            | derived SQLite URL                | Override only for local/testing scenarios.                                                                                                     |
+| `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB)               | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
+| `FCC_LOG_LEVEL`               | `info`                            | Application and structured request log level.                                                                                                  |
+| `FCC_DEMO_MODE`               | `false`                           | Seed fictional data and enable public-demo protections.                                                                                        |
 
 If the public URL is blank, the API uses the current request origin. Administrators see a warning while the development placeholder is active.
 

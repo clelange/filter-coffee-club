@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { AppSettings, Session } from './types';
+import type { AppSettings, PhotoFraming, Session } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -84,10 +84,29 @@ export function jsonBody(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export async function uploadCatalogPhoto<T>(path: string, photo: File): Promise<T> {
+export async function uploadCatalogPhoto<T>(
+  path: string,
+  photo: File,
+  framing: PhotoFraming | null = null
+): Promise<T> {
   const body = new FormData();
   body.append('photo', photo);
+  if (framing) {
+    body.append('focus_x', String(framing.focus_x));
+    body.append('focus_y', String(framing.focus_y));
+    body.append('zoom', String(framing.zoom));
+  }
   return api<T>(path, { method: 'PUT', body });
+}
+
+export async function updateCatalogPhotoFraming<T>(
+  path: string,
+  framing: PhotoFraming | null
+): Promise<T> {
+  return api<T>(path, {
+    method: 'PATCH',
+    body: jsonBody({ photo_framing: framing })
+  });
 }
 
 export function formatTime(seconds: number | null): string {

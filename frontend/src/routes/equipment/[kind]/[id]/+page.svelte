@@ -17,6 +17,7 @@
     ensureSession,
     jsonBody,
     sessionStore,
+    updateCatalogPhotoFraming,
     uploadCatalogPhoto
   } from '$lib/api';
   import {
@@ -40,7 +41,8 @@
     DripperFormData,
     FilterFormData,
     Grinder,
-    GrinderFormData
+    GrinderFormData,
+    PhotoFraming
   } from '$lib/types';
 
   type EquipmentItem = Grinder | Dripper | BrewFilter;
@@ -60,6 +62,8 @@
   let success = $state('');
   let photoError = $state('');
   let photoFile: File | null = $state(null);
+  let photoFramingDraft: PhotoFraming | null = $state(null);
+  let photoFramingBaseline = $state('null');
   let removePhotoDraft = $state(false);
   let saving = $state(false);
   let archiveOpen = $state(false);
@@ -83,7 +87,11 @@
         : JSON.stringify(filterForm)
   );
   const dirty = $derived(
-    editMode && (currentFormSnapshot !== baseline || photoFile !== null || removePhotoDraft)
+    editMode &&
+      (currentFormSnapshot !== baseline ||
+        photoFile !== null ||
+        removePhotoDraft ||
+        JSON.stringify(photoFramingDraft) !== photoFramingBaseline)
   );
   function canManage(): boolean {
     return Boolean($sessionStore && $deviceModeStore !== 'kiosk' && item && !item.archived);
@@ -152,6 +160,8 @@
     if (!item || !canManage()) return;
     resetForm();
     photoFile = null;
+    photoFramingDraft = item.photo_framing;
+    photoFramingBaseline = JSON.stringify(item.photo_framing);
     removePhotoDraft = false;
     photoError = '';
     success = '';
@@ -165,8 +175,11 @@
   }
 
   function cancelEdit() {
+    if (!item) return;
     resetForm();
     photoFile = null;
+    photoFramingDraft = item.photo_framing;
+    photoFramingBaseline = JSON.stringify(item.photo_framing);
     removePhotoDraft = false;
     photoError = '';
     editMode = false;
@@ -181,6 +194,7 @@
     success = '';
     photoError = '';
     try {
+      const framingChanged = JSON.stringify(photoFramingDraft) !== photoFramingBaseline;
       const body =
         routeKind === 'grinders'
           ? grinderPayload(grinderForm)
@@ -196,16 +210,24 @@
         if (photoFile) {
           item = await uploadCatalogPhoto<EquipmentItem>(
             `/${routeKind}/${item.id}/photo`,
-            photoFile
+            photoFile,
+            photoFramingDraft
           );
         } else if (removePhotoDraft && item.photo_path) {
           item = await api<EquipmentItem>(`/${routeKind}/${item.id}/photo`, { method: 'DELETE' });
+        } else if (framingChanged) {
+          item = await updateCatalogPhotoFraming<EquipmentItem>(
+            `/${routeKind}/${item.id}/photo`,
+            photoFramingDraft
+          );
         }
       } catch (caught) {
         photoError = `Equipment details were saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not update the photo.'}`;
         return;
       }
       photoFile = null;
+      photoFramingDraft = item.photo_framing;
+      photoFramingBaseline = JSON.stringify(item.photo_framing);
       removePhotoDraft = false;
       editMode = false;
       clearEditQuery();
@@ -288,6 +310,7 @@
       <div class="detail-photo" data-testid="detail-photo">
         <CatalogPhoto
           photoPath={editMode && removePhotoDraft ? null : item.photo_path}
+          photoFraming={editMode ? photoFramingDraft : item.photo_framing}
           alt={title()}
           endpoint={`/${routeKind}/${item.id}/photo`}
         />
@@ -332,6 +355,8 @@
           <div class="photo-edit">
             <PhotoPicker
               bind:file={photoFile}
+              bind:framing={photoFramingDraft}
+              photoPath={removePhotoDraft ? null : item.photo_path}
               label={item.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
             />
             {#if item.photo_path && !photoFile}

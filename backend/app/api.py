@@ -12,14 +12,28 @@ from pathlib import Path
 from statistics import mean
 
 import segno
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from .calculations import brew_ratio, overall_throughput
-from .catalog_photos import remove_catalog_photo, save_catalog_photo
+from .catalog_photos import (
+    remove_catalog_photo,
+    save_catalog_photo,
+    update_catalog_photo_framing,
+)
 from .db import session_dependency, utcnow
 from .demo import (
     DEMO_NOTICE,
@@ -74,6 +88,8 @@ from .schemas import (
     GrinderInput,
     GrinderResponse,
     LoginInput,
+    PhotoFraming,
+    PhotoFramingUpdate,
     PinChange,
     PresetResponse,
     PresetUpdate,
@@ -119,6 +135,28 @@ RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
 def ensure_catalog_photo_writes_allowed(request: Request) -> None:
     if request.app.state.settings.demo_mode:
         raise HTTPException(status_code=403, detail="Photo changes are disabled in demo mode")
+
+
+def photo_framing_tuple(framing: PhotoFraming | None) -> tuple[float, float, float] | None:
+    if framing is None:
+        return None
+    return framing.focus_x, framing.focus_y, framing.zoom
+
+
+def uploaded_photo_framing(
+    focus_x: float | None,
+    focus_y: float | None,
+    zoom: float | None,
+) -> tuple[float, float, float] | None:
+    values = (focus_x, focus_y, zoom)
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise HTTPException(
+            status_code=422, detail="Photo framing fields must be provided together"
+        )
+    assert focus_x is not None and focus_y is not None and zoom is not None
+    return focus_x, focus_y, zoom
 
 
 def coffee_creation_fingerprint(payload: CoffeeInput) -> str:
@@ -823,6 +861,9 @@ async def put_coffee_photo(
     coffee_id: int,
     photo: UploadFile,
     request: Request,
+    focus_x: float | None = Form(default=None, ge=0, le=1),
+    focus_y: float | None = Form(default=None, ge=0, le=1),
+    zoom: float | None = Form(default=None, ge=1, le=3),
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Coffee:
@@ -830,7 +871,29 @@ async def put_coffee_photo(
     coffee = db.get(Coffee, coffee_id)
     if coffee is None:
         raise HTTPException(status_code=404, detail="Coffee not found")
-    await save_catalog_photo(photo, request.app.state.settings, db, coffee)
+    await save_catalog_photo(
+        photo,
+        request.app.state.settings,
+        db,
+        coffee,
+        uploaded_photo_framing(focus_x, focus_y, zoom),
+    )
+    return coffee
+
+
+@router.patch("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
+def patch_coffee_photo_framing(
+    coffee_id: int,
+    payload: PhotoFramingUpdate,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Coffee:
+    ensure_catalog_photo_writes_allowed(request)
+    coffee = db.get(Coffee, coffee_id)
+    if coffee is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    update_catalog_photo_framing(db, coffee, photo_framing_tuple(payload.photo_framing))
     return coffee
 
 
@@ -957,6 +1020,9 @@ async def put_grinder_photo(
     item_id: int,
     photo: UploadFile,
     request: Request,
+    focus_x: float | None = Form(default=None, ge=0, le=1),
+    focus_y: float | None = Form(default=None, ge=0, le=1),
+    zoom: float | None = Form(default=None, ge=1, le=3),
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Grinder:
@@ -964,7 +1030,29 @@ async def put_grinder_photo(
     item = db.get(Grinder, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Grinder not found")
-    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    await save_catalog_photo(
+        photo,
+        request.app.state.settings,
+        db,
+        item,
+        uploaded_photo_framing(focus_x, focus_y, zoom),
+    )
+    return item
+
+
+@router.patch("/grinders/{item_id}/photo", response_model=GrinderResponse)
+def patch_grinder_photo_framing(
+    item_id: int,
+    payload: PhotoFramingUpdate,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Grinder:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Grinder, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Grinder not found")
+    update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
     return item
 
 
@@ -1060,6 +1148,9 @@ async def put_dripper_photo(
     item_id: int,
     photo: UploadFile,
     request: Request,
+    focus_x: float | None = Form(default=None, ge=0, le=1),
+    focus_y: float | None = Form(default=None, ge=0, le=1),
+    zoom: float | None = Form(default=None, ge=1, le=3),
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Dripper:
@@ -1067,7 +1158,29 @@ async def put_dripper_photo(
     item = db.get(Dripper, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Dripper not found")
-    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    await save_catalog_photo(
+        photo,
+        request.app.state.settings,
+        db,
+        item,
+        uploaded_photo_framing(focus_x, focus_y, zoom),
+    )
+    return item
+
+
+@router.patch("/drippers/{item_id}/photo", response_model=DripperResponse)
+def patch_dripper_photo_framing(
+    item_id: int,
+    payload: PhotoFramingUpdate,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> Dripper:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(Dripper, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Dripper not found")
+    update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
     return item
 
 
@@ -1165,6 +1278,9 @@ async def put_filter_photo(
     item_id: int,
     photo: UploadFile,
     request: Request,
+    focus_x: float | None = Form(default=None, ge=0, le=1),
+    focus_y: float | None = Form(default=None, ge=0, le=1),
+    zoom: float | None = Form(default=None, ge=1, le=3),
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> BrewFilter:
@@ -1172,7 +1288,29 @@ async def put_filter_photo(
     item = db.get(BrewFilter, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Filter not found")
-    await save_catalog_photo(photo, request.app.state.settings, db, item)
+    await save_catalog_photo(
+        photo,
+        request.app.state.settings,
+        db,
+        item,
+        uploaded_photo_framing(focus_x, focus_y, zoom),
+    )
+    return item
+
+
+@router.patch("/filters/{item_id}/photo", response_model=FilterResponse)
+def patch_filter_photo_framing(
+    item_id: int,
+    payload: PhotoFramingUpdate,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_personal_csrf),
+) -> BrewFilter:
+    ensure_catalog_photo_writes_allowed(request)
+    item = db.get(BrewFilter, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Filter not found")
+    update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
     return item
 
 

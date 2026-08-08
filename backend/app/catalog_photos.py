@@ -25,6 +25,21 @@ MULTI_PICTURE_STILL_FORMATS = {"MPO"}
 
 class CatalogPhotoOwner(Protocol):
     photo_path: str | None
+    photo_focus_x: float | None
+    photo_focus_y: float | None
+    photo_zoom: float | None
+
+
+def apply_catalog_photo_framing(
+    item: CatalogPhotoOwner,
+    framing: tuple[float, float, float] | None,
+) -> None:
+    if framing is None:
+        item.photo_focus_x = None
+        item.photo_focus_y = None
+        item.photo_zoom = None
+        return
+    item.photo_focus_x, item.photo_focus_y, item.photo_zoom = framing
 
 
 def _normalized_webp(content: bytes, settings: Settings) -> bytes:
@@ -103,6 +118,7 @@ async def save_catalog_photo(
     settings: Settings,
     db: Session,
     item: CatalogPhotoOwner,
+    framing: tuple[float, float, float] | None = None,
 ) -> None:
     content = await upload.read(settings.max_catalog_photo_bytes + 1)
     if len(content) > settings.max_catalog_photo_bytes:
@@ -119,6 +135,7 @@ async def save_catalog_photo(
 
     old_path = item.photo_path
     item.photo_path = f"/uploads/catalog/{filename}"
+    apply_catalog_photo_framing(item, framing)
     try:
         db.commit()
         db.refresh(item)
@@ -132,6 +149,19 @@ async def save_catalog_photo(
 def remove_catalog_photo(settings: Settings, db: Session, item: CatalogPhotoOwner) -> None:
     old_path = item.photo_path
     item.photo_path = None
+    apply_catalog_photo_framing(item, None)
     db.commit()
     db.refresh(item)
     _remove_file(settings, old_path)
+
+
+def update_catalog_photo_framing(
+    db: Session,
+    item: CatalogPhotoOwner,
+    framing: tuple[float, float, float] | None,
+) -> None:
+    if item.photo_path is None:
+        raise HTTPException(status_code=409, detail="Catalog item has no photo to frame")
+    apply_catalog_photo_framing(item, framing)
+    db.commit()
+    db.refresh(item)

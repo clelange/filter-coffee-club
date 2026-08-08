@@ -656,6 +656,13 @@ def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> 
             )
             assert photo_upload.status_code == 403
             assert photo_upload.json()["detail"] == "Photo changes are disabled in demo mode"
+            photo_framing = client.patch(
+                f"/api/v1/coffees/{coffees[0]['id']}/photo",
+                headers=headers,
+                json={"photo_framing": None},
+            )
+            assert photo_framing.status_code == 403
+            assert photo_framing.json()["detail"] == "Photo changes are disabled in demo mode"
 
         with build_demo_client(tmp_path) as client:
             assert len(client.get("/api/v1/brews").json()) == 12
@@ -705,15 +712,43 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
                 assert image.format == "WEBP"
                 assert image.size == (1600, 800)
                 assert not image.getexif()
+            assert response.json()["photo_framing"] is None
+
+            framed = client.patch(
+                f"/api/v1/{resource}/{item['id']}/photo",
+                headers=headers,
+                json={"photo_framing": {"focus_x": 0.2, "focus_y": 0.75, "zoom": 1.6}},
+            )
+            assert framed.status_code == 200, framed.text
+            assert framed.json()["photo_path"] == path
+            assert framed.json()["photo_framing"] == {
+                "focus_x": 0.2,
+                "focus_y": 0.75,
+                "zoom": 1.6,
+            }
+
+            reset = client.patch(
+                f"/api/v1/{resource}/{item['id']}/photo",
+                headers=headers,
+                json={"photo_framing": None},
+            )
+            assert reset.status_code == 200, reset.text
+            assert reset.json()["photo_framing"] is None
 
         coffee_path = client.get(f"/api/v1/coffees/{coffee['id']}").json()["photo_path"]
         replacement = client.put(
             f"/api/v1/coffees/{coffee['id']}/photo",
             headers=headers,
+            data={"focus_x": "0.8", "focus_y": "0.25", "zoom": "2.25"},
             files={"photo": ("replacement.jpg", image_upload("JPEG", (400, 600)), "image/jpeg")},
         )
         assert replacement.status_code == 200
         replacement_path = replacement.json()["photo_path"]
+        assert replacement.json()["photo_framing"] == {
+            "focus_x": 0.8,
+            "focus_y": 0.25,
+            "zoom": 2.25,
+        }
         assert replacement_path != coffee_path
         assert client.get(coffee_path).status_code == 404
 
@@ -724,6 +759,7 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         )
         assert heic_upload.status_code == 200, heic_upload.text
         heic_path = heic_upload.json()["photo_path"]
+        assert heic_upload.json()["photo_framing"] is None
         with Image.open(io.BytesIO(client.get(heic_path).content)) as image:
             assert image.format == "WEBP"
             assert image.size == (1200, 1600)
@@ -739,7 +775,16 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         removed = client.delete(f"/api/v1/coffees/{coffee['id']}/photo", headers=headers)
         assert removed.status_code == 200
         assert removed.json()["photo_path"] is None
+        assert removed.json()["photo_framing"] is None
         assert client.get(replacement_path).status_code == 404
+
+        no_photo_framing = client.patch(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers=headers,
+            json={"photo_framing": {"focus_x": 0.5, "focus_y": 0.5, "zoom": 1}},
+        )
+        assert no_photo_framing.status_code == 409
+        assert no_photo_framing.json()["detail"] == "Catalog item has no photo to frame"
 
         ios_converted_upload = client.put(
             f"/api/v1/coffees/{coffee['id']}/photo",
@@ -775,6 +820,13 @@ def test_catalog_photos_upload_replace_remove_and_permissions(tmp_path: Path) ->
         )
         assert kiosk_upload.status_code == 403
         assert kiosk_upload.json()["detail"] == "Photo changes are unavailable in kiosk mode"
+        kiosk_framing = client.patch(
+            f"/api/v1/coffees/{coffee['id']}/photo",
+            headers={"X-CSRF-Token": kiosk_login["csrf_token"]},
+            json={"photo_framing": None},
+        )
+        assert kiosk_framing.status_code == 403
+        assert kiosk_framing.json()["detail"] == "Photo changes are unavailable in kiosk mode"
 
 
 def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
@@ -807,6 +859,45 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
         )
         assert unsupported.status_code == 415
         assert unsupported.json()["detail"] == "Animated photos are not supported"
+
+
+def test_catalog_photo_framing_validation(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        uploaded = client.put(
+            "/api/v1/grinders/1/photo",
+            headers=headers,
+            files={"photo": ("photo.png", image_upload(), "image/png")},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        original_path = uploaded.json()["photo_path"]
+
+        partial_upload = client.put(
+            "/api/v1/grinders/1/photo",
+            headers=headers,
+            data={"focus_x": "0.5"},
+            files={"photo": ("photo.png", image_upload(), "image/png")},
+        )
+        assert partial_upload.status_code == 422
+        assert partial_upload.json()["detail"] == "Photo framing fields must be provided together"
+        assert client.get("/api/v1/grinders/1").json()["photo_path"] == original_path
+
+        for framing in (
+            {"focus_x": -0.1, "focus_y": 0.5, "zoom": 1},
+            {"focus_x": 0.5, "focus_y": 1.1, "zoom": 1},
+            {"focus_x": 0.5, "focus_y": 0.5, "zoom": 0.9},
+            {"focus_x": 0.5, "focus_y": 0.5, "zoom": 3.1},
+        ):
+            invalid = client.patch(
+                "/api/v1/grinders/1/photo",
+                headers=headers,
+                json={"photo_framing": framing},
+            )
+            assert invalid.status_code == 422
+
+        unchanged = client.get("/api/v1/grinders/1").json()
+        assert unchanged["photo_path"] == original_path
+        assert unchanged["photo_framing"] is None
 
 
 def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> None:
