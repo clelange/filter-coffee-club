@@ -35,6 +35,7 @@ export interface AppSettings {
   color_coffee: string;
   color_cyan: string;
   color_amber: string;
+  max_active_brews: number;
   public_url_needs_configuration: boolean;
   demo_mode: boolean;
   demo_notice: string | null;
@@ -180,6 +181,8 @@ export interface Brew extends BrewInput {
   id: number;
   operator_id: number;
   operator_name: string;
+  operators: ProfileIdentity[];
+  revision: number;
   coffee_name: string;
   coffee_roaster: string;
   grinder_name: string;
@@ -194,6 +197,13 @@ export interface Brew extends BrewInput {
   created_at: string;
   cloned_from_id: number | null;
   rating_token: string | null;
+}
+
+export interface ActiveBrews {
+  brews: Brew[];
+  active_count: number;
+  max_active_brews: number;
+  can_start: boolean;
 }
 
 export type CatalogKind = 'coffee' | 'grinder' | 'dripper' | 'filter';

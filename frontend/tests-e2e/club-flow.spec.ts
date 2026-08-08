@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+
+const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 import { fileURLToPath } from 'node:url';
 
 const ethiopiaPhoto = fileURLToPath(
@@ -47,7 +49,7 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 }
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'wakeLock', {
       configurable: true,
@@ -96,6 +98,43 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
+
+  const settingsTab = page.getByRole('tab', { name: 'Settings' });
+  await settingsTab.click();
+  const parallelBrews = page.getByLabel('Maximum parallel brews');
+  await expect(parallelBrews).toHaveValue('2');
+  await parallelBrews.fill('3');
+  const raisedParallelBrews = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings') &&
+      response.request().method() === 'PUT' &&
+      response.ok()
+  );
+  const reloadedRaisedSettings = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings') &&
+      response.request().method() === 'GET' &&
+      response.ok()
+  );
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await Promise.all([raisedParallelBrews, reloadedRaisedSettings]);
+  await expect(page.getByText('Settings saved.')).toBeVisible();
+  await parallelBrews.fill('2');
+  const resetParallelBrews = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings') &&
+      response.request().method() === 'PUT' &&
+      response.ok()
+  );
+  const reloadedResetSettings = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings') &&
+      response.request().method() === 'GET' &&
+      response.ok()
+  );
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await Promise.all([resetParallelBrews, reloadedResetSettings]);
+  await peopleTab.click();
 
   await page.getByRole('tab', { name: 'Presets & flavors' }).click();
   const presetCreator = page.locator('.preset-creator');
@@ -532,8 +571,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.evaluate(() => sessionStorage.setItem('wake-lock-fail', '1'));
   await page.reload();
   await expect(page.getByRole('button', { name: 'Finish brew' })).toBeVisible();
-  await page.getByRole('button', { name: 'Change operator' }).click();
-  const kioskOperatorDialog = page.getByRole('dialog', { name: 'Change operator' });
+  await page.getByRole('button', { name: 'Change primary operator' }).click();
+  const kioskOperatorDialog = page.getByRole('dialog', { name: 'Change primary operator' });
   await expect(kioskOperatorDialog).toBeVisible();
   await expect(kioskOperatorDialog.getByLabel('New operator')).toHaveValue('1');
   await kioskOperatorDialog.getByRole('button', { name: 'Keep current operator' }).click();
@@ -585,10 +624,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .getByRole('link', { name: 'Rate on this screen' })
     .getAttribute('href');
   expect(ratingPath).toContain('next=');
-  const mobileRatingPath = new URL(ratingPath!, 'http://127.0.0.1:8000').searchParams.get('next');
+  const mobileRatingPath = new URL(ratingPath!, e2eBaseURL).searchParams.get('next');
   expect(mobileRatingPath).toContain('/rate/');
   const phoneContext = await browser.newContext({
-    baseURL: 'http://127.0.0.1:8000',
+    baseURL: e2eBaseURL,
     viewport: { width: 360, height: 800 },
     isMobile: true,
     hasTouch: true
@@ -671,7 +710,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     });
   expect(mobileRadarLayout).toEqual({ contained: true, pageFits: true });
 
-  const adminApiContext = await browser.newContext({ baseURL: 'http://127.0.0.1:8000' });
+  const adminApiContext = await browser.newContext({ baseURL: e2eBaseURL });
   const profilesResponse = await adminApiContext.request.get('/api/v1/auth/profiles');
   expect(profilesResponse.ok()).toBe(true);
   const adminProfiles = (await profilesResponse.json()) as { id: number; display_name: string }[];
@@ -918,7 +957,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.locator('.result-panel .tags')).toContainText('Fruity · 1');
 
   const memberContext = await browser.newContext({
-    baseURL: 'http://127.0.0.1:8000',
+    baseURL: e2eBaseURL,
     viewport: { width: 393, height: 851 }
   });
   const memberLoginResponse = await memberContext.request.post('/api/v1/auth/login', {
@@ -1368,44 +1407,36 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
   const reassignmentPath = new URL(page.url()).pathname;
-  await expect(page.getByText(/operator Bob/)).toBeVisible();
-  await page.evaluate(() => sessionStorage.setItem('wake-lock-release-fail', '1'));
-  let failHandoffLogout = true;
-  await page.route('**/api/v1/auth/logout', async (route) => {
-    if (route.request().method() === 'POST' && failHandoffLogout) {
-      failHandoffLogout = false;
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Temporary logout failure' })
-      });
-      return;
-    }
-    await route.continue();
-  });
-  await page.getByRole('button', { name: 'Change operator' }).click();
-  const memberHandoffDialog = page.getByRole('dialog', { name: 'Change operator' });
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Bob', exact: true })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Change primary operator' }).click();
+  const memberHandoffDialog = page.getByRole('dialog', { name: 'Change primary operator' });
   await memberHandoffDialog.getByLabel('New operator').selectOption({ label: 'Ada' });
-  await memberHandoffDialog.getByRole('button', { name: 'Change operator' }).click();
-  await expect(page).toHaveURL(/\/login\?.*profile=1/);
-  await expect(page.getByLabel('Profile')).toHaveValue('1');
-  await page.unroute('**/api/v1/auth/logout');
-  await page.evaluate(() => sessionStorage.removeItem('wake-lock-release-fail'));
-  await page.getByLabel('PIN').fill('4321');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await memberHandoffDialog.getByRole('button', { name: 'Change primary operator' }).click();
   await expect(page).toHaveURL(new RegExp(`${reassignmentPath}$`));
-  await expect(page.getByText(/operator Ada/)).toBeVisible();
-
-  await page.getByRole('button', { name: 'Change operator' }).click();
-  const adminHandoffDialog = page.getByRole('dialog', { name: 'Change operator' });
-  await adminHandoffDialog.getByLabel('New operator').selectOption({ label: 'Bob' });
-  await adminHandoffDialog.getByRole('button', { name: 'Change operator' }).click();
-  await expect(page).toHaveURL(new RegExp(`${reassignmentPath}$`));
-  await expect(page.getByText(/operator Bob/)).toBeVisible();
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Ada', exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Bob', exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Change primary operator' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Finish brew' }).click();
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   const reassignedInvitationPath = new URL(page.url()).pathname;
-  await expect(page.getByText(/Brewed by Bob/)).toBeVisible();
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Ada', exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Bob', exact: true })
+  ).toBeVisible();
+
+  await page.goto(`/login?kiosk=0&next=${encodeURIComponent(reassignedInvitationPath)}`);
+  await page.getByLabel('Profile').selectOption({ label: 'Ada' });
+  await page.getByLabel('PIN').fill('4321');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(new RegExp(`${reassignedInvitationPath}$`));
 
   const bobProfileId = await page.evaluate(async () => {
     const response = await fetch('/api/v1/auth/profiles');
@@ -1445,11 +1476,6 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Profile').selectOption({ label: 'Bob' });
   await page.getByLabel('PIN').fill('1357');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('link', { name: 'Correct brew' }).click();
-  await expect(page.getByRole('heading', { name: 'Correct the recorded brew.' })).toBeVisible();
-  await page.getByLabel('Operator').selectOption({ label: 'Ada' });
-  await page.getByRole('button', { name: 'Save correction' }).click();
-  await expect(page.getByText(/Brewed by Ada/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Correct brew' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Void brew' })).toHaveCount(0);
 
@@ -1464,6 +1490,65 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(cancelDialog).toBeVisible();
   await cancelDialog.getByRole('button', { name: 'Cancel draft' }).click();
   await expect(page.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible();
+
+  await page.goto('/brews/new');
+  await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+  await expect(page).toHaveURL(/\/brews\/\d+$/);
+  const collaborativeBrewPath = new URL(page.url()).pathname;
+  const bobContext = await browser.newContext({ viewport: { width: 393, height: 851 } });
+  const bobPhone = await bobContext.newPage();
+  await bobPhone.goto(`/login?kiosk=0&next=${encodeURIComponent(collaborativeBrewPath)}`);
+  await bobPhone.getByLabel('Profile').selectOption({ label: 'Bob' });
+  await bobPhone.getByLabel('PIN').fill('1357');
+  await bobPhone.getByRole('button', { name: 'Sign in' }).click();
+  await expect(bobPhone).toHaveURL(new RegExp(`${collaborativeBrewPath}$`));
+  await bobPhone.getByRole('button', { name: 'Join brew' }).click();
+  await expect(bobPhone.getByRole('button', { name: 'Finish brew' })).toBeVisible();
+  await bobPhone.getByRole('link', { name: 'Edit recipe' }).click();
+  await bobPhone.getByRole('spinbutton', { name: 'Temperature' }).fill('91');
+  await bobPhone.getByRole('button', { name: 'Save and return to brew mode' }).click();
+  await expect(page.getByText('91 °C', { exact: true })).toBeVisible({ timeout: 8_000 });
+
+  await page.getByRole('link', { name: 'Edit recipe' }).click();
+  await bobPhone.getByRole('link', { name: 'Edit recipe' }).click();
+  await bobPhone.getByRole('spinbutton', { name: 'Temperature' }).fill('92');
+  await bobPhone.getByRole('button', { name: 'Save and return to brew mode' }).click();
+  await expect(page.getByText('This brew changed on another device.')).toBeVisible({
+    timeout: 8_000
+  });
+
+  await bobPhone.goto('/brews/new');
+  await bobPhone.getByRole('button', { name: 'Save and open brew mode' }).click();
+  await expect(bobPhone).toHaveURL(/\/brews\/\d+$/);
+  const secondParallelBrewPath = new URL(bobPhone.url()).pathname;
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '2 of 2 active' })).toBeVisible();
+  await expect(page.getByText('Brew capacity reached', { exact: true })).toBeVisible();
+  await page.goto('/brews/new');
+  await expect(page.getByRole('heading', { name: '2 of 2 brews are active.' })).toBeVisible();
+
+  await bobPhone.goto(secondParallelBrewPath);
+  await bobPhone.getByRole('button', { name: 'Cancel brew' }).click();
+  await bobPhone
+    .getByRole('dialog', { name: 'Cancel this draft?' })
+    .getByRole('button', { name: 'Cancel draft' })
+    .click();
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeVisible({
+    timeout: 8_000
+  });
+
+  await bobPhone.goto(collaborativeBrewPath);
+  await expect(bobPhone.getByRole('button', { name: 'Finish brew' })).toBeVisible();
+  await page.goto(collaborativeBrewPath);
+  await page.getByRole('button', { name: 'Cancel brew' }).click();
+  await page
+    .getByRole('dialog', { name: 'Cancel this draft?' })
+    .getByRole('button', { name: 'Cancel draft' })
+    .click();
+  await expect(bobPhone.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible({
+    timeout: 8_000
+  });
+  await bobContext.close();
 
   await page.goto('/login?mode=kiosk');
   await expect(page.locator('input[aria-label="PIN"]')).toHaveCount(0);

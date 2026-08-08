@@ -75,8 +75,14 @@ def seed_demo_catalog_photos(catalog_upload_dir: Path) -> dict[str, str]:
 
 
 def seed_database(db: Session) -> None:
-    if db.get(AppSettings, 1) is None:
-        db.add(AppSettings(id=1))
+    settings = db.get(AppSettings, 1)
+    if settings is None:
+        settings = AppSettings(id=1)
+        db.add(settings)
+        db.flush()
+    settings.active_brew_count = (
+        db.scalar(select(func.count(Brew.id)).where(Brew.status == "draft")) or 0
+    )
 
     grinder = db.scalar(
         select(Grinder).where(Grinder.manufacturer == "Comandante", Grinder.model == "C40")
@@ -310,6 +316,7 @@ def seed_demo_database(db: Session, catalog_upload_dir: Path) -> None:
         brew = Brew(
             coffee_id=coffees[coffee_index].id,
             operator_id=profiles[operator_index].id,
+            operators=[profiles[operator_index]],
             grinder_id=grinder.id,
             dripper_id=drippers[dripper_index].id,
             filter_id=filters[filter_index].id,

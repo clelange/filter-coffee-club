@@ -1,22 +1,51 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { loginPath } from '$lib/device';
   import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingComparison from '$lib/RatingComparison.svelte';
-  import type { Brew, RatingComparison as RatingComparisonData } from '$lib/types';
+  import type { ActiveBrews, Brew, RatingComparison as RatingComparisonData } from '$lib/types';
 
   let brews: Brew[] = $state([]);
   let comparisons: RatingComparisonData[] = $state([]);
+  let active: ActiveBrews | null = $state(null);
   let loading = $state(true);
   let error = $state('');
   let comparisonError = $state('');
+  let joiningBrewId = $state<number | null>(null);
+  let activeTimer: ReturnType<typeof setTimeout> | null = null;
+  let destroyed = false;
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    scheduleActiveRefresh();
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    if (activeTimer) clearTimeout(activeTimer);
+  });
+
+  function scheduleActiveRefresh() {
+    if (destroyed || activeTimer) return;
+    activeTimer = setTimeout(async () => {
+      activeTimer = null;
+      try {
+        active = await api<ActiveBrews>('/brews/active');
+      } catch {
+        // The initial load and user actions surface errors; background refresh is best effort.
+      } finally {
+        scheduleActiveRefresh();
+      }
+    }, 3000);
+  }
 
   async function load() {
     try {
-      brews = await api<Brew[]>('/brews?limit=12');
+      [brews, active] = await Promise.all([
+        api<Brew[]>('/brews?limit=12'),
+        api<ActiveBrews>('/brews/active')
+      ]);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load brews.';
       return;
@@ -43,11 +72,35 @@
   }
 
   async function repeat(brew: Brew) {
-    const clone = await api<Brew>(`/brews/${brew.id}/clone`, {
-      method: 'POST',
-      body: jsonBody({})
-    });
-    location.href = `/brews/${clone.id}`;
+    try {
+      const clone = await api<Brew>(`/brews/${brew.id}/clone`, {
+        method: 'POST',
+        body: jsonBody({})
+      });
+      location.href = `/brews/${clone.id}`;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not start another brew.';
+      active = await api<ActiveBrews>('/brews/active');
+    }
+  }
+
+  async function join(brew: Brew) {
+    if (joiningBrewId !== null) return;
+    joiningBrewId = brew.id;
+    try {
+      await api<Brew>(`/brews/${brew.id}/join`, { method: 'POST', body: jsonBody({}) });
+      location.href = `/brews/${brew.id}`;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not join this brew.';
+    } finally {
+      joiningBrewId = null;
+    }
+  }
+
+  function participates(brew: Brew): boolean {
+    return Boolean(
+      $sessionStore && brew.operators.some((operator) => operator.id === $sessionStore?.profile.id)
+    );
   }
 
   function ratingForBrew(brewId: number): RatingComparisonData | undefined {
@@ -66,7 +119,11 @@
     </p>
     <div class="actions">
       {#if $sessionStore}
-        <a class="button" href="/brews/new">Start a brew</a>
+        {#if active?.can_start ?? true}
+          <a class="button" href="/brews/new">Start a brew</a>
+        {:else}
+          <span class="button disabled" aria-disabled="true">Brew capacity reached</span>
+        {/if}
         <a class="button secondary" href="/analytics">Explore results</a>
       {:else}
         <a class="button" href={loginPath('/brews/new')}>Sign in to brew</a>
@@ -80,6 +137,39 @@
     <i></i>
   </div>
 </section>
+
+{#if active && active.brews.length > 0}
+  <section class="section active-section">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Brewing now</p>
+        <h2>{active.active_count} of {active.max_active_brews} active</h2>
+      </div>
+    </div>
+    <div class="card-grid">
+      {#each active.brews as brew}
+        <article class="card active-card">
+          <span class="status draft">active #{brew.id}</span>
+          <h3>{brew.coffee_name}</h3>
+          <p class="muted">
+            {brew.coffee_roaster} · {brew.operators
+              .map((operator) => operator.display_name)
+              .join(', ')}
+          </p>
+          {#if $sessionStore}
+            {#if participates(brew)}
+              <a class="button small" href={`/brews/${brew.id}`}>Continue brew</a>
+            {:else}
+              <button class="small" onclick={() => join(brew)} disabled={joiningBrewId !== null}
+                >{joiningBrewId === brew.id ? 'Joining…' : 'Join brew'}</button
+              >
+            {/if}
+          {/if}
+        </article>
+      {/each}
+    </div>
+  </section>
+{/if}
 
 <section class="section">
   <div class="section-heading">
@@ -234,6 +324,13 @@
   .brew-card h3 {
     margin: 22px 0 4px;
     font-size: 1.35rem;
+  }
+  .active-card h3 {
+    margin: 14px 0 4px;
+  }
+  .button.disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   .mini-metrics {
     display: grid;

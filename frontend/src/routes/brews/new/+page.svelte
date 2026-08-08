@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import ProfileLink from '$lib/ProfileLink.svelte';
@@ -7,6 +7,7 @@
   import { ApiError, api, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
   import type {
+    ActiveBrews,
     Brew,
     BrewFilter,
     BrewInput,
@@ -25,6 +26,14 @@
   let operators: ProfileIdentity[] = $state([]);
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
+  let sourceRevision = $state(0);
+  let editorChangedExternally = $state(false);
+  let active: ActiveBrews | null = $state(null);
+  let revisionTimer: ReturnType<typeof setInterval> | null = null;
+  let capacityTimer: ReturnType<typeof setTimeout> | null = null;
+  let checkingCapacity = $state(false);
+  let joiningBrewId = $state<number | null>(null);
+  let destroyed = false;
   let correctionId = $state<number | null>(null);
   let correctionMinutes = $state(3);
   let correctionSeconds = $state(0);
@@ -85,6 +94,8 @@
       return;
     }
     correctionId = Number($page.url.searchParams.get('correct')) || null;
+    editId = Number($page.url.searchParams.get('edit')) || null;
+    const repeatId = Number($page.url.searchParams.get('repeat')) || null;
     if (correctionId) {
       if ($deviceModeStore === 'kiosk') {
         await goto(`/brews/${correctionId}`);
@@ -92,6 +103,13 @@
       }
     }
     try {
+      if (!editId && !correctionId) {
+        active = await api<ActiveBrews>('/brews/active');
+        if (!active.can_start) {
+          scheduleCapacityRefresh();
+          return;
+        }
+      }
       [coffees, grinders, drippers, filters, presets, operators] = await Promise.all([
         api<Coffee[]>('/coffees'),
         api<Grinder[]>('/grinders'),
@@ -102,8 +120,6 @@
       ]);
       form.coffee_id = Number($page.url.searchParams.get('coffee')) || coffees[0]?.id || 0;
       form.grinder_id = grinders[0]?.id ?? 0;
-      editId = Number($page.url.searchParams.get('edit')) || null;
-      const repeatId = Number($page.url.searchParams.get('repeat')) || null;
       if (editId || repeatId || correctionId) {
         const source = await api<Brew>(`/brews/${editId || repeatId || correctionId}`);
         if (
@@ -115,6 +131,8 @@
           return;
         }
         copyBrew(source);
+        sourceRevision = source.revision;
+        if (editId) revisionTimer = setInterval(checkEditorRevision, 3000);
         if (correctionId) {
           correctionOperatorId = source.operator_id;
           originalOperatorId = source.operator_id;
@@ -132,6 +150,44 @@
       ready = true;
     }
   });
+
+  onDestroy(() => {
+    destroyed = true;
+    if (revisionTimer) clearInterval(revisionTimer);
+    if (capacityTimer) clearTimeout(capacityTimer);
+  });
+
+  function scheduleCapacityRefresh() {
+    if (destroyed || capacityTimer || active?.can_start) return;
+    capacityTimer = setTimeout(async () => {
+      capacityTimer = null;
+      await refreshCapacity();
+      scheduleCapacityRefresh();
+    }, 3000);
+  }
+
+  async function refreshCapacity() {
+    if (checkingCapacity) return;
+    checkingCapacity = true;
+    try {
+      active = await api<ActiveBrews>('/brews/active');
+      if (active.can_start) location.reload();
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not refresh brew capacity.';
+    } finally {
+      checkingCapacity = false;
+    }
+  }
+
+  async function checkEditorRevision() {
+    if (!editId || editorChangedExternally) return;
+    try {
+      const latest = await api<Brew>(`/brews/${editId}`);
+      if (latest.revision !== sourceRevision) editorChangedExternally = true;
+    } catch {
+      // Submission remains the authoritative conflict check when polling is unavailable.
+    }
+  }
 
   function copyBrew(source: Brew) {
     form = {
@@ -250,12 +306,17 @@
                   correctionOperatorId !== originalOperatorId ? correctionOperatorId : undefined,
                 total_brew_time_s: correctionMinutes * 60 + correctionSeconds
               }
-            : form
+            : editId
+              ? { ...form, revision: sourceRevision }
+              : form
         )
       });
       await goto(`/brews/${brew.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save the brew.';
+      if (!editId && !correctionId && caught instanceof ApiError && caught.status === 409) {
+        active = await api<ActiveBrews>('/brews/active');
+      }
     } finally {
       saving = false;
     }
@@ -267,6 +328,19 @@
       body: jsonBody({})
     });
     await goto(`/brews/${brew.id}`);
+  }
+
+  async function join(source: Brew) {
+    if (joiningBrewId !== null) return;
+    joiningBrewId = source.id;
+    try {
+      await api<Brew>(`/brews/${source.id}/join`, { method: 'POST', body: jsonBody({}) });
+      await goto(`/brews/${source.id}`);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not join this brew.';
+    } finally {
+      joiningBrewId = null;
+    }
   }
 </script>
 
@@ -292,6 +366,32 @@
 
 {#if !ready}
   <div class="empty section">Loading the equipment rack…</div>
+{:else if active && !active.can_start && !editId && !correctionId}
+  <section class="panel section capacity-panel">
+    <p class="eyebrow">Brew capacity reached</p>
+    <h2>{active.active_count} of {active.max_active_brews} brews are active.</h2>
+    <p class="muted">Join one of them, or wait until an active brew is finished or cancelled.</p>
+    <div class="active-list">
+      {#each active.brews as brew}
+        <article>
+          <div>
+            <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong>
+            <small>{brew.operators.map((operator) => operator.display_name).join(', ')}</small>
+          </div>
+          <button class="secondary" onclick={() => join(brew)} disabled={joiningBrewId !== null}
+            >{joiningBrewId === brew.id ? 'Joining…' : 'Join brew'}</button
+          >
+        </article>
+      {/each}
+    </div>
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    <div class="actions">
+      <button class="secondary" onclick={refreshCapacity} disabled={checkingCapacity}
+        >{checkingCapacity ? 'Checking…' : 'Check again'}</button
+      >
+      <a class="button secondary" href="/">Return home</a>
+    </div>
+  </section>
 {:else if $deviceModeStore === 'kiosk' && (!coffees.length || !grinders.length)}
   <section class="panel section kiosk-missing-data">
     <p class="eyebrow">Personal device required</p>
@@ -551,6 +651,12 @@
         </fieldset>
       {/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
+      {#if editorChangedExternally}
+        <p class="warning" role="alert">
+          This brew changed on another device. Reload before saving to avoid overwriting newer
+          settings.
+        </p>
+      {/if}
       <div class="actions">
         <button
           class="primary"
@@ -617,6 +723,30 @@
   }
   .kiosk-missing-data {
     max-width: 720px;
+  }
+  .capacity-panel {
+    max-width: 760px;
+  }
+  .active-list,
+  .active-list article,
+  .active-list small {
+    display: grid;
+  }
+  .active-list {
+    gap: 8px;
+    margin: 20px 0;
+  }
+  .active-list article {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .active-list small {
+    margin-top: 4px;
+    color: var(--muted);
   }
   .readonly-note {
     display: grid;

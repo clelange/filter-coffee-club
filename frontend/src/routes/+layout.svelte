@@ -25,6 +25,7 @@
     color_coffee: '#6B3F2A',
     color_cyan: '#007F9E',
     color_amber: '#D88700',
+    max_active_brews: 2,
     public_url_needs_configuration: false,
     demo_mode: false,
     demo_notice: null,

@@ -18,7 +18,7 @@
     { id: 'people', label: 'People' },
     { id: 'equipment', label: 'Equipment' },
     { id: 'presets', label: 'Presets & flavors' },
-    { id: 'branding', label: 'Branding' },
+    { id: 'branding', label: 'Settings' },
     { id: 'data', label: 'Data' }
   ];
 
@@ -249,7 +249,7 @@
     if (!settings) return;
     await run(
       () => api('/settings', { method: 'PUT', body: jsonBody(settings) }),
-      'Branding saved.'
+      'Settings saved.'
     );
   }
   async function uploadLogo(event: Event) {
@@ -674,6 +674,23 @@
     {:else if activeTab === 'branding' && settings}
       <form class="panel brand-form" onsubmit={saveSettings}>
         <div>
+          <h2>Brewing</h2>
+          <p class="muted">
+            Limit how many draft brews can run at once. Lowering this below current usage lets
+            active brews finish but blocks new ones until capacity is available.
+          </p>
+          <label
+            >Maximum parallel brews<input
+              type="number"
+              min="1"
+              max="20"
+              bind:value={settings.max_active_brews}
+              disabled={settings.demo_mode}
+              required
+            /></label
+          >
+        </div>
+        <div>
           <h2>Filter Coffee Club identity</h2>
           <p class="muted">
             {settings.demo_mode
@@ -716,7 +733,7 @@
               >{/each}
           </div>
         </div>
-        <button class="primary" disabled={settings.demo_mode}>Save branding</button>
+        <button class="primary" disabled={settings.demo_mode}>Save settings</button>
       </form>
     {:else if activeTab === 'data'}
       <div class="admin-grid">

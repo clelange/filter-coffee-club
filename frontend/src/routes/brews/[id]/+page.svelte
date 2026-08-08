@@ -7,15 +7,7 @@
   import NumberStepper from '$lib/NumberStepper.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
-  import {
-    api,
-    ensureSession,
-    formatTime,
-    jsonBody,
-    logout,
-    sessionStore,
-    setSession
-  } from '$lib/api';
+  import { api, ensureSession, formatTime, jsonBody, sessionStore, logout } from '$lib/api';
   import type { Brew, ProfileIdentity, RatingAggregate } from '$lib/types';
 
   let brew: Brew | null = $state(null);
@@ -34,6 +26,9 @@
   let selectedOperatorId = $state(0);
   let changingOperator = $state(false);
   let wakeLock: WakeLockSentinel | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let joining = $state(false);
+  let destroyed = false;
 
   const id = $derived(Number($page.params.id));
 
@@ -46,12 +41,26 @@
         return;
       }
       await keepAwake();
+      scheduleDraftRefresh();
     } else if (brew?.status === 'completed' && session && !session.profile.pin_change_required) {
       await loadRatingInsights();
     }
   });
 
-  onDestroy(() => wakeLock?.release());
+  onDestroy(() => {
+    destroyed = true;
+    if (pollTimer) clearTimeout(pollTimer);
+    wakeLock?.release();
+  });
+
+  function scheduleDraftRefresh() {
+    if (destroyed || pollTimer || brew?.status !== 'draft') return;
+    pollTimer = setTimeout(async () => {
+      pollTimer = null;
+      await refreshDraft();
+      scheduleDraftRefresh();
+    }, 3000);
+  }
 
   async function load() {
     try {
@@ -77,6 +86,31 @@
     }
   }
 
+  async function refreshDraft() {
+    if (!brew || brew.status !== 'draft' || finishing || operatorDialog || changingStatus) return;
+    try {
+      const latest = await api<Brew>(`/brews/${brew.id}`);
+      if (latest.revision <= brew.revision) return;
+      brew = latest;
+      actualWater = latest.water_g;
+      if (latest.status !== 'draft') {
+        await wakeLock?.release();
+        wakeLock = null;
+        if ($sessionStore?.device_mode === 'kiosk') {
+          await logout();
+        } else if (
+          latest.status === 'completed' &&
+          $sessionStore &&
+          !$sessionStore.profile.pin_change_required
+        ) {
+          await loadRatingInsights();
+        }
+      }
+    } catch {
+      // Actions still surface request failures; polling is a best-effort enhancement.
+    }
+  }
+
   async function keepAwake() {
     try {
       wakeLock = (await navigator.wakeLock?.request('screen')) ?? null;
@@ -93,7 +127,8 @@
         method: 'POST',
         body: jsonBody({
           water_g: actualWater,
-          total_brew_time_s: finalMinutes * 60 + finalSeconds
+          total_brew_time_s: finalMinutes * 60 + finalSeconds,
+          revision: brew.revision
         })
       });
       finishing = false;
@@ -123,8 +158,41 @@
     return Boolean(
       brew &&
       $sessionStore &&
+      (brew.operators.some((operator) => operator.id === $sessionStore?.profile.id) ||
+        $sessionStore.profile.role === 'admin')
+    );
+  }
+
+  function canControlDraft(): boolean {
+    return Boolean(
+      brew &&
+      $sessionStore &&
       ($sessionStore.profile.id === brew.operator_id || $sessionStore.profile.role === 'admin')
     );
+  }
+
+  function hasJoined(): boolean {
+    return Boolean(
+      brew &&
+      $sessionStore &&
+      brew.operators.some((operator) => operator.id === $sessionStore?.profile.id)
+    );
+  }
+
+  async function joinBrew() {
+    if (!brew || joining) return;
+    joining = true;
+    error = '';
+    try {
+      brew = await api<Brew>(`/brews/${brew.id}/join`, {
+        method: 'POST',
+        body: jsonBody({})
+      });
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not join this brew.';
+    } finally {
+      joining = false;
+    }
   }
 
   function canCorrectCompleted(): boolean {
@@ -151,30 +219,12 @@
     if (!brew || selectedOperatorId === brew.operator_id) return;
     changingOperator = true;
     error = '';
-    const session = $sessionStore;
     try {
       brew = await api<Brew>(`/brews/${brew.id}/operator`, {
         method: 'PUT',
-        body: jsonBody({ operator_id: selectedOperatorId })
+        body: jsonBody({ operator_id: selectedOperatorId, revision: brew.revision })
       });
       operatorDialog = false;
-      if (session?.profile.role !== 'admin' && session?.profile.id !== brew.operator_id) {
-        try {
-          await wakeLock?.release();
-        } catch {
-          // The handoff must continue even if the browser cannot release its wake lock cleanly.
-        }
-        wakeLock = null;
-        const nextOperatorId = brew.operator_id;
-        const nextBrewId = brew.id;
-        try {
-          await logout();
-        } catch {
-          // A subsequent login replaces the cookie; clear local identity so the handoff can proceed.
-          setSession(null);
-        }
-        await goto(loginPath(`/brews/${nextBrewId}`, nextOperatorId));
-      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not change the operator.';
     } finally {
@@ -190,7 +240,7 @@
     try {
       brew = await api<Brew>(`/brews/${brew.id}/${action}`, {
         method: 'POST',
-        body: jsonBody({})
+        body: jsonBody({ revision: brew.revision })
       });
       statusAction = null;
       await wakeLock?.release();
@@ -221,10 +271,13 @@
         <p class="eyebrow">Brew mode · settings locked on screen</p>
         <h1>{brew.coffee_name}</h1>
         <p class="lede">
-          {brew.coffee_roaster} · operator <ProfileLink
-            profileId={brew.operator_id}
-            displayName={brew.operator_name}
-          />
+          {brew.coffee_roaster} · brewed by
+          {#each brew.operators as operator, index}
+            {index ? ', ' : ''}<ProfileLink
+              profileId={operator.id}
+              displayName={operator.display_name}
+            />
+          {/each}
         </p>
       </div>
       <span class="status draft">draft #{brew.id}</span>
@@ -269,9 +322,16 @@
     {#if brew.technique_note}<p class="technique">{brew.technique_note}</p>{/if}
     {#if error}<p class="error">{error}</p>{/if}
     <div class="actions brew-actions">
+      {#if $sessionStore && !hasJoined()}
+        <button class="primary" onclick={joinBrew} disabled={joining}
+          >{joining ? 'Joining…' : 'Join brew'}</button
+        >
+      {/if}
       {#if canManageDraft()}
-        <button class="danger" onclick={() => (statusAction = 'cancel')}>Cancel brew</button>
-        <button class="secondary" onclick={openOperatorDialog}>Change operator</button>
+        {#if canControlDraft()}
+          <button class="danger" onclick={() => (statusAction = 'cancel')}>Cancel brew</button>
+          <button class="secondary" onclick={openOperatorDialog}>Change primary operator</button>
+        {/if}
         <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
         <button class="primary" onclick={() => (finishing = true)}>Finish brew</button>
       {/if}
@@ -331,10 +391,14 @@
       <p class="eyebrow">Brew #{brew.id} is ready</p>
       <h1>Taste. Scan. Rate.</h1>
       <p class="lede">
-        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by <ProfileLink
-          profileId={brew.operator_id}
-          displayName={brew.operator_name}
-        /> in {formatTime(brew.total_brew_time_s)}.
+        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by
+        {#each brew.operators as operator, index}
+          {index ? ', ' : ''}<ProfileLink
+            profileId={operator.id}
+            displayName={operator.display_name}
+          />
+        {/each}
+        in {formatTime(brew.total_brew_time_s)}.
       </p>
       <div class="brew-summary">
         <span>1:{brew.ratio}</span><span>{brew.grinder_setting} {brew.grinder_unit}</span><span
@@ -417,12 +481,11 @@
       tabindex="-1"
     >
       <div class="modal-heading">
-        <p class="eyebrow">Operator handoff</p>
-        <h2 id="operator-title">Change operator</h2>
+        <p class="eyebrow">Primary operator</p>
+        <h2 id="operator-title">Change primary operator</h2>
         <p class="muted">
-          {$sessionStore?.profile.role === 'admin'
-            ? 'The selected profile will be recorded as the brewer. You can continue managing the draft as an administrator.'
-            : 'You will be signed out, then the new operator can sign in and continue this brew.'}
+          The selected profile becomes the primary operator. Existing collaborators remain credited
+          and can continue editing or finishing the brew.
         </p>
       </div>
       <label>
@@ -440,7 +503,7 @@
           onclick={changeOperator}
           disabled={changingOperator || selectedOperatorId === brew.operator_id}
         >
-          {changingOperator ? 'Changing…' : 'Change operator'}
+          {changingOperator ? 'Changing…' : 'Change primary operator'}
         </button>
         <button
           class="secondary"

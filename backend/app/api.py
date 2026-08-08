@@ -24,7 +24,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
@@ -58,8 +58,10 @@ from .models import (
     Profile,
     Rating,
     RecipePreset,
+    brew_operators,
 )
 from .schemas import (
+    ActiveBrewsResponse,
     AnalyticsRatingMetric,
     AnalyticsResponse,
     AppSettingsResponse,
@@ -70,6 +72,8 @@ from .schemas import (
     BrewInput,
     BrewOperatorUpdate,
     BrewResponse,
+    BrewStatusChange,
+    BrewUpdate,
     CatalogBrewResult,
     CatalogInsights,
     CatalogKind,
@@ -258,6 +262,17 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
         id=brew.id,
         coffee_id=brew.coffee_id,
         operator_id=brew.operator_id,
+        operators=[
+            ProfileIdentity.model_validate(operator)
+            for operator in sorted(
+                brew.operators,
+                key=lambda operator: (
+                    operator.id != brew.operator_id,
+                    operator.display_name.casefold(),
+                ),
+            )
+        ],
+        revision=brew.revision,
         grinder_id=brew.grinder_id,
         dripper_id=brew.dripper_id,
         filter_id=brew.filter_id,
@@ -300,6 +315,7 @@ def load_brew(db: Session, brew_id: int) -> Brew:
         .options(
             selectinload(Brew.coffee),
             selectinload(Brew.operator),
+            selectinload(Brew.operators),
             selectinload(Brew.grinder),
             selectinload(Brew.dripper),
             selectinload(Brew.brew_filter),
@@ -323,6 +339,42 @@ def load_active_operator(db: Session, operator_id: int) -> Profile:
     return operator
 
 
+def is_brew_operator(brew: Brew, profile_id: int) -> bool:
+    return any(operator.id == profile_id for operator in brew.operators)
+
+
+def reserve_active_brew_capacity(db: Session) -> None:
+    get_settings(db)
+    reserved = db.scalar(
+        update(AppSettings)
+        .where(
+            AppSettings.id == 1,
+            AppSettings.active_brew_count < AppSettings.max_active_brews,
+        )
+        .values(active_brew_count=AppSettings.active_brew_count + 1)
+        .returning(AppSettings.id)
+        .execution_options(synchronize_session=False)
+    )
+    if reserved is None:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="The maximum number of parallel brews is already active",
+        )
+
+
+def release_active_brew_capacity(db: Session) -> None:
+    released = db.scalar(
+        update(AppSettings)
+        .where(AppSettings.id == 1, AppSettings.active_brew_count > 0)
+        .values(active_brew_count=AppSettings.active_brew_count - 1)
+        .returning(AppSettings.id)
+        .execution_options(synchronize_session=False)
+    )
+    if released is None:
+        raise RuntimeError("Active brew capacity counter is inconsistent")
+
+
 def commit_guarded_brew_update(
     db: Session,
     brew_id: int,
@@ -331,14 +383,29 @@ def commit_guarded_brew_update(
     values: dict[str, object],
     status_detail: str,
     permission_detail: str,
+    expected_revision: int | None = None,
+    allow_collaborators: bool = False,
+    release_capacity: bool = False,
 ) -> BrewResponse:
     conditions = [Brew.id == brew_id, Brew.status == expected_status]
+    if expected_revision is not None:
+        conditions.append(Brew.revision == expected_revision)
     if login_session.profile.role != "admin":
-        conditions.append(Brew.operator_id == login_session.profile_id)
+        if allow_collaborators:
+            conditions.append(
+                Brew.id.in_(
+                    select(brew_operators.c.brew_id).where(
+                        brew_operators.c.profile_id == login_session.profile_id
+                    )
+                )
+            )
+        else:
+            conditions.append(Brew.operator_id == login_session.profile_id)
+    guarded_values = {**values, "revision": Brew.revision + 1}
     updated_id = db.scalar(
         update(Brew)
         .where(*conditions)
-        .values(**values)
+        .values(**guarded_values)
         .returning(Brew.id)
         .execution_options(synchronize_session=False)
     )
@@ -347,12 +414,17 @@ def commit_guarded_brew_update(
         current = load_brew(db, brew_id)
         if current.status != expected_status:
             raise HTTPException(status_code=409, detail=status_detail)
-        if (
-            login_session.profile.role != "admin"
-            and current.operator_id != login_session.profile_id
+        if login_session.profile.role != "admin" and (
+            current.operator_id != login_session.profile_id
+            if not allow_collaborators
+            else not is_brew_operator(current, login_session.profile_id)
         ):
             raise HTTPException(status_code=403, detail=permission_detail)
+        if expected_revision is not None and current.revision != expected_revision:
+            raise HTTPException(status_code=409, detail="Brew changed; refresh and try again")
         raise HTTPException(status_code=409, detail="Brew changed; refresh and try again")
+    if release_capacity:
+        release_active_brew_capacity(db)
     db.commit()
     return brew_payload(load_brew(db, updated_id), include_token=True)
 
@@ -805,6 +877,7 @@ def get_coffee_rating_insights(
             .options(
                 selectinload(Brew.coffee),
                 selectinload(Brew.operator),
+                selectinload(Brew.operators),
                 selectinload(Brew.grinder),
                 selectinload(Brew.dripper),
                 selectinload(Brew.brew_filter),
@@ -1595,10 +1668,42 @@ def create_brew(
 ) -> BrewResponse:
     enforce_demo_capacity(request, db, Brew)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    brew = Brew(**payload.model_dump(), operator_id=login_session.profile_id)
+    reserve_active_brew_capacity(db)
+    brew = Brew(
+        **payload.model_dump(),
+        operator_id=login_session.profile_id,
+        operators=[login_session.profile],
+    )
     db.add(brew)
     db.commit()
     return brew_payload(load_brew(db, brew.id), include_token=True)
+
+
+@router.get("/brews/active", response_model=ActiveBrewsResponse)
+def active_brews(db: Session = Depends(session_dependency)) -> ActiveBrewsResponse:
+    settings = get_settings(db)
+    brews = list(
+        db.scalars(
+            select(Brew)
+            .options(
+                selectinload(Brew.coffee),
+                selectinload(Brew.operator),
+                selectinload(Brew.operators),
+                selectinload(Brew.grinder),
+                selectinload(Brew.dripper),
+                selectinload(Brew.brew_filter),
+            )
+            .where(Brew.status == "draft")
+            .order_by(Brew.created_at)
+        )
+    )
+    active_count = len(brews)
+    return ActiveBrewsResponse(
+        brews=[brew_payload(brew) for brew in brews],
+        active_count=active_count,
+        max_active_brews=settings.max_active_brews,
+        can_start=active_count < settings.max_active_brews,
+    )
 
 
 @router.get("/brews", response_model=list[BrewResponse])
@@ -1613,6 +1718,7 @@ def list_brews(
         .options(
             selectinload(Brew.coffee),
             selectinload(Brew.operator),
+            selectinload(Brew.operators),
             selectinload(Brew.grinder),
             selectinload(Brew.dripper),
             selectinload(Brew.brew_filter),
@@ -1647,7 +1753,7 @@ def get_brew_rating_insights(
 @router.put("/brews/{brew_id}", response_model=BrewResponse)
 def update_brew(
     brew_id: int,
-    payload: BrewInput,
+    payload: BrewUpdate,
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
@@ -1656,18 +1762,69 @@ def update_brew(
     brew = load_brew(db, brew_id)
     if brew.status != "draft":
         raise HTTPException(status_code=409, detail="Only draft brews can be edited")
-    if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
-        raise HTTPException(status_code=403, detail="Only the operator may edit this draft")
+    if (
+        not is_brew_operator(brew, login_session.profile_id)
+        and login_session.profile.role != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Only a brew operator may edit this draft")
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     return commit_guarded_brew_update(
         db,
         brew.id,
         "draft",
         login_session,
-        payload.model_dump(),
+        payload.model_dump(exclude={"revision"}),
         "Only draft brews can be edited",
-        "Only the operator may edit this draft",
+        "Only a brew operator may edit this draft",
+        expected_revision=payload.revision,
+        allow_collaborators=True,
     )
+
+
+@router.post("/brews/{brew_id}/join", response_model=BrewResponse)
+def join_brew(
+    brew_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    login_session: LoginSession = Depends(require_csrf),
+) -> BrewResponse:
+    enforce_demo_seed_protection(request, Brew, brew_id)
+    brew = load_brew(db, brew_id)
+    if brew.status != "draft":
+        raise HTTPException(status_code=409, detail="Only active brews can be joined")
+    if is_brew_operator(brew, login_session.profile_id):
+        return brew_payload(brew, include_token=True)
+    joined_id = db.scalar(
+        update(Brew)
+        .where(
+            Brew.id == brew.id,
+            Brew.status == "draft",
+            ~Brew.id.in_(
+                select(brew_operators.c.brew_id).where(
+                    brew_operators.c.profile_id == login_session.profile_id
+                )
+            ),
+        )
+        .values(revision=Brew.revision + 1)
+        .returning(Brew.id)
+        .execution_options(synchronize_session=False)
+    )
+    if joined_id is None:
+        db.rollback()
+        current = load_brew(db, brew.id)
+        if current.status != "draft":
+            raise HTTPException(status_code=409, detail="Only active brews can be joined")
+        if is_brew_operator(current, login_session.profile_id):
+            return brew_payload(current, include_token=True)
+        raise HTTPException(status_code=409, detail="Brew changed; refresh and try again")
+    db.execute(
+        insert(brew_operators).values(
+            brew_id=brew.id,
+            profile_id=login_session.profile_id,
+        )
+    )
+    db.commit()
+    return brew_payload(load_brew(db, brew.id), include_token=True)
 
 
 @router.put("/brews/{brew_id}/operator", response_model=BrewResponse)
@@ -1688,6 +1845,8 @@ def update_brew_operator(
             detail="Only the operator or an administrator may reassign this brew",
         )
     operator = load_active_operator(db, payload.operator_id)
+    if not is_brew_operator(brew, operator.id):
+        db.execute(insert(brew_operators).values(brew_id=brew.id, profile_id=operator.id))
     return commit_guarded_brew_update(
         db,
         brew.id,
@@ -1696,6 +1855,7 @@ def update_brew_operator(
         {"operator_id": operator.id},
         "Only draft brews can change operator",
         "Only the operator or an administrator may reassign this brew",
+        expected_revision=payload.revision,
     )
 
 
@@ -1719,7 +1879,22 @@ def correct_completed_brew(
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     values: dict[str, object] = payload.model_dump(exclude={"operator_id"})
     if payload.operator_id is not None:
-        values["operator_id"] = load_active_operator(db, payload.operator_id).id
+        operator = load_active_operator(db, payload.operator_id)
+        replacing_solo_operator = (
+            operator.id != brew.operator_id
+            and len(brew.operators) == 1
+            and brew.operators[0].id == brew.operator_id
+        )
+        values["operator_id"] = operator.id
+        if not is_brew_operator(brew, operator.id):
+            db.execute(insert(brew_operators).values(brew_id=brew.id, profile_id=operator.id))
+        if replacing_solo_operator:
+            db.execute(
+                delete(brew_operators).where(
+                    brew_operators.c.brew_id == brew.id,
+                    brew_operators.c.profile_id == brew.operator_id,
+                )
+            )
     return commit_guarded_brew_update(
         db,
         brew.id,
@@ -1743,8 +1918,11 @@ def finalize_brew(
     brew = load_brew(db, brew_id)
     if brew.status != "draft":
         raise HTTPException(status_code=409, detail="Only draft brews can be finalized")
-    if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
-        raise HTTPException(status_code=403, detail="Only the operator may finalize this brew")
+    if (
+        not is_brew_operator(brew, login_session.profile_id)
+        and login_session.profile.role != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Only a brew operator may finalize this brew")
     values: dict[str, object] = {
         "total_brew_time_s": payload.total_brew_time_s,
         "status": "completed",
@@ -1760,7 +1938,10 @@ def finalize_brew(
         login_session,
         values,
         "Only draft brews can be finalized",
-        "Only the operator may finalize this brew",
+        "Only a brew operator may finalize this brew",
+        expected_revision=payload.revision,
+        allow_collaborators=True,
+        release_capacity=True,
     )
 
 
@@ -1773,6 +1954,7 @@ def clone_brew(
 ) -> BrewResponse:
     enforce_demo_capacity(request, db, Brew)
     source = load_brew(db, brew_id)
+    reserve_active_brew_capacity(db)
     clone = Brew(
         coffee_id=source.coffee_id,
         operator_id=login_session.profile_id,
@@ -1792,6 +1974,7 @@ def clone_brew(
         pour_count=source.pour_count,
         technique_note=source.technique_note,
         status="draft",
+        operators=[login_session.profile],
     )
     db.add(clone)
     db.commit()
@@ -1801,6 +1984,7 @@ def clone_brew(
 def _change_brew_status(
     brew_id: int,
     action: str,
+    payload: BrewStatusChange,
     request: Request,
     db: Session,
     login_session: LoginSession,
@@ -1839,27 +2023,31 @@ def _change_brew_status(
             else "Only draft brews can be cancelled"
         ),
         "Only the operator may cancel this brew",
+        expected_revision=payload.revision,
+        release_capacity=action == "cancel",
     )
 
 
 @router.post("/brews/{brew_id}/cancel", response_model=BrewResponse)
 def cancel_brew(
     brew_id: int,
+    payload: BrewStatusChange,
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
-    return _change_brew_status(brew_id, "cancel", request, db, login_session)
+    return _change_brew_status(brew_id, "cancel", payload, request, db, login_session)
 
 
 @router.post("/brews/{brew_id}/void", response_model=BrewResponse)
 def void_brew(
     brew_id: int,
+    payload: BrewStatusChange,
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> BrewResponse:
-    return _change_brew_status(brew_id, "void", request, db, login_session)
+    return _change_brew_status(brew_id, "void", payload, request, db, login_session)
 
 
 @router.get("/rating-links/{token}", response_model=RatingLinkResponse)
@@ -2130,6 +2318,7 @@ def analytics(
             .options(
                 selectinload(Brew.coffee),
                 selectinload(Brew.operator),
+                selectinload(Brew.operators),
                 selectinload(Brew.grinder),
                 selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
             )
@@ -2171,8 +2360,12 @@ def analytics(
     ]
     top_recipes.sort(key=lambda item: (-item["average"], -item["ratings"]))
     flavor_counts = Counter(tag.name for rating in all_ratings for tag in rating.flavor_tags)
-    operator_counts: Counter[int] = Counter(brew.operator_id for brew in brews)
-    operators_by_id = {brew.operator_id: brew.operator.display_name for brew in brews}
+    operator_counts: Counter[int] = Counter(
+        operator.id for brew in brews for operator in brew.operators
+    )
+    operators_by_id = {
+        operator.id: operator.display_name for brew in brews for operator in brew.operators
+    }
     scatter = []
     for brew in brews:
         if not brew.ratings:
