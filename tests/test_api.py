@@ -223,6 +223,46 @@ def test_coffee_purchase_location_lifecycle_and_exports(tmp_path: Path) -> None:
             coffees_csv = archive.read("coffees.csv").decode()
         assert "purchase_location" in coffees_csv
         assert "Coffee Collective, Copenhagen" in coffees_csv
+def test_coffee_creation_is_idempotent(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        idempotent_headers = {**headers, "Idempotency-Key": "coffee-create-test-key"}
+        payload = {"roaster": "Orbit", "name": "Single bag", "country": "Ethiopia"}
+
+        first = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
+        replay = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
+
+        assert first.status_code == 200
+        assert replay.status_code == 200
+        assert replay.json()["id"] == first.json()["id"]
+        assert len(client.get("/api/v1/coffees").json()) == 1
+
+        conflict = client.post(
+            "/api/v1/coffees",
+            headers=idempotent_headers,
+            json={**payload, "name": "Different bag"},
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"].startswith("Idempotency key was already used")
+        assert len(client.get("/api/v1/coffees").json()) == 1
+
+
+def test_concurrent_coffee_creation_with_same_key_commits_once(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        idempotent_headers = {**headers, "Idempotency-Key": "concurrent-coffee-create"}
+        payload = {"roaster": "Orbit", "name": "Concurrent bag"}
+
+        def create_coffee(_attempt: int) -> tuple[int, int]:
+            response = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
+            return response.status_code, response.json()["id"]
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(create_coffee, range(2)))
+
+        assert [status for status, _coffee_id in results] == [200, 200]
+        assert len({coffee_id for _status, coffee_id in results}) == 1
+        assert len(client.get("/api/v1/coffees").json()) == 1
 
 
 def test_member_directory_visibility_and_account_filtering(tmp_path: Path) -> None:

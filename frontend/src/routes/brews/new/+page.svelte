@@ -4,7 +4,7 @@
   import { page } from '$app/stores';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import { api, ensureSession, jsonBody } from '$lib/api';
+  import { ApiError, api, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
   import type {
     Brew,
@@ -35,6 +35,7 @@
   let showCoffeeForm = $state(false);
   let coffeeError = $state('');
   let addingCoffee = $state(false);
+  let coffeeCreationKey = $state('');
   let error = $state('');
   let saving = $state(false);
   let ready = $state(false);
@@ -183,11 +184,15 @@
 
   async function addCoffee(event: SubmitEvent) {
     event.preventDefault();
+    if (addingCoffee) return;
     addingCoffee = true;
     coffeeError = '';
+    const idempotencyKey = coffeeCreationKey || crypto.randomUUID();
+    coffeeCreationKey = idempotencyKey;
     try {
       const coffee = await api<Coffee>('/coffees', {
         method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
         body: jsonBody({
           ...newCoffee,
           country: newCoffee.country || null,
@@ -207,8 +212,11 @@
         roast_level: ''
       };
       showCoffeeForm = false;
+      coffeeCreationKey = '';
       await loadHistory();
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status < 500)
+        coffeeCreationKey = crypto.randomUUID();
       coffeeError = caught instanceof Error ? caught.message : 'Could not add this coffee.';
     } finally {
       addingCoffee = false;
@@ -216,7 +224,9 @@
   }
 
   function toggleCoffeeForm() {
+    if (addingCoffee) return;
     showCoffeeForm = !showCoffeeForm;
+    coffeeCreationKey = showCoffeeForm ? crypto.randomUUID() : '';
     if (showCoffeeForm) coffeeError = '';
   }
 
