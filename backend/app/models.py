@@ -84,6 +84,7 @@ class Coffee(TimestampMixin, Base):
     package_notes: Mapped[str | None] = mapped_column(Text)
     photo_path: Mapped[str | None] = mapped_column(String(500))
     creation_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    creation_request_hash: Mapped[str | None] = mapped_column(String(64))
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("coffees.id"))
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))

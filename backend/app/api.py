@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -120,16 +121,20 @@ def ensure_catalog_photo_writes_allowed(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Photo changes are disabled in demo mode")
 
 
-def coffee_matches_creation(coffee: Coffee, payload: CoffeeInput, profile_id: int) -> bool:
-    return coffee.created_by_id == profile_id and all(
-        getattr(coffee, key) == value for key, value in payload.model_dump().items()
+def coffee_creation_fingerprint(payload: CoffeeInput) -> str:
+    canonical_payload = json.dumps(
+        payload.model_dump(mode="json"),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
     )
+    return hashlib.sha256(canonical_payload.encode()).hexdigest()
 
 
 def replay_idempotent_coffee_creation(
-    coffee: Coffee | None, payload: CoffeeInput, profile_id: int
+    coffee: Coffee, request_fingerprint: str, profile_id: int
 ) -> Coffee:
-    if coffee is not None and coffee_matches_creation(coffee, payload, profile_id):
+    if coffee.created_by_id == profile_id and coffee.creation_request_hash == request_fingerprint:
         return coffee
     raise HTTPException(
         status_code=409,
@@ -689,15 +694,19 @@ def create_coffee(
         pattern=r"^[A-Za-z0-9._:-]+$",
     ),
 ) -> Coffee:
+    request_fingerprint = coffee_creation_fingerprint(payload)
     if idempotency_key is not None:
         existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
         if existing is not None:
-            return replay_idempotent_coffee_creation(existing, payload, login_session.profile_id)
+            return replay_idempotent_coffee_creation(
+                existing, request_fingerprint, login_session.profile_id
+            )
     enforce_demo_capacity(request, db, Coffee)
     coffee = Coffee(
         **payload.model_dump(),
         created_by_id=login_session.profile_id,
         creation_token=idempotency_key,
+        creation_request_hash=request_fingerprint if idempotency_key else None,
     )
     db.add(coffee)
     try:
@@ -707,7 +716,11 @@ def create_coffee(
             raise
         db.rollback()
         existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
-        return replay_idempotent_coffee_creation(existing, payload, login_session.profile_id)
+        if existing is None:
+            raise
+        return replay_idempotent_coffee_creation(
+            existing, request_fingerprint, login_session.profile_id
+        )
     db.refresh(coffee)
     return coffee
 
