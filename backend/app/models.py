@@ -32,6 +32,22 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
+class PhotoFramingMixin:
+    photo_focus_x: Mapped[float | None] = mapped_column(Float)
+    photo_focus_y: Mapped[float | None] = mapped_column(Float)
+    photo_zoom: Mapped[float | None] = mapped_column(Float)
+
+    @property
+    def photo_framing(self) -> dict[str, float] | None:
+        if self.photo_focus_x is None or self.photo_focus_y is None or self.photo_zoom is None:
+            return None
+        return {
+            "focus_x": self.photo_focus_x,
+            "focus_y": self.photo_focus_y,
+            "zoom": self.photo_zoom,
+        }
+
+
 class Profile(TimestampMixin, Base):
     __tablename__ = "profiles"
     __table_args__ = (CheckConstraint("role IN ('member', 'admin')", name="ck_profile_role"),)
@@ -66,7 +82,7 @@ class LoginSession(Base):
     profile: Mapped[Profile] = relationship(back_populates="sessions")
 
 
-class Coffee(TimestampMixin, Base):
+class Coffee(PhotoFramingMixin, TimestampMixin, Base):
     __tablename__ = "coffees"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -90,7 +106,7 @@ class Coffee(TimestampMixin, Base):
     created_by_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
 
 
-class Grinder(TimestampMixin, Base):
+class Grinder(PhotoFramingMixin, TimestampMixin, Base):
     __tablename__ = "grinders"
     __table_args__ = (
         CheckConstraint("setting_step > 0", name="ck_grinder_setting_step_positive"),
@@ -112,7 +128,7 @@ class Grinder(TimestampMixin, Base):
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class Dripper(TimestampMixin, Base):
+class Dripper(PhotoFramingMixin, TimestampMixin, Base):
     __tablename__ = "drippers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -123,7 +139,7 @@ class Dripper(TimestampMixin, Base):
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class BrewFilter(TimestampMixin, Base):
+class BrewFilter(PhotoFramingMixin, TimestampMixin, Base):
     __tablename__ = "filters"
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -15,11 +15,12 @@
     ensureSession,
     jsonBody,
     sessionStore,
+    updateCatalogPhotoFraming,
     uploadCatalogPhoto
   } from '$lib/api';
   import { coffeePayload, coffeeToForm, emptyCoffeeForm, formatCatalogDate } from '$lib/catalog';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import type { CatalogInsights, Coffee, CoffeeRatingInsights } from '$lib/types';
+  import type { CatalogInsights, Coffee, CoffeeRatingInsights, PhotoFraming } from '$lib/types';
 
   let coffee: Coffee | null = $state(null);
   let insights: CatalogInsights | null = $state(null);
@@ -36,6 +37,8 @@
   let success = $state('');
   let photoError = $state('');
   let photoFile: File | null = $state(null);
+  let photoFramingDraft: PhotoFraming | null = $state(null);
+  let photoFramingBaseline = $state('null');
   let removePhotoDraft = $state(false);
   let saving = $state(false);
   let cloning = $state(false);
@@ -45,7 +48,11 @@
 
   const id = $derived(Number($page.params.id));
   const dirty = $derived(
-    editMode && (JSON.stringify(form) !== baseline || photoFile !== null || removePhotoDraft)
+    editMode &&
+      (JSON.stringify(form) !== baseline ||
+        photoFile !== null ||
+        removePhotoDraft ||
+        JSON.stringify(photoFramingDraft) !== photoFramingBaseline)
   );
   function canManage(): boolean {
     return Boolean($sessionStore && $deviceModeStore !== 'kiosk' && coffee && !coffee.archived);
@@ -114,6 +121,8 @@
     form = coffeeToForm(coffee);
     baseline = JSON.stringify(form);
     photoFile = null;
+    photoFramingDraft = coffee.photo_framing;
+    photoFramingBaseline = JSON.stringify(coffee.photo_framing);
     removePhotoDraft = false;
     photoError = '';
     success = '';
@@ -132,6 +141,8 @@
     form = coffeeToForm(coffee);
     baseline = JSON.stringify(form);
     photoFile = null;
+    photoFramingDraft = coffee.photo_framing;
+    photoFramingBaseline = JSON.stringify(coffee.photo_framing);
     removePhotoDraft = false;
     photoError = '';
     editMode = false;
@@ -146,6 +157,7 @@
     success = '';
     photoError = '';
     try {
+      const framingChanged = JSON.stringify(photoFramingDraft) !== photoFramingBaseline;
       coffee = await api<Coffee>(`/coffees/${coffee.id}`, {
         method: 'PUT',
         body: jsonBody(coffeePayload(form))
@@ -154,15 +166,26 @@
       baseline = JSON.stringify(form);
       try {
         if (photoFile) {
-          coffee = await uploadCatalogPhoto<Coffee>(`/coffees/${coffee.id}/photo`, photoFile);
+          coffee = await uploadCatalogPhoto<Coffee>(
+            `/coffees/${coffee.id}/photo`,
+            photoFile,
+            photoFramingDraft
+          );
         } else if (removePhotoDraft && coffee.photo_path) {
           coffee = await api<Coffee>(`/coffees/${coffee.id}/photo`, { method: 'DELETE' });
+        } else if (framingChanged) {
+          coffee = await updateCatalogPhotoFraming<Coffee>(
+            `/coffees/${coffee.id}/photo`,
+            photoFramingDraft
+          );
         }
       } catch (caught) {
         photoError = `Coffee details were saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not update the photo.'}`;
         return;
       }
       photoFile = null;
+      photoFramingDraft = coffee.photo_framing;
+      photoFramingBaseline = JSON.stringify(coffee.photo_framing);
       removePhotoDraft = false;
       editMode = false;
       clearEditQuery();
@@ -266,6 +289,7 @@
       <div class="detail-photo" data-testid="detail-photo">
         <CatalogPhoto
           photoPath={editMode && removePhotoDraft ? null : coffee.photo_path}
+          photoFraming={editMode ? photoFramingDraft : coffee.photo_framing}
           alt={`${coffee.roaster} ${coffee.name}`}
           endpoint={`/coffees/${coffee.id}/photo`}
           beanFallback
@@ -322,6 +346,8 @@
           <div class="photo-edit">
             <PhotoPicker
               bind:file={photoFile}
+              bind:framing={photoFramingDraft}
+              photoPath={removePhotoDraft ? null : coffee.photo_path}
               label={coffee.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
             />
             {#if coffee.photo_path && !photoFile}

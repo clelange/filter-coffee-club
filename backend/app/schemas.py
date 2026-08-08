@@ -97,6 +97,16 @@ class SessionResponse(BaseModel):
     expires_at: datetime
 
 
+class PhotoFraming(BaseModel):
+    focus_x: float = Field(ge=0, le=1)
+    focus_y: float = Field(ge=0, le=1)
+    zoom: float = Field(ge=1, le=3)
+
+
+class PhotoFramingUpdate(BaseModel):
+    photo_framing: PhotoFraming | None
+
+
 class CoffeeInput(BaseModel):
     roaster: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=160)
@@ -122,6 +132,7 @@ class CoffeeInput(BaseModel):
 class CoffeeResponse(CoffeeInput, ORMModel):
     id: int
     photo_path: str | None
+    photo_framing: PhotoFraming | None
     archived: bool
     cloned_from_id: int | None
     created_at: datetime
@@ -154,6 +165,7 @@ class GrinderInput(BaseModel):
 class GrinderResponse(GrinderInput, ORMModel):
     id: int
     photo_path: str | None
+    photo_framing: PhotoFraming | None
     archived: bool
 
 
@@ -166,6 +178,7 @@ class EquipmentInput(BaseModel):
 class DripperResponse(EquipmentInput, ORMModel):
     id: int
     photo_path: str | None
+    photo_framing: PhotoFraming | None
     archived: bool
 
 
@@ -177,6 +190,7 @@ class FilterInput(BaseModel):
 class FilterResponse(FilterInput, ORMModel):
     id: int
     photo_path: str | None
+    photo_framing: PhotoFraming | None
     archived: bool
 
 

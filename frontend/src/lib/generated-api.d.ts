@@ -226,7 +226,8 @@ export interface paths {
         delete: operations["delete_coffee_photo_api_v1_coffees__coffee_id__photo_delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Coffee Photo Framing */
+        patch: operations["patch_coffee_photo_framing_api_v1_coffees__coffee_id__photo_patch"];
         trace?: never;
     };
     "/api/v1/coffees/{coffee_id}/archive": {
@@ -314,7 +315,8 @@ export interface paths {
         delete: operations["delete_grinder_photo_api_v1_grinders__item_id__photo_delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Grinder Photo Framing */
+        patch: operations["patch_grinder_photo_framing_api_v1_grinders__item_id__photo_patch"];
         trace?: never;
     };
     "/api/v1/grinders/{item_id}/archive": {
@@ -385,7 +387,8 @@ export interface paths {
         delete: operations["delete_dripper_photo_api_v1_drippers__item_id__photo_delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Dripper Photo Framing */
+        patch: operations["patch_dripper_photo_framing_api_v1_drippers__item_id__photo_patch"];
         trace?: never;
     };
     "/api/v1/drippers/{item_id}/archive": {
@@ -456,7 +459,8 @@ export interface paths {
         delete: operations["delete_filter_photo_api_v1_filters__item_id__photo_delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Filter Photo Framing */
+        patch: operations["patch_filter_photo_framing_api_v1_filters__item_id__photo_patch"];
         trace?: never;
     };
     "/api/v1/filters/{item_id}/archive": {
@@ -1099,21 +1103,45 @@ export interface components {
         Body_put_coffee_photo_api_v1_coffees__coffee_id__photo_put: {
             /** Photo */
             photo: string;
+            /** Focus X */
+            focus_x?: number | null;
+            /** Focus Y */
+            focus_y?: number | null;
+            /** Zoom */
+            zoom?: number | null;
         };
         /** Body_put_dripper_photo_api_v1_drippers__item_id__photo_put */
         Body_put_dripper_photo_api_v1_drippers__item_id__photo_put: {
             /** Photo */
             photo: string;
+            /** Focus X */
+            focus_x?: number | null;
+            /** Focus Y */
+            focus_y?: number | null;
+            /** Zoom */
+            zoom?: number | null;
         };
         /** Body_put_filter_photo_api_v1_filters__item_id__photo_put */
         Body_put_filter_photo_api_v1_filters__item_id__photo_put: {
             /** Photo */
             photo: string;
+            /** Focus X */
+            focus_x?: number | null;
+            /** Focus Y */
+            focus_y?: number | null;
+            /** Zoom */
+            zoom?: number | null;
         };
         /** Body_put_grinder_photo_api_v1_grinders__item_id__photo_put */
         Body_put_grinder_photo_api_v1_grinders__item_id__photo_put: {
             /** Photo */
             photo: string;
+            /** Focus X */
+            focus_x?: number | null;
+            /** Focus Y */
+            focus_y?: number | null;
+            /** Zoom */
+            zoom?: number | null;
         };
         /** Body_upload_logo_api_v1_settings_logo_post */
         Body_upload_logo_api_v1_settings_logo_post: {
@@ -1493,6 +1521,7 @@ export interface components {
             id: number;
             /** Photo Path */
             photo_path: string | null;
+            photo_framing: components["schemas"]["PhotoFraming"] | null;
             /** Archived */
             archived: boolean;
             /** Cloned From Id */
@@ -1515,6 +1544,7 @@ export interface components {
             id: number;
             /** Photo Path */
             photo_path: string | null;
+            photo_framing: components["schemas"]["PhotoFraming"] | null;
             /** Archived */
             archived: boolean;
         };
@@ -1544,6 +1574,7 @@ export interface components {
             id: number;
             /** Photo Path */
             photo_path: string | null;
+            photo_framing: components["schemas"]["PhotoFraming"] | null;
             /** Archived */
             archived: boolean;
         };
@@ -1655,6 +1686,7 @@ export interface components {
             id: number;
             /** Photo Path */
             photo_path: string | null;
+            photo_framing: components["schemas"]["PhotoFraming"] | null;
             /** Archived */
             archived: boolean;
         };
@@ -1674,6 +1706,19 @@ export interface components {
              * @enum {string}
              */
             device_mode: "kiosk" | "personal";
+        };
+        /** PhotoFraming */
+        PhotoFraming: {
+            /** Focus X */
+            focus_x: number;
+            /** Focus Y */
+            focus_y: number;
+            /** Zoom */
+            zoom: number;
+        };
+        /** PhotoFramingUpdate */
+        PhotoFramingUpdate: {
+            photo_framing: components["schemas"]["PhotoFraming"] | null;
         };
         /** PinChange */
         PinChange: {
@@ -2499,6 +2544,41 @@ export interface operations {
             };
         };
     };
+    patch_coffee_photo_framing_api_v1_coffees__coffee_id__photo_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoFramingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_coffee_api_v1_coffees__coffee_id__archive_post: {
         parameters: {
             query?: never;
@@ -2746,6 +2826,41 @@ export interface operations {
             };
         };
     };
+    patch_grinder_photo_framing_api_v1_grinders__item_id__photo_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoFramingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrinderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_grinder_api_v1_grinders__item_id__archive_post: {
         parameters: {
             query?: never;
@@ -2962,6 +3077,41 @@ export interface operations {
             };
         };
     };
+    patch_dripper_photo_framing_api_v1_drippers__item_id__photo_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoFramingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DripperResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     archive_dripper_api_v1_drippers__item_id__archive_post: {
         parameters: {
             query?: never;
@@ -3157,6 +3307,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_filter_photo_framing_api_v1_filters__item_id__photo_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoFramingUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

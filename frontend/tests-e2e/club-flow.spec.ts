@@ -187,6 +187,42 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Purchased from').fill('CERN Restaurant 1, Meyrin');
   await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(ethiopiaPhoto);
   await expect(page.getByRole('img', { name: 'Selected catalog item' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit framing' }).click();
+  const uploadFramingDialog = page.getByRole('dialog', { name: 'Adjust framing' });
+  await expect(uploadFramingDialog).toBeVisible();
+  await expect(uploadFramingDialog.getByText('Gallery preview')).toBeVisible();
+  await expect(uploadFramingDialog.getByText('Detail preview')).toBeVisible();
+  await uploadFramingDialog.getByRole('button', { name: 'Use full image' }).click();
+  await expect(uploadFramingDialog.getByLabel('Zoom')).toBeDisabled();
+  await uploadFramingDialog.getByRole('button', { name: 'Center and fill' }).click();
+  await expect(uploadFramingDialog.getByLabel('Zoom')).toBeEnabled();
+  const galleryFramingArea = uploadFramingDialog.getByRole('button', {
+    name: /Gallery photo framing area/
+  });
+  const horizontalPosition = uploadFramingDialog.getByLabel('Horizontal position');
+  await galleryFramingArea.focus();
+  await page.keyboard.press('ArrowRight');
+  expect(Number(await horizontalPosition.inputValue())).toBeGreaterThan(0.5);
+  await uploadFramingDialog.getByLabel('Zoom').fill('1.45');
+  await horizontalPosition.fill('0.22');
+  await uploadFramingDialog.getByLabel('Vertical position').fill('0.68');
+  const framingBox = await galleryFramingArea.boundingBox();
+  expect(framingBox).not.toBeNull();
+  if (framingBox) {
+    await page.mouse.move(
+      framingBox.x + framingBox.width / 2,
+      framingBox.y + framingBox.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      framingBox.x + framingBox.width / 2 + 30,
+      framingBox.y + framingBox.height / 2 - 20
+    );
+    await page.mouse.up();
+  }
+  expect(Number(await horizontalPosition.inputValue())).not.toBe(0.22);
+  await uploadFramingDialog.getByRole('button', { name: 'Apply framing' }).click();
+  await expect(page.getByText('Custom framing applied')).toBeVisible();
   let coffeeCreateRequests = 0;
   let coffeeCreationKey = '';
   await page.route('**/api/v1/coffees', async (route) => {
@@ -210,6 +246,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   const colliderPhoto = colliderCard.getByRole('img', { name: 'PSI Roasters Collider Blend' });
   await expect(colliderPhoto).toBeVisible();
   await expect(colliderCard.getByText('Purchased from CERN Restaurant 1, Meyrin')).toBeVisible();
+  await expect(colliderPhoto).toHaveClass(/framed/);
+  await expect(colliderPhoto).toHaveAttribute('style', /scale\(1\.45\)/);
   await expect(colliderCard.locator('input, textarea, select')).toHaveCount(0);
   await expect(colliderCard.getByRole('button', { name: /Edit|Clone|Archive|photo/i })).toHaveCount(
     0
@@ -252,6 +290,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page).toHaveURL(/\/coffees\/\d+$/);
   await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
   await expect(page.getByText('CERN Restaurant 1, Meyrin', { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId('detail-photo').getByRole('img', { name: 'PSI Roasters Collider Blend' })
+  ).toHaveAttribute('style', /scale\(1\.45\)/);
   await expect(page.locator('input, textarea, select')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
@@ -298,6 +339,42 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       })
     )
     .toBe(true);
+  await page.setViewportSize({ width: 1024, height: 600 });
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.setViewportSize({ width: 393, height: 851 });
+  await page.getByRole('button', { name: 'Edit framing' }).click();
+  const mobileFramingDialog = page.getByRole('dialog', { name: 'Adjust framing' });
+  await expect(mobileFramingDialog).toBeVisible();
+  const mobileEditorGeometry = await mobileFramingDialog.evaluate((dialog) => {
+    const box = dialog.getBoundingClientRect();
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button, input')];
+    const visibleActions = [...dialog.querySelectorAll<HTMLButtonElement>('.editor-actions button')]
+      .map((button) => button.getBoundingClientRect())
+      .every((action) => action.top >= 0 && action.bottom <= window.innerHeight);
+    return {
+      fitsViewport: box.left >= 0 && box.right <= window.innerWidth,
+      noPageOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+      visibleActions,
+      touchSizedActions: controls
+        .filter((control) => control instanceof HTMLButtonElement)
+        .every((control) => control.getBoundingClientRect().height >= 44)
+    };
+  });
+  expect(mobileEditorGeometry.fitsViewport).toBe(true);
+  expect(mobileEditorGeometry.noPageOverflow).toBe(true);
+  expect(mobileEditorGeometry.visibleActions).toBe(true);
+  expect(mobileEditorGeometry.touchSizedActions).toBe(true);
+  await mobileFramingDialog.getByLabel('Zoom').fill('1.7');
+  await mobileFramingDialog.getByLabel('Horizontal position').fill('0.72');
+  await mobileFramingDialog.getByLabel('Vertical position').fill('0.3');
+  await mobileFramingDialog.getByRole('button', { name: 'Apply framing' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(detailPhoto).toHaveClass(/framed/);
+  await expect(detailPhoto).toHaveAttribute('style', /scale\(1\.7\)/);
+  await page.reload();
+  await expect(detailPhoto).toHaveAttribute('style', /scale\(1\.7\)/);
   await page.setViewportSize({ width: 1024, height: 600 });
 
   await page.goto('/brews/new');
@@ -1256,9 +1333,17 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByText('Temporary unsaved guidance')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Guidance').fill('Use a slightly coarser setting for larger brews.');
+  await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(colombiaPhoto);
+  await page.getByRole('button', { name: 'Edit framing' }).click();
+  const equipmentFramingDialog = page.getByRole('dialog', { name: 'Adjust framing' });
+  await equipmentFramingDialog.getByLabel('Zoom').fill('1.3');
+  await equipmentFramingDialog.getByRole('button', { name: 'Apply framing' }).click();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'About this grinder.' })).toBeVisible();
   await expect(page.getByText('Use a slightly coarser setting for larger brews.')).toBeVisible();
+  await expect(
+    page.getByTestId('detail-photo').getByRole('img', { name: 'Comandante C40' })
+  ).toHaveClass(/framed/);
 
   await page.goto(invitationPath);
   await page.getByRole('link', { name: 'Correct brew' }).click();
