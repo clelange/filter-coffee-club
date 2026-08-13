@@ -695,7 +695,7 @@
           <p class="muted">
             {settings.demo_mode
               ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
-              : 'The official PSI logo is not bundled. Upload an approved PNG or WebP if needed.'}
+              : 'The Filter Coffee Club logo is used by default. Upload an approved PNG or WebP to replace it.'}
           </p>
           <label
             >Club name<input

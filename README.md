@@ -46,7 +46,7 @@ AI-generated text below!
 - A compact 1–9 liking scale, 0–5 sensory intensities, structured flavor tags, visibility rules, member tasting profiles with favorite coffees and per-brew comparisons, and lightweight SVG analytics.
 - JSON/CSV exports, configurable branding, health endpoints, Alembic migrations, WAL mode, and structured request logs.
 
-The bundled collider-ring/coffee-drop mark is original. The official PSI logo is deliberately not included.
+The bundled Filter Coffee Club mark is original. The official PSI logo is deliberately not included.
 
 ## Deploy with Docker
 

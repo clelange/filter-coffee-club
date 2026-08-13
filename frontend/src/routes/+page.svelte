@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { brewStatusStore, refreshBrewStatusAfterMutation } from '$lib/brew-status';
   import { loginPath } from '$lib/device';
-  import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
+  import { api, appSettingsStore, formatTime, jsonBody, sessionStore } from '$lib/api';
+  import Logo from '$lib/Logo.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingComparison from '$lib/RatingComparison.svelte';
   import type {
@@ -112,11 +113,8 @@
       {/if}
     </div>
   </div>
-  <div class="orbit-art" aria-hidden="true">
-    <div class="ring one"></div>
-    <div class="ring two"></div>
-    <div class="cup">FCC</div>
-    <i></i>
+  <div class="hero-logo" aria-hidden="true">
+    <Logo logoPath={$appSettingsStore?.logo_path ?? null} large />
   </div>
 </section>
 
@@ -232,52 +230,10 @@
     align-items: center;
     min-height: 58vh;
   }
-  .orbit-art {
-    position: relative;
+  .hero-logo {
     display: grid;
     min-height: 390px;
-    overflow: hidden;
     place-items: center;
-  }
-  .ring {
-    position: absolute;
-    width: min(32vw, 340px);
-    aspect-ratio: 1;
-    border: 3px solid var(--cyan);
-    border-radius: 50%;
-    opacity: 0.52;
-  }
-  .ring.one {
-    border-style: dashed;
-    transform: rotate(24deg);
-  }
-  .ring.two {
-    height: min(18vw, 190px);
-    transform: rotate(-22deg);
-  }
-  .cup {
-    z-index: 1;
-    display: grid;
-    place-items: center;
-    width: 150px;
-    height: 120px;
-    border-radius: 18px 18px 60px 60px;
-    background: var(--coffee);
-    color: white;
-    font:
-      700 2.3rem Georgia,
-      serif;
-    box-shadow: var(--shadow);
-  }
-  .orbit-art i {
-    position: absolute;
-    top: 15%;
-    right: 14%;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--amber);
-    box-shadow: 0 0 0 9px color-mix(in srgb, var(--amber) 18%, transparent);
   }
   .section-heading,
   .card-top {
@@ -346,7 +302,7 @@
       grid-template-columns: 1fr;
       min-height: auto;
     }
-    .orbit-art {
+    .hero-logo {
       display: none;
     }
     .section-heading {
