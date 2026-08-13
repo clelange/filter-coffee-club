@@ -3792,7 +3792,9 @@ export interface operations {
     create_brew_api_v1_brews_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

@@ -231,6 +231,8 @@ class Brew(TimestampMixin, Base):
     technique_note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    creation_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    creation_request_hash: Mapped[str | None] = mapped_column(String(64))
     rating_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 

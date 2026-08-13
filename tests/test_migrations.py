@@ -125,3 +125,78 @@ def test_collaborative_brew_migration_backfills_and_limits_legacy_drafts(
         indexes = {item["name"] for item in inspect(connection).get_indexes("brew_operators")}
         assert "ix_brew_operators_profile_id" in indexes
     engine.dispose()
+
+
+def test_brew_creation_token_migration_preserves_existing_rows(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-idempotency.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "8f4b0c2a7e16")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO profiles (
+                    id, display_name, pin_hash, role, active, pin_change_required,
+                    failed_login_attempts, created_at, updated_at
+                ) VALUES (
+                    1, 'Ada', 'legacy-hash', 'admin', 1, 0,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO grinders (
+                    id, manufacturer, model, setting_unit, setting_step,
+                    archived, created_at, updated_at
+                ) VALUES (
+                    1, 'Legacy', 'Grinder', 'clicks', 1,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO coffees (
+                    id, roaster, name, chart_color, archived, created_by_id,
+                    created_at, updated_at
+                ) VALUES (
+                    1, 'Legacy', 'Coffee', '#0072B2', 0, 1,
+                    '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO brews (
+                    id, coffee_id, operator_id, grinder_id, dose_g, water_g,
+                    temperature_c, grinder_setting, servings, status, revision,
+                    created_at, updated_at
+                ) VALUES (
+                    1, 1, 1, 1, 15, 240,
+                    94, 30, 1, 'completed', 1,
+                    '2026-08-01 09:00:00', '2026-08-01 09:00:00'
+                )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "9c17b3e5a204")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, creation_token, creation_request_hash FROM brews")
+        ).one() == (1, None, None)
+        indexes = {item["name"]: item for item in inspect(connection).get_indexes("brews")}
+        assert indexes["ix_brews_creation_token"]["unique"]
+    engine.dispose()

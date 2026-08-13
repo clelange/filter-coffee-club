@@ -47,6 +47,7 @@
   let coffeeError = $state('');
   let addingCoffee = $state(false);
   let coffeeCreationKey = $state('');
+  let brewCreationKey = $state('');
   let error = $state('');
   let saving = $state(false);
   let ready = $state(false);
@@ -302,8 +303,12 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
+    if (saving) return;
     saving = true;
     error = '';
+    const creatingBrew = !editId && !correctionId;
+    const idempotencyKey = creatingBrew ? brewCreationKey || crypto.randomUUID() : '';
+    if (creatingBrew) brewCreationKey = idempotencyKey;
     try {
       const path = correctionId
         ? `/brews/${correctionId}/correction`
@@ -312,6 +317,7 @@
           : '/brews';
       const brew = await api<Brew>(path, {
         method: editId || correctionId ? 'PUT' : 'POST',
+        headers: creatingBrew ? { 'Idempotency-Key': idempotencyKey } : undefined,
         body: jsonBody(
           correctionId
             ? {

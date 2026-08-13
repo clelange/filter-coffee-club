@@ -174,6 +174,19 @@ def coffee_creation_fingerprint(payload: CoffeeInput) -> str:
     return hashlib.sha256(canonical_payload.encode()).hexdigest()
 
 
+def brew_creation_fingerprint(payload: BrewInput, profile_id: int) -> str:
+    canonical_request = json.dumps(
+        {
+            "payload": payload.model_dump(mode="json"),
+            "profile_id": profile_id,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical_request.encode()).hexdigest()
+
+
 def replay_idempotent_coffee_creation(
     coffee: Coffee, request_fingerprint: str, profile_id: int
 ) -> Coffee:
@@ -182,6 +195,17 @@ def replay_idempotent_coffee_creation(
     raise HTTPException(
         status_code=409,
         detail="Idempotency key was already used for a different coffee creation request",
+    )
+
+
+def replay_idempotent_brew_creation(
+    db: Session, brew: Brew, request_fingerprint: str
+) -> BrewResponse:
+    if brew.creation_request_hash == request_fingerprint:
+        return brew_payload(load_brew(db, brew.id), include_token=True)
+    raise HTTPException(
+        status_code=409,
+        detail="Idempotency key was already used for a different brew creation request",
     )
 
 
@@ -1675,17 +1699,47 @@ def create_brew(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> BrewResponse:
+    request_fingerprint = brew_creation_fingerprint(payload, login_session.profile_id)
+    if idempotency_key is not None:
+        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+        if existing is not None:
+            return replay_idempotent_brew_creation(db, existing, request_fingerprint)
     enforce_demo_capacity(request, db, Brew)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    reserve_active_brew_capacity(db)
+    try:
+        reserve_active_brew_capacity(db)
+    except HTTPException:
+        if idempotency_key is not None:
+            existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+            if existing is not None:
+                return replay_idempotent_brew_creation(db, existing, request_fingerprint)
+        raise
     brew = Brew(
         **payload.model_dump(),
         operator_id=login_session.profile_id,
         operators=[login_session.profile],
+        creation_token=idempotency_key,
+        creation_request_hash=request_fingerprint if idempotency_key else None,
     )
     db.add(brew)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        if idempotency_key is None:
+            raise
+        db.rollback()
+        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+        if existing is None:
+            raise
+        return replay_idempotent_brew_creation(db, existing, request_fingerprint)
     return brew_payload(load_brew(db, brew.id), include_token=True)
 
 
