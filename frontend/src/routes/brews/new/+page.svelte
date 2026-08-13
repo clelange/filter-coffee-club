@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
   import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
@@ -10,6 +11,7 @@
   import type {
     ActiveBrews,
     Brew,
+    BrewActivityItem,
     BrewFilter,
     BrewInput,
     Coffee,
@@ -331,6 +333,7 @@
               : form
         )
       });
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
       await goto(`/brews/${brew.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save the brew.';
@@ -347,10 +350,11 @@
       method: 'POST',
       body: jsonBody({})
     });
+    await refreshBrewStatusAfterMutation().catch(() => undefined);
     await goto(`/brews/${brew.id}`);
   }
 
-  async function join(source: Brew) {
+  async function join(source: BrewActivityItem) {
     if (joiningBrewId !== null) return;
     joiningBrewId = source.id;
     try {

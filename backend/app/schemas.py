@@ -324,8 +324,18 @@ class BrewResponse(BrewInput):
     rating_token: str | None = None
 
 
+class BrewActivityItem(BaseModel):
+    id: int
+    coffee_name: str
+    coffee_roaster: str
+    operators: list[ProfileIdentity]
+    status: str
+    rating_token: str | None = None
+
+
 class ActiveBrewsResponse(BaseModel):
-    brews: list[BrewResponse]
+    brews: list[BrewActivityItem]
+    recent_rating_brews: list[BrewActivityItem]
     active_count: int
     max_active_brews: int
     can_start: bool

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
+import type { ActiveBrews, AppSettings, BrewActivityItem, Session } from '../src/lib/types';
 
 const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 import { fileURLToPath } from 'node:url';
@@ -30,6 +31,55 @@ interface CoffeeRatingInsightsFixture {
     aggregate: Record<string, unknown>;
   }>;
   next_offset: number | null;
+}
+
+const publicAppSettings: AppSettings = {
+  app_name: 'Filter Coffee Club',
+  subtitle: 'Brew activity test',
+  public_base_url: null,
+  logo_path: null,
+  color_cream: '#f6f1e8',
+  color_surface: '#fffdfc',
+  color_ink: '#241c19',
+  color_coffee: '#6b3f2a',
+  color_cyan: '#007f9e',
+  color_amber: '#d88700',
+  max_active_brews: 2,
+  public_url_needs_configuration: false,
+  demo_mode: false,
+  demo_notice: null,
+  demo_pin: null,
+  demo_profile_names: []
+};
+
+function fulfillJson(route: Route, body: unknown, status = 200) {
+  return route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(body)
+  });
+}
+
+async function mockSignedOutHome(page: Page) {
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
+  await page.route('**/api/v1/auth/bootstrap-status', (route) =>
+    fulfillJson(route, { required: false })
+  );
+  await page.route('**/api/v1/auth/me', (route) =>
+    fulfillJson(route, { detail: 'Not authenticated' }, 401)
+  );
+  await page.route('**/api/v1/brews?*', (route) => fulfillJson(route, []));
+}
+
+function railBrew(id: number, coffeeName: string, token: string | null = null): BrewActivityItem {
+  return {
+    id,
+    coffee_name: coffeeName,
+    coffee_roaster: 'Test Roaster',
+    operators: [{ id: 1, display_name: 'Ada' }],
+    status: token ? 'completed' : 'draft',
+    rating_token: token
+  };
 }
 
 async function enterKioskPin(page: Page, pin: string, label = 'PIN') {
@@ -75,6 +125,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(
     page.getByRole('heading', { name: 'Complete setup on a phone or computer.' })
   ).toBeVisible();
+  await expect(page.getByTestId('brew-activity-rail')).toHaveCount(0);
   await expect(page.locator(keyboardCapableControls)).toHaveCount(0);
   await page.getByRole('button', { name: 'Check again' }).click();
   await expect(page.getByRole('alert')).toContainText('Setup is not complete yet');
@@ -86,6 +137,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Repeat PIN').fill('1234');
   await page.getByRole('button', { name: 'Create administrator' }).click();
   await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('Start a brew');
 
   const peopleTab = page.getByRole('tab', { name: 'People' });
   await expect(page.getByRole('tab')).toHaveCount(5);
@@ -148,6 +200,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await peopleTab.click();
 
   await page.setViewportSize({ width: 393, height: 851 });
+  await expect(page.getByTestId('start-brew-chip')).toBeVisible();
+  const mobileRailLayout = await page.getByTestId('brew-activity-rail').evaluate((rail) => {
+    const chip = rail.querySelector<HTMLElement>('[data-testid="start-brew-chip"]');
+    const track = rail.firstElementChild as HTMLElement | null;
+    return {
+      chipHeight: chip?.getBoundingClientRect().height ?? 0,
+      chipFits: Boolean(track && track.scrollWidth <= track.clientWidth),
+      pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    };
+  });
+  expect(mobileRailLayout.chipHeight).toBeGreaterThanOrEqual(44);
+  expect(mobileRailLayout.chipFits).toBe(true);
+  expect(mobileRailLayout.pageFits).toBe(true);
   const menuButton = page.getByRole('button', { name: 'Menu' });
   const mainNavigation = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(menuButton).toBeVisible();
@@ -564,7 +629,16 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await setKioskNumber(page, 'Total water', '600');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page.getByText('settings locked on screen')).toBeVisible();
-  await expect(page.getByText('Ethiopia Guji Hambela Buku Abel Extended Lot Name')).toBeVisible();
+  await expect(
+    page.getByRole('heading', {
+      name: 'Ethiopia Guji Hambela Buku Abel Extended Lot Name',
+      exact: true
+    })
+  ).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toContainText(
+    'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+  );
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -629,6 +703,12 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByAltText(/QR code to rate/)).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
+  await expect(page.getByTestId('rating-brew-chip')).toContainText(
+    'Ethiopia Guji Hambela Buku Abel Extended Lot Name'
+  );
+  await expect(page.getByTestId('rating-brew-chip')).toHaveAttribute('href', /\/rate\//);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   await expect
     .poll(() =>
       page.evaluate(
@@ -997,6 +1077,19 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(
     page.getByLabel('Main navigation').getByRole('link', { name: 'Sign in' })
   ).toBeVisible();
+  const signedOutNavTypography = await page.getByLabel('Main navigation').evaluate((navigation) => {
+    const links = [...navigation.querySelectorAll('a')];
+    const coffees = links.find((link) => link.textContent?.trim() === 'Coffees');
+    const signIn = links.find((link) => link.textContent?.trim() === 'Sign in');
+    if (!coffees || !signIn) return null;
+    const coffeeStyle = getComputedStyle(coffees);
+    const signInStyle = getComputedStyle(signIn);
+    return {
+      coffee: [coffeeStyle.fontSize, coffeeStyle.fontWeight, coffeeStyle.padding],
+      signIn: [signInStyle.fontSize, signInStyle.fontWeight, signInStyle.padding]
+    };
+  });
+  expect(signedOutNavTypography?.signIn).toEqual(signedOutNavTypography?.coffee);
 
   const invitationPath = new URL(page.url()).pathname;
   await page.goto('/profiles');
@@ -1507,10 +1600,14 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(cancelDialog).toBeVisible();
   await cancelDialog.getByRole('button', { name: 'Cancel draft' }).click();
   await expect(page.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
 
   await page.goto('/brews/new');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   const collaborativeBrewPath = new URL(page.url()).pathname;
   const bobContext = await browser.newContext({ viewport: { width: 393, height: 851 } });
   const bobPhone = await bobContext.newPage();
@@ -1537,9 +1634,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await bobPhone.goto('/brews/new');
   await bobPhone.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(bobPhone).toHaveURL(/\/brews\/\d+$/);
+  await expect(bobPhone.getByTestId('active-brew-chip')).toHaveCount(2);
+  await expect(bobPhone.getByTestId('start-brew-chip')).toHaveCount(0);
   const secondParallelBrewPath = new URL(bobPhone.url()).pathname;
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '2 of 2 active' })).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(2);
+  await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);
   await expect(page.getByText('Brew capacity reached', { exact: true })).toBeVisible();
   await expect(page.locator('.brew-card .status.draft')).toHaveCount(0);
   await page.goto('/brews/new');
@@ -1554,6 +1655,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeVisible({
     timeout: 8_000
   });
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
 
   await bobPhone.goto(collaborativeBrewPath);
   await expect(bobPhone.getByRole('button', { name: 'Finish brew' })).toBeVisible();
@@ -1566,7 +1669,23 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(bobPhone.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible({
     timeout: 8_000
   });
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   await bobContext.close();
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Repeat' }).first().click();
+  await expect(page).toHaveURL(/\/brews\/\d+$/);
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
+  await page.getByRole('button', { name: 'Cancel brew' }).click();
+  await page
+    .getByRole('dialog', { name: 'Cancel this draft?' })
+    .getByRole('button', { name: 'Cancel draft' })
+    .click();
+  await expect(page.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
 
   await page.goto('/login?mode=kiosk');
   await expect(page.locator('input[aria-label="PIN"]')).toHaveCount(0);
@@ -1574,4 +1693,162 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('fcc-device-mode')))
     .toBe('kiosk');
+});
+
+test('the brew rail keeps parallel activity side-by-side at every breakpoint', async ({ page }) => {
+  let status: ActiveBrews = {
+    brews: [],
+    recent_rating_brews: [],
+    active_count: 0,
+    max_active_brews: 2,
+    can_start: true
+  };
+  let activityUnavailable = false;
+
+  await page.route('**/api/v1/brews/active', async (route) => {
+    if (activityUnavailable) {
+      await fulfillJson(route, { detail: 'Temporarily unavailable' }, 503);
+      return;
+    }
+    await fulfillJson(route, status);
+  });
+  await mockSignedOutHome(page);
+  await page.goto('/?kiosk=0');
+  await expect(page.getByTestId('start-brew-chip')).toHaveAttribute(
+    'href',
+    '/login?next=%2Fbrews%2Fnew'
+  );
+
+  status = {
+    brews: [railBrew(101, 'Parallel One')],
+    recent_rating_brews: [railBrew(99, 'Freshly Finished', 'fresh-token')],
+    active_count: 1,
+    max_active_brews: 2,
+    can_start: true
+  };
+  await page.reload();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
+  await expect(page.getByTestId('rating-brew-chip')).toHaveAttribute('href', '/rate/fresh-token');
+  await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
+
+  activityUnavailable = true;
+  await page.waitForResponse(
+    (response) => response.url().endsWith('/api/v1/brews/active') && response.status() === 503
+  );
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
+  await expect(page.getByTestId('rating-brew-chip')).toHaveCount(1);
+  activityUnavailable = false;
+
+  status = {
+    brews: [railBrew(101, 'Parallel One'), railBrew(102, 'Parallel Two')],
+    recent_rating_brews: [
+      railBrew(100, 'Newest Rating Prompt', 'new-token'),
+      railBrew(99, 'Older Rating Prompt', 'older-token')
+    ],
+    active_count: 2,
+    max_active_brews: 2,
+    can_start: false
+  };
+  await page.reload();
+  await expect(page.getByTestId('active-brew-chip')).toHaveCount(2);
+  await expect(page.getByTestId('rating-brew-chip')).toHaveCount(2);
+  await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 768, height: 1024 },
+    { width: 393, height: 851 }
+  ]) {
+    await page.setViewportSize(viewport);
+    const layout = await page.getByTestId('brew-activity-rail').evaluate((rail) => {
+      const track = rail.firstElementChild as HTMLElement;
+      const chips = [...track.querySelectorAll<HTMLElement>('.brew-activity-chip')];
+      const tops = new Set(chips.map((chip) => Math.round(chip.getBoundingClientRect().top)));
+      return {
+        chipCount: chips.length,
+        oneRow: tops.size === 1,
+        minimumTouchTarget: Math.min(...chips.map((chip) => chip.getBoundingClientRect().height)),
+        scrolls: track.scrollWidth > track.clientWidth,
+        pageScrollWidth: document.documentElement.scrollWidth,
+        pageClientWidth: document.documentElement.clientWidth
+      };
+    });
+    expect(layout.chipCount).toBe(4);
+    expect(layout.oneRow).toBe(true);
+    expect(layout.minimumTouchTarget).toBeGreaterThanOrEqual(44);
+    expect(layout.scrolls).toBe(viewport.width <= 768);
+    expect(layout.pageScrollWidth).toBeLessThanOrEqual(layout.pageClientWidth);
+
+    const menu = page.getByRole('button', { name: 'Menu' });
+    if (viewport.width <= 820) {
+      await expect(menu).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeHidden();
+    } else {
+      await expect(menu).toBeHidden();
+      await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    }
+  }
+});
+
+test('the home brew log survives a temporary activity failure', async ({ page }) => {
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, { detail: 'Temporarily unavailable' }, 503)
+  );
+  await mockSignedOutHome(page);
+  await page.goto('/?kiosk=0');
+
+  await expect(page.getByText('No brews yet. The first measurement is waiting.')).toBeVisible();
+  await expect(page.locator('.section .error')).toHaveCount(0);
+  await expect(page.getByTestId('brew-activity-rail')).toHaveCount(0);
+});
+
+test('the rail waits for bootstrap and omits start during a mandatory PIN change', async ({
+  page
+}) => {
+  let bootstrapFails = true;
+  let activityRequests = 0;
+  const requiredPinSession: Session = {
+    profile: {
+      id: 1,
+      display_name: 'Ada',
+      role: 'admin',
+      active: true,
+      pin_change_required: true
+    },
+    csrf_token: 'pin-change-test-token',
+    device_mode: 'personal',
+    expires_at: '2030-01-01T00:00:00Z'
+  };
+  const activity: ActiveBrews = {
+    brews: [railBrew(101, 'Bootstrap Brew')],
+    recent_rating_brews: [],
+    active_count: 1,
+    max_active_brews: 2,
+    can_start: true
+  };
+
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
+  await page.route('**/api/v1/auth/bootstrap-status', (route) =>
+    bootstrapFails
+      ? fulfillJson(route, { detail: 'Temporarily unavailable' }, 503)
+      : fulfillJson(route, { required: false })
+  );
+  await page.route('**/api/v1/auth/me', (route) => fulfillJson(route, requiredPinSession));
+  await page.route('**/api/v1/brews?*', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/brews/active', (route) => {
+    activityRequests += 1;
+    return fulfillJson(route, activity);
+  });
+
+  await page.goto('/?kiosk=0');
+  await expect(page.getByText('No brews yet. The first measurement is waiting.')).toBeVisible();
+  await expect(page.getByTestId('brew-activity-rail')).toHaveCount(0);
+  expect(activityRequests).toBe(0);
+
+  bootstrapFails = false;
+  await page.goto('/account/pin?kiosk=0');
+  await expect(page.getByRole('heading', { name: 'Choose your own PIN.' })).toBeVisible();
+  await expect(page.getByTestId('active-brew-chip')).toContainText('Bootstrap Brew');
+  await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);
 });

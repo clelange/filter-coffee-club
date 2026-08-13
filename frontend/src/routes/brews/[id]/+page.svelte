@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
@@ -132,6 +133,7 @@
         })
       });
       finishing = false;
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
       await wakeLock?.release();
       const session = await ensureSession();
       if (session?.device_mode === 'kiosk') await logout();
@@ -243,6 +245,7 @@
         body: jsonBody({ revision: brew.revision })
       });
       statusAction = null;
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
       await wakeLock?.release();
       if (action === 'cancel') {
         const session = await ensureSession();

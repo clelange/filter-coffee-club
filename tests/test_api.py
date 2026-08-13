@@ -664,10 +664,11 @@ def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path)
 
         drafts = client.get("/api/v1/brews/active").json()["brews"]
         for index, brew in enumerate(drafts):
+            brew_detail = client.get(f"/api/v1/brews/{brew['id']}").json()
             cancelled = client.post(
                 f"/api/v1/brews/{brew['id']}/cancel",
                 headers=headers,
-                json={"revision": brew["revision"]},
+                json={"revision": brew_detail["revision"]},
             )
             assert cancelled.status_code == 200
             state = client.get("/api/v1/brews/active").json()
@@ -681,6 +682,108 @@ def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path)
         assert replacement.status_code == 200
         with client.app.state.session_factory() as db:
             assert db.get(AppSettings, 1).active_brew_count == 1
+
+
+def test_active_brews_include_recent_rating_prompts_for_thirty_minutes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(api_module, "utcnow", lambda: now)
+
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Prompt", "name": "Window Lot"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        brew_input = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+
+        def start_brew() -> dict:
+            response = client.post("/api/v1/brews", headers=headers, json=brew_input)
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        def finalize_brew(brew: dict) -> dict:
+            response = client.post(
+                f"/api/v1/brews/{brew['id']}/finalize",
+                headers=headers,
+                json={"total_brew_time_s": 180, "revision": brew["revision"]},
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        active_oldest = start_brew()
+        boundary = finalize_brew(start_brew())
+        older = finalize_brew(start_brew())
+        voided = finalize_brew(start_brew())
+        assert (
+            client.post(
+                f"/api/v1/brews/{voided['id']}/void",
+                headers=headers,
+                json={"revision": voided["revision"]},
+            ).status_code
+            == 200
+        )
+        cancelled = start_brew()
+        assert (
+            client.post(
+                f"/api/v1/brews/{cancelled['id']}/cancel",
+                headers=headers,
+                json={"revision": cancelled["revision"]},
+            ).status_code
+            == 200
+        )
+        recent_newer = finalize_brew(start_brew())
+        active_newest = start_brew()
+
+        with client.app.state.session_factory() as db:
+            boundary_row = db.get(Brew, boundary["id"])
+            older_row = db.get(Brew, older["id"])
+            recent_newer_row = db.get(Brew, recent_newer["id"])
+            assert boundary_row is not None
+            assert older_row is not None
+            assert recent_newer_row is not None
+            boundary_row.completed_at = now - timedelta(minutes=30)
+            older_row.completed_at = now - timedelta(minutes=30, seconds=1)
+            recent_newer_row.completed_at = now - timedelta(minutes=5)
+            db.commit()
+
+        state = client.get("/api/v1/brews/active").json()
+        assert [item["id"] for item in state["brews"]] == [
+            active_oldest["id"],
+            active_newest["id"],
+        ]
+        assert [item["id"] for item in state["recent_rating_brews"]] == [
+            recent_newer["id"],
+            boundary["id"],
+        ]
+        activity_item_fields = {
+            "id",
+            "coffee_name",
+            "coffee_roaster",
+            "operators",
+            "status",
+            "rating_token",
+        }
+        assert all(set(item) == activity_item_fields for item in state["brews"])
+        assert all(set(item) == activity_item_fields for item in state["recent_rating_brews"])
+        assert all(item["rating_token"] for item in state["recent_rating_brews"])
+        assert state["active_count"] == 2
+        assert state["max_active_brews"] == 2
+        assert state["can_start"] is False
+
+        old_link = client.get(f"/api/v1/rating-links/{older['rating_token']}").json()
+        assert old_link["active"] is True
+        assert old_link["brew"]["id"] == older["id"]
 
 
 def test_startup_reconciles_the_active_brew_counter(tmp_path: Path) -> None:

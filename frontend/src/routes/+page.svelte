@@ -1,51 +1,31 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onMount } from 'svelte';
+  import { brewStatusStore, refreshBrewStatusAfterMutation } from '$lib/brew-status';
   import { loginPath } from '$lib/device';
   import { api, formatTime, jsonBody, sessionStore } from '$lib/api';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingComparison from '$lib/RatingComparison.svelte';
-  import type { ActiveBrews, Brew, RatingComparison as RatingComparisonData } from '$lib/types';
+  import type {
+    Brew,
+    BrewActivityItem,
+    RatingComparison as RatingComparisonData
+  } from '$lib/types';
 
   let brews: Brew[] = $state([]);
   let comparisons: RatingComparisonData[] = $state([]);
-  let active: ActiveBrews | null = $state(null);
   let loading = $state(true);
   let error = $state('');
   let comparisonError = $state('');
   let joiningBrewId = $state<number | null>(null);
-  let activeTimer: ReturnType<typeof setTimeout> | null = null;
-  let destroyed = false;
+  const active = $derived($brewStatusStore);
 
   onMount(() => {
     void load();
-    scheduleActiveRefresh();
   });
-
-  onDestroy(() => {
-    destroyed = true;
-    if (activeTimer) clearTimeout(activeTimer);
-  });
-
-  function scheduleActiveRefresh() {
-    if (destroyed || activeTimer) return;
-    activeTimer = setTimeout(async () => {
-      activeTimer = null;
-      try {
-        active = await api<ActiveBrews>('/brews/active');
-      } catch {
-        // The initial load and user actions surface errors; background refresh is best effort.
-      } finally {
-        scheduleActiveRefresh();
-      }
-    }, 3000);
-  }
 
   async function load() {
     try {
-      [brews, active] = await Promise.all([
-        api<Brew[]>('/brews?exclude_status=draft&limit=12'),
-        api<ActiveBrews>('/brews/active')
-      ]);
+      brews = await api<Brew[]>('/brews?exclude_status=draft&limit=12');
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load brews.';
       return;
@@ -77,18 +57,20 @@
         method: 'POST',
         body: jsonBody({})
       });
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
       location.href = `/brews/${clone.id}`;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not start another brew.';
-      active = await api<ActiveBrews>('/brews/active');
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
     }
   }
 
-  async function join(brew: Brew) {
+  async function join(brew: BrewActivityItem) {
     if (joiningBrewId !== null) return;
     joiningBrewId = brew.id;
     try {
       await api<Brew>(`/brews/${brew.id}/join`, { method: 'POST', body: jsonBody({}) });
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
       location.href = `/brews/${brew.id}`;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not join this brew.';
@@ -97,7 +79,7 @@
     }
   }
 
-  function participates(brew: Brew): boolean {
+  function participates(brew: BrewActivityItem): boolean {
     return Boolean(
       $sessionStore && brew.operators.some((operator) => operator.id === $sessionStore?.profile.id)
     );
@@ -252,8 +234,9 @@
   }
   .orbit-art {
     position: relative;
-    min-height: 390px;
     display: grid;
+    min-height: 390px;
+    overflow: hidden;
     place-items: center;
   }
   .ring {

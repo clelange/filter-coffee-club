@@ -969,7 +969,9 @@ export interface components {
         /** ActiveBrewsResponse */
         ActiveBrewsResponse: {
             /** Brews */
-            brews: components["schemas"]["BrewResponse"][];
+            brews: components["schemas"]["BrewActivityItem"][];
+            /** Recent Rating Brews */
+            recent_rating_brews: components["schemas"]["BrewActivityItem"][];
             /** Active Count */
             active_count: number;
             /** Max Active Brews */
@@ -1211,6 +1213,21 @@ export interface components {
              * @enum {string}
              */
             device_mode: "kiosk" | "personal";
+        };
+        /** BrewActivityItem */
+        BrewActivityItem: {
+            /** Id */
+            id: number;
+            /** Coffee Name */
+            coffee_name: string;
+            /** Coffee Roaster */
+            coffee_roaster: string;
+            /** Operators */
+            operators: components["schemas"]["ProfileIdentity"][];
+            /** Status */
+            status: string;
+            /** Rating Token */
+            rating_token?: string | null;
         };
         /** BrewCorrection */
         BrewCorrection: {

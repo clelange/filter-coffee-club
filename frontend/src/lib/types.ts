@@ -201,8 +201,18 @@ export interface Brew extends BrewInput {
   rating_token: string | null;
 }
 
+export interface BrewActivityItem {
+  id: number;
+  coffee_name: string;
+  coffee_roaster: string;
+  operators: ProfileIdentity[];
+  status: Brew['status'];
+  rating_token: string | null;
+}
+
 export interface ActiveBrews {
-  brews: Brew[];
+  brews: BrewActivityItem[];
+  recent_rating_brews: BrewActivityItem[];
   active_count: number;
   max_active_brews: number;
   can_start: boolean;

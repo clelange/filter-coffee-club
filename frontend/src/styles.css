@@ -77,14 +77,19 @@ textarea:focus-visible {
   position: sticky;
   z-index: 20;
   top: 0;
+  min-width: 0;
+  width: 100%;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--cream) 90%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.header-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 78px;
   padding: 8px clamp(16px, 4vw, 56px);
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--cream) 90%, transparent);
-  backdrop-filter: blur(14px);
 }
 
 .brand {
@@ -111,14 +116,14 @@ textarea:focus-visible {
   font-size: 0.72rem;
 }
 
-.site-header nav {
+.main-navigation {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
 }
 
-.site-header nav a,
+.main-navigation a,
 .nav-action {
   display: inline-flex;
   align-items: center;
@@ -135,8 +140,8 @@ textarea:focus-visible {
   text-decoration: none;
 }
 
-.site-header nav a:hover,
-.site-header nav a.active,
+.main-navigation a:hover,
+.main-navigation a.active,
 .nav-action:hover {
   background: color-mix(in srgb, var(--coffee) 9%, transparent);
 }
@@ -500,7 +505,7 @@ details > :not(summary) {
 }
 
 @media (min-width: 821px) and (max-width: 1100px) {
-  .site-header {
+  .header-main {
     gap: 12px;
     padding-inline: 20px;
   }
@@ -513,7 +518,7 @@ details > :not(summary) {
   .brand small {
     display: none;
   }
-  .site-header nav a,
+  .main-navigation a,
   .nav-action {
     padding: 10px 9px;
     font-size: 0.84rem;
@@ -524,6 +529,8 @@ details > :not(summary) {
 @media (max-width: 820px) {
   .site-header {
     position: static;
+  }
+  .header-main {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -535,7 +542,7 @@ details > :not(summary) {
   .nav-toggle {
     display: inline-flex;
   }
-  .site-header nav {
+  .main-navigation {
     display: none;
     grid-column: 1 / -1;
     grid-template-columns: 1fr;
@@ -546,10 +553,10 @@ details > :not(summary) {
     background: var(--surface);
     box-shadow: var(--shadow);
   }
-  .site-header nav.open {
+  .main-navigation.open {
     display: grid;
   }
-  .site-header nav a,
+  .main-navigation a,
   .nav-action {
     display: flex;
     align-items: center;
@@ -574,10 +581,10 @@ details > :not(summary) {
 }
 
 @media (max-width: 600px) {
-  .site-header {
+  .header-main {
     padding: 8px 12px 10px;
   }
-  .site-header nav a,
+  .main-navigation a,
   .nav-action {
     padding: 10px 12px;
     font-size: 0.82rem;

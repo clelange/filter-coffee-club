@@ -8,6 +8,7 @@ import logging
 import secrets
 import zipfile
 from collections import Counter, defaultdict
+from datetime import timedelta
 from pathlib import Path
 from statistics import mean
 
@@ -68,6 +69,7 @@ from .schemas import (
     AppSettingsResponse,
     AppSettingsUpdate,
     BootstrapInput,
+    BrewActivityItem,
     BrewCorrection,
     BrewFinalize,
     BrewInput,
@@ -132,6 +134,8 @@ from .security import (
     verify_pin,
     verify_profile_pin,
 )
+
+RECENT_RATING_PROMPT_WINDOW = timedelta(minutes=30)
 
 router = APIRouter(prefix="/api/v1")
 RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
@@ -330,6 +334,26 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
             else None
         ),
         filter_name=brew.brew_filter.name if brew.brew_filter else None,
+        rating_token=brew.rating_token if include_token else None,
+    )
+
+
+def brew_activity_payload(brew: Brew, include_token: bool = False) -> BrewActivityItem:
+    return BrewActivityItem(
+        id=brew.id,
+        coffee_name=brew.coffee.name,
+        coffee_roaster=brew.coffee.roaster,
+        operators=[
+            ProfileIdentity.model_validate(operator)
+            for operator in sorted(
+                brew.operators,
+                key=lambda operator: (
+                    operator.id != brew.operator_id,
+                    operator.display_name.casefold(),
+                ),
+            )
+        ],
+        status=brew.status,
         rating_token=brew.rating_token if include_token else None,
     )
 
@@ -1751,19 +1775,33 @@ def active_brews(db: Session = Depends(session_dependency)) -> ActiveBrewsRespon
             select(Brew)
             .options(
                 selectinload(Brew.coffee),
-                selectinload(Brew.operator),
                 selectinload(Brew.operators),
-                selectinload(Brew.grinder),
-                selectinload(Brew.dripper),
-                selectinload(Brew.brew_filter),
             )
             .where(Brew.status == "draft")
             .order_by(Brew.created_at)
         )
     )
+    recent_rating_brews = list(
+        db.scalars(
+            select(Brew)
+            .options(
+                selectinload(Brew.coffee),
+                selectinload(Brew.operators),
+            )
+            .where(
+                Brew.status == "completed",
+                Brew.rating_token.is_not(None),
+                Brew.completed_at >= utcnow() - RECENT_RATING_PROMPT_WINDOW,
+            )
+            .order_by(Brew.completed_at.desc(), Brew.id.desc())
+        )
+    )
     active_count = len(brews)
     return ActiveBrewsResponse(
-        brews=[brew_payload(brew) for brew in brews],
+        brews=[brew_activity_payload(brew) for brew in brews],
+        recent_rating_brews=[
+            brew_activity_payload(brew, include_token=True) for brew in recent_rating_brews
+        ],
         active_count=active_count,
         max_active_brews=settings.max_active_brews,
         can_start=active_count < settings.max_active_brews,
