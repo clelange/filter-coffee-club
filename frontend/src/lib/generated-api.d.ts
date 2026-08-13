@@ -3761,6 +3761,7 @@ export interface operations {
             query?: {
                 coffee_id?: number | null;
                 status?: string | null;
+                exclude_status?: string | null;
                 limit?: number;
             };
             header?: never;

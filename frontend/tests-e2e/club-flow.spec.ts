@@ -1541,6 +1541,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '2 of 2 active' })).toBeVisible();
   await expect(page.getByText('Brew capacity reached', { exact: true })).toBeVisible();
+  await expect(page.locator('.brew-card .status.draft')).toHaveCount(0);
   await page.goto('/brews/new');
   await expect(page.getByRole('heading', { name: '2 of 2 brews are active.' })).toBeVisible();
 

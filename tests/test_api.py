@@ -642,6 +642,7 @@ def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path)
         assert active["active_count"] == 2
         assert active["max_active_brews"] == 2
         assert active["can_start"] is False
+        assert client.get("/api/v1/brews?exclude_status=draft").json() == []
 
         settings = client.get("/api/v1/settings").json()
         raised = client.put(
@@ -671,6 +672,10 @@ def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path)
             assert cancelled.status_code == 200
             state = client.get("/api/v1/brews/active").json()
             assert state["can_start"] is (index == len(drafts) - 1)
+
+        past_brews = client.get("/api/v1/brews?exclude_status=draft").json()
+        assert len(past_brews) == 3
+        assert {brew["status"] for brew in past_brews} == {"cancelled"}
 
         replacement = client.post("/api/v1/brews", headers=headers, json=brew_input)
         assert replacement.status_code == 200

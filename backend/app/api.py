@@ -1774,6 +1774,7 @@ def active_brews(db: Session = Depends(session_dependency)) -> ActiveBrewsRespon
 def list_brews(
     coffee_id: int | None = None,
     status: str | None = None,
+    exclude_status: str | None = None,
     limit: int = 100,
     db: Session = Depends(session_dependency),
 ) -> list[BrewResponse]:
@@ -1794,6 +1795,8 @@ def list_brews(
         query = query.where(Brew.coffee_id == coffee_id)
     if status:
         query = query.where(Brew.status == status)
+    if exclude_status:
+        query = query.where(Brew.status != exclude_status)
     return [brew_payload(item, include_token=False) for item in db.scalars(query)]
 
 

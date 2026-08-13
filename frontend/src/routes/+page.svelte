@@ -43,7 +43,7 @@
   async function load() {
     try {
       [brews, active] = await Promise.all([
-        api<Brew[]>('/brews?limit=12'),
+        api<Brew[]>('/brews?exclude_status=draft&limit=12'),
         api<ActiveBrews>('/brews/active')
       ]);
     } catch (caught) {
