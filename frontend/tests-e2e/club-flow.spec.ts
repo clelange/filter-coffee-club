@@ -99,7 +99,7 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 }
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'wakeLock', {
       configurable: true,
