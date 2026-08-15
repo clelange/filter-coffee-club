@@ -99,7 +99,7 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 }
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
-  test.setTimeout(process.env.CI ? 300_000 : 120_000);
+  test.setTimeout(120_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'wakeLock', {
       configurable: true,
@@ -1593,7 +1593,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Profile').selectOption({ label: 'Ada' });
   await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.goto('/brews/new');
+  await expect(page).toHaveURL(/\/brews\/new$/);
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await page.getByRole('button', { name: 'Cancel brew' }).click();
   const cancelDialog = page.getByRole('dialog', { name: 'Cancel this draft?' });
@@ -1606,6 +1606,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.goto('/brews/new');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Ada', exact: true })
+  ).toBeVisible();
   await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
   await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   const collaborativeBrewPath = new URL(page.url()).pathname;
