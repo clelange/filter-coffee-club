@@ -99,7 +99,7 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 }
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(process.env.CI ? 300_000 : 120_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'wakeLock', {
       configurable: true,
@@ -1614,8 +1614,22 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await bobPhone.goto(`/login?kiosk=0&next=${encodeURIComponent(collaborativeBrewPath)}`);
   await bobPhone.getByLabel('Profile').selectOption({ label: 'Bob' });
   await bobPhone.getByLabel('PIN').fill('1357');
+  const bobLogin = bobPhone.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/auth/login') &&
+      response.request().method() === 'POST' &&
+      response.ok()
+  );
+  const bobBrewLoad = bobPhone.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1${collaborativeBrewPath}`) &&
+      response.request().method() === 'GET' &&
+      response.ok()
+  );
   await bobPhone.getByRole('button', { name: 'Sign in' }).click();
+  await Promise.all([bobLogin, bobBrewLoad]);
   await expect(bobPhone).toHaveURL(new RegExp(`${collaborativeBrewPath}$`));
+  await expect(bobPhone.getByRole('button', { name: 'Join brew' })).toBeVisible();
   await bobPhone.getByRole('button', { name: 'Join brew' }).click();
   await expect(bobPhone.getByRole('button', { name: 'Finish brew' })).toBeVisible();
   await bobPhone.getByRole('link', { name: 'Edit recipe' }).click();
