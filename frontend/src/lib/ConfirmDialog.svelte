@@ -3,6 +3,7 @@
   export let title: string;
   export let description: string;
   export let confirmLabel = 'Confirm';
+  export let cancelLabel = 'Cancel';
   export let busy = false;
   export let onconfirm: () => void | Promise<void>;
   export let oncancel: () => void;
@@ -29,7 +30,9 @@
         <button class="danger" disabled={busy} onclick={onconfirm}
           >{busy ? 'Working…' : confirmLabel}</button
         >
-        <button class="secondary" type="button" disabled={busy} onclick={oncancel}>Cancel</button>
+        <button class="secondary" type="button" disabled={busy} onclick={oncancel}
+          >{cancelLabel}</button
+        >
       </div>
     </div>
   </div>

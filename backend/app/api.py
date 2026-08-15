@@ -29,7 +29,13 @@ from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
-from .calculations import brew_ratio, overall_throughput
+from .calculations import (
+    NORMAL_BREW_RATIO_MAX,
+    NORMAL_BREW_RATIO_MIN,
+    brew_ratio,
+    brew_ratio_is_unusual,
+    overall_throughput,
+)
 from .catalog_photos import (
     remove_catalog_photo,
     save_catalog_photo,
@@ -214,6 +220,44 @@ def replay_idempotent_brew_creation(
 
 
 auth_logger = logging.getLogger("fcc.auth")
+brew_logger = logging.getLogger("fcc.brew")
+
+
+def validate_brew_ratio(
+    water_g: float,
+    dose_g: float,
+    *,
+    action: str,
+    confirmed: bool,
+    brew_id: int | None = None,
+) -> None:
+    ratio = brew_ratio(water_g, dose_g)
+    if not brew_ratio_is_unusual(water_g, dose_g):
+        return
+    event = "unusual_brew_ratio_confirmed" if confirmed else "unusual_brew_ratio_blocked"
+    brew_logger.warning(
+        event,
+        extra={
+            "fields": {
+                "action": action,
+                "brew_id": brew_id,
+                "dose_g": dose_g,
+                "water_g": water_g,
+                "ratio": ratio,
+            }
+        },
+    )
+    if confirmed:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"Brew ratio 1:{ratio:g} is outside the normal "
+            f"1:{NORMAL_BREW_RATIO_MIN:g}–1:{NORMAL_BREW_RATIO_MAX:g} range. "
+            "Check that coffee dose and water are total batch amounts, or retry with "
+            "X-Confirm-Unusual-Ratio: true."
+        ),
+    )
 
 
 def session_payload(login_session: LoginSession) -> SessionResponse:
@@ -1730,6 +1774,7 @@ def create_brew(
         max_length=64,
         pattern=r"^[A-Za-z0-9._:-]+$",
     ),
+    confirm_unusual_ratio: bool = Header(default=False, alias="X-Confirm-Unusual-Ratio"),
 ) -> BrewResponse:
     request_fingerprint = brew_creation_fingerprint(payload, login_session.profile_id)
     if idempotency_key is not None:
@@ -1738,6 +1783,12 @@ def create_brew(
             return replay_idempotent_brew_creation(db, existing, request_fingerprint)
     enforce_demo_capacity(request, db, Brew)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
+    validate_brew_ratio(
+        payload.water_g,
+        payload.dose_g,
+        action="create",
+        confirmed=confirm_unusual_ratio,
+    )
     try:
         reserve_active_brew_capacity(db)
     except HTTPException:
@@ -1862,6 +1913,7 @@ def update_brew(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    confirm_unusual_ratio: bool = Header(default=False, alias="X-Confirm-Unusual-Ratio"),
 ) -> BrewResponse:
     enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
@@ -1873,6 +1925,13 @@ def update_brew(
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may edit this draft")
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
+    validate_brew_ratio(
+        payload.water_g,
+        payload.dose_g,
+        action="update",
+        confirmed=confirm_unusual_ratio,
+        brew_id=brew.id,
+    )
     return commit_guarded_brew_update(
         db,
         brew.id,
@@ -1971,6 +2030,7 @@ def correct_completed_brew(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    confirm_unusual_ratio: bool = Header(default=False, alias="X-Confirm-Unusual-Ratio"),
 ) -> BrewResponse:
     enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
@@ -1982,6 +2042,13 @@ def correct_completed_brew(
             detail="Only the operator or an administrator may correct this brew",
         )
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
+    validate_brew_ratio(
+        payload.water_g,
+        payload.dose_g,
+        action="correct",
+        confirmed=confirm_unusual_ratio,
+        brew_id=brew.id,
+    )
     values: dict[str, object] = payload.model_dump(exclude={"operator_id"})
     if payload.operator_id is not None:
         operator = load_active_operator(db, payload.operator_id)
@@ -2018,6 +2085,7 @@ def finalize_brew(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    confirm_unusual_ratio: bool = Header(default=False, alias="X-Confirm-Unusual-Ratio"),
 ) -> BrewResponse:
     enforce_demo_seed_protection(request, Brew, brew_id)
     brew = load_brew(db, brew_id)
@@ -2028,6 +2096,13 @@ def finalize_brew(
         and login_session.profile.role != "admin"
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may finalize this brew")
+    validate_brew_ratio(
+        payload.water_g if payload.water_g is not None else brew.water_g,
+        brew.dose_g,
+        action="finalize",
+        confirmed=confirm_unusual_ratio,
+        brew_id=brew.id,
+    )
     values: dict[str, object] = {
         "total_brew_time_s": payload.total_brew_time_s,
         "status": "completed",
