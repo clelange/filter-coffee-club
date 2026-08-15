@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy, tick } from 'svelte';
+
   export let open = false;
   export let title: string;
   export let description: string;
@@ -7,13 +9,69 @@
   export let busy = false;
   export let onconfirm: () => void | Promise<void>;
   export let oncancel: () => void;
+
+  let dialog: HTMLElement;
+  let cancelButton: HTMLButtonElement;
+  let previouslyFocused: HTMLElement | null = null;
+  let active = false;
+
+  $: if (open && !active) {
+    active = true;
+    void activate();
+  } else if (!open && active) {
+    active = false;
+    void restoreFocus();
+  }
+
+  onDestroy(() => previouslyFocused?.focus());
+
+  async function activate() {
+    if (typeof document === 'undefined') return;
+    previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    await tick();
+    cancelButton?.focus();
+  }
+
+  async function restoreFocus() {
+    await tick();
+    previouslyFocused?.focus();
+    previouslyFocused = null;
+  }
+
+  function cancel() {
+    if (!busy) oncancel();
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (!open) return;
+    if (event.key === 'Escape' && !busy) {
+      event.preventDefault();
+      cancel();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialog) return;
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled)')];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 {#if open}
   <div
     class="dialog-backdrop"
     role="presentation"
-    onclick={(event) => event.currentTarget === event.target && !busy && oncancel()}
+    onclick={(event) => event.currentTarget === event.target && cancel()}
   >
     <div
       class="dialog"
@@ -21,17 +79,23 @@
       aria-modal="true"
       aria-labelledby="confirm-title"
       aria-describedby="confirm-description"
+      tabindex="-1"
+      bind:this={dialog}
     >
       <div>
         <h2 id="confirm-title">{title}</h2>
         <p id="confirm-description">{description}</p>
       </div>
       <div class="actions">
-        <button class="danger" disabled={busy} onclick={onconfirm}
+        <button class="danger" type="button" disabled={busy} onclick={onconfirm}
           >{busy ? 'Working…' : confirmLabel}</button
         >
-        <button class="secondary" type="button" disabled={busy} onclick={oncancel}
-          >{cancelLabel}</button
+        <button
+          class="secondary"
+          type="button"
+          disabled={busy}
+          bind:this={cancelButton}
+          onclick={cancel}>{cancelLabel}</button
         >
       </div>
     </div>

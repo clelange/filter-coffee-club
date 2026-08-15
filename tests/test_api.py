@@ -556,6 +556,15 @@ def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation
         ).json()
         assert updated["water_g"] == 650
 
+        confirmed_log_count = caplog.messages.count("unusual_brew_ratio_confirmed")
+        stale_confirmed_update = client.put(
+            f"/api/v1/brews/{created['id']}",
+            headers={**headers, "X-Confirm-Unusual-Ratio": "true"},
+            json={**update_payload, "revision": created["revision"]},
+        )
+        assert stale_confirmed_update.status_code == 409
+        assert caplog.messages.count("unusual_brew_ratio_confirmed") == confirmed_log_count
+
         finalize_payload = {
             "water_g": 655,
             "total_brew_time_s": 180,
@@ -599,8 +608,22 @@ def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation
         assert corrected["water_g"] == 660
         assert corrected["ratio"] == 82.5
         assert corrected["total_brew_time_s"] == 181
+        brew_log_records = [record for record in caplog.records if record.name == "fcc.brew"]
+        confirmed_records = [
+            record
+            for record in brew_log_records
+            if record.message == "unusual_brew_ratio_confirmed"
+        ]
+        assert [getattr(record, "fields")["action"] for record in confirmed_records] == [
+            "create",
+            "update",
+            "finalize",
+            "correct",
+        ]
+        assert all(
+            getattr(record, "fields")["brew_id"] == created["id"] for record in confirmed_records
+        )
         assert "unusual_brew_ratio_blocked" in caplog.messages
-        assert "unusual_brew_ratio_confirmed" in caplog.messages
 
 
 @pytest.mark.parametrize(("dose_g", "water_g"), [(10, 100), (10, 250)])
@@ -628,6 +651,34 @@ def test_normal_brew_ratio_boundaries_do_not_require_confirmation(
             },
         )
         assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(("dose_g", "water_g"), [(500, 4999), (10, 250.01)])
+def test_ratios_just_outside_boundaries_require_confirmation(
+    tmp_path: Path, dose_g: float, water_g: float
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Boundary", "name": f"Outside {water_g / dose_g:g}"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        response = client.post(
+            "/api/v1/brews",
+            headers=headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": dose_g,
+                "water_g": water_g,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+            },
+        )
+        assert response.status_code == 422
+        assert f"1:{water_g / dose_g:g}" in response.json()["detail"]
 
 
 def test_concurrent_brew_creation_with_same_key_uses_one_capacity_slot(

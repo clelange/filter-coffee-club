@@ -11,7 +11,9 @@ def brew_ratio(water_g: float, dose_g: float) -> float:
 
 
 def brew_ratio_is_unusual(water_g: float, dose_g: float) -> bool:
-    ratio = brew_ratio(water_g, dose_g)
+    if dose_g <= 0:
+        raise ValueError("Dose must be positive")
+    ratio = water_g / dose_g
     return not NORMAL_BREW_RATIO_MIN <= ratio <= NORMAL_BREW_RATIO_MAX
 
 

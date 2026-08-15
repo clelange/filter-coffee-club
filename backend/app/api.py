@@ -223,18 +223,15 @@ auth_logger = logging.getLogger("fcc.auth")
 brew_logger = logging.getLogger("fcc.brew")
 
 
-def validate_brew_ratio(
-    water_g: float,
-    dose_g: float,
+def log_unusual_brew_ratio(
+    event: str,
     *,
     action: str,
-    confirmed: bool,
-    brew_id: int | None = None,
+    brew_id: int | None,
+    dose_g: float,
+    water_g: float,
+    ratio: float,
 ) -> None:
-    ratio = brew_ratio(water_g, dose_g)
-    if not brew_ratio_is_unusual(water_g, dose_g):
-        return
-    event = "unusual_brew_ratio_confirmed" if confirmed else "unusual_brew_ratio_blocked"
     brew_logger.warning(
         event,
         extra={
@@ -247,8 +244,32 @@ def validate_brew_ratio(
             }
         },
     )
+
+
+def validate_brew_ratio(
+    water_g: float,
+    dose_g: float,
+    *,
+    action: str,
+    confirmed: bool,
+    brew_id: int | None = None,
+) -> float | None:
+    ratio = brew_ratio(water_g, dose_g)
+    if not brew_ratio_is_unusual(water_g, dose_g):
+        return None
+    raw_ratio = water_g / dose_g
+    if NORMAL_BREW_RATIO_MIN <= ratio <= NORMAL_BREW_RATIO_MAX:
+        ratio = round(raw_ratio, 5)
     if confirmed:
-        return
+        return ratio
+    log_unusual_brew_ratio(
+        "unusual_brew_ratio_blocked",
+        action=action,
+        brew_id=brew_id,
+        dose_g=dose_g,
+        water_g=water_g,
+        ratio=ratio,
+    )
     raise HTTPException(
         status_code=422,
         detail=(
@@ -1783,7 +1804,7 @@ def create_brew(
             return replay_idempotent_brew_creation(db, existing, request_fingerprint)
     enforce_demo_capacity(request, db, Brew)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    validate_brew_ratio(
+    confirmed_ratio = validate_brew_ratio(
         payload.water_g,
         payload.dose_g,
         action="create",
@@ -1815,7 +1836,17 @@ def create_brew(
         if existing is None:
             raise
         return replay_idempotent_brew_creation(db, existing, request_fingerprint)
-    return brew_payload(load_brew(db, brew.id), include_token=True)
+    result = brew_payload(load_brew(db, brew.id), include_token=True)
+    if confirmed_ratio is not None:
+        log_unusual_brew_ratio(
+            "unusual_brew_ratio_confirmed",
+            action="create",
+            brew_id=brew.id,
+            dose_g=payload.dose_g,
+            water_g=payload.water_g,
+            ratio=confirmed_ratio,
+        )
+    return result
 
 
 @router.get("/brews/active", response_model=ActiveBrewsResponse)
@@ -1925,14 +1956,14 @@ def update_brew(
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may edit this draft")
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    validate_brew_ratio(
+    confirmed_ratio = validate_brew_ratio(
         payload.water_g,
         payload.dose_g,
         action="update",
         confirmed=confirm_unusual_ratio,
         brew_id=brew.id,
     )
-    return commit_guarded_brew_update(
+    result = commit_guarded_brew_update(
         db,
         brew.id,
         "draft",
@@ -1943,6 +1974,16 @@ def update_brew(
         expected_revision=payload.revision,
         allow_collaborators=True,
     )
+    if confirmed_ratio is not None:
+        log_unusual_brew_ratio(
+            "unusual_brew_ratio_confirmed",
+            action="update",
+            brew_id=brew.id,
+            dose_g=payload.dose_g,
+            water_g=payload.water_g,
+            ratio=confirmed_ratio,
+        )
+    return result
 
 
 @router.post("/brews/{brew_id}/join", response_model=BrewResponse)
@@ -2042,7 +2083,7 @@ def correct_completed_brew(
             detail="Only the operator or an administrator may correct this brew",
         )
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
-    validate_brew_ratio(
+    confirmed_ratio = validate_brew_ratio(
         payload.water_g,
         payload.dose_g,
         action="correct",
@@ -2067,7 +2108,7 @@ def correct_completed_brew(
                     brew_operators.c.profile_id == brew.operator_id,
                 )
             )
-    return commit_guarded_brew_update(
+    result = commit_guarded_brew_update(
         db,
         brew.id,
         "completed",
@@ -2076,6 +2117,16 @@ def correct_completed_brew(
         "Only completed brews need correction",
         "Only the operator or an administrator may correct this brew",
     )
+    if confirmed_ratio is not None:
+        log_unusual_brew_ratio(
+            "unusual_brew_ratio_confirmed",
+            action="correct",
+            brew_id=brew.id,
+            dose_g=payload.dose_g,
+            water_g=payload.water_g,
+            ratio=confirmed_ratio,
+        )
+    return result
 
 
 @router.post("/brews/{brew_id}/finalize", response_model=BrewResponse)
@@ -2096,8 +2147,9 @@ def finalize_brew(
         and login_session.profile.role != "admin"
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may finalize this brew")
-    validate_brew_ratio(
-        payload.water_g if payload.water_g is not None else brew.water_g,
+    final_water_g = payload.water_g if payload.water_g is not None else brew.water_g
+    confirmed_ratio = validate_brew_ratio(
+        final_water_g,
         brew.dose_g,
         action="finalize",
         confirmed=confirm_unusual_ratio,
@@ -2111,7 +2163,7 @@ def finalize_brew(
     }
     if payload.water_g is not None:
         values["water_g"] = payload.water_g
-    return commit_guarded_brew_update(
+    result = commit_guarded_brew_update(
         db,
         brew.id,
         "draft",
@@ -2123,6 +2175,16 @@ def finalize_brew(
         allow_collaborators=True,
         release_capacity=True,
     )
+    if confirmed_ratio is not None:
+        log_unusual_brew_ratio(
+            "unusual_brew_ratio_confirmed",
+            action="finalize",
+            brew_id=brew.id,
+            dose_g=brew.dose_g,
+            water_g=final_water_g,
+            ratio=confirmed_ratio,
+        )
+    return result
 
 
 @router.post("/brews/{brew_id}/clone", response_model=BrewResponse)

@@ -205,8 +205,13 @@ test('servings rescale batch totals and unusual creation requires explicit confi
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   const confirmation = page.getByRole('alertdialog', { name: 'Save unusual 1:80 ratio?' });
   await expect(confirmation).toContainText('8 g total coffee and 640 g total water');
+  await expect(confirmation.getByRole('button', { name: 'Review amounts' })).toBeFocused();
   expect(createRequests).toBe(0);
 
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeFocused();
+  await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await confirmation.getByRole('button', { name: 'Review amounts' }).click();
   await expect(confirmation).toBeHidden();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
@@ -214,6 +219,20 @@ test('servings rescale batch totals and unusual creation requires explicit confi
   await expect(page).toHaveURL(/\/brews\/101$/);
   expect(createRequests).toBe(1);
   expect(confirmationHeader).toBe('true');
+});
+
+test('a just-outside ratio is not hidden by display rounding', async ({ page }) => {
+  await mockCommonApi(page, () => null);
+
+  await page.goto('/brews/new?kiosk=0');
+  const totalDose = page.getByRole('spinbutton', { name: 'Total coffee dose' });
+  const totalWater = page.getByRole('spinbutton', { name: 'Total water', exact: true });
+  await totalDose.fill('500');
+  await totalDose.blur();
+  await totalWater.fill('4999');
+  await totalWater.blur();
+
+  await expect(page.getByText(/A 1:9\.998 ratio is outside the normal/)).toBeVisible();
 });
 
 test('kiosk servings rescale both batch totals', async ({ page }) => {
