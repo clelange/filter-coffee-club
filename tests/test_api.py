@@ -81,6 +81,20 @@ def animated_gif_upload() -> bytes:
     return output.getvalue()
 
 
+def test_public_settings_expose_the_deployed_version(tmp_path: Path) -> None:
+    with build_client(tmp_path, app_version="v2026.08.5") as client:
+        assert client.get("/api/v1/settings").json()["app_version"] == "v2026.08.5"
+
+
+def test_render_deployments_fall_back_to_the_short_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FCC_APP_VERSION", raising=False)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abcdef0123456789abcdef0123456789abcdef01")
+    with build_client(tmp_path) as client:
+        assert client.get("/api/v1/settings").json()["app_version"] == "abcdef0"
+
+
 def test_coffee_chart_color_migration_backfills_existing_rows(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'migration.sqlite3'}"
     project_root = Path(__file__).resolve().parents[1]

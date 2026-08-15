@@ -550,6 +550,7 @@ class RatingLinkResponse(BaseModel):
 
 class AppSettingsResponse(ORMModel):
     app_name: str
+    app_version: str = "development"
     subtitle: str
     public_base_url: str | None
     logo_path: str | None

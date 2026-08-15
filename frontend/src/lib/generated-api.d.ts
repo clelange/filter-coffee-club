@@ -1092,6 +1092,11 @@ export interface components {
         AppSettingsResponse: {
             /** App Name */
             app_name: string;
+            /**
+             * App Version
+             * @default development
+             */
+            app_version: string;
             /** Subtitle */
             subtitle: string;
             /** Public Base Url */

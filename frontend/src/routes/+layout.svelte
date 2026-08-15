@@ -14,9 +14,12 @@
   import type { AppSettings } from '$lib/types';
   import '../styles.css';
 
+  const repositoryUrl = 'https://github.com/clelange/filter-coffee-club';
+
   let { children } = $props();
   let settings: AppSettings = $state({
     app_name: 'Filter Coffee Club',
+    app_version: 'development',
     subtitle: 'High-Energy Physics coffee breaks at PSI',
     public_base_url: null,
     logo_path: null,
@@ -34,6 +37,7 @@
     demo_profile_names: []
   });
   let ready = $state(false);
+  let settingsLoaded = $state(false);
   let appBootstrapped = $state(false);
   let navOpen = $state(false);
   let navToggle: HTMLButtonElement;
@@ -50,6 +54,21 @@
     document.title = value.app_name;
   }
 
+  function versionUrl(version: string): string {
+    if (/^v\d{4}\.\d{2}\.\d+$/.test(version)) {
+      return `${repositoryUrl}/releases/tag/${encodeURIComponent(version)}`;
+    }
+    if (/^[0-9a-f]{7,40}$/i.test(version)) {
+      return `${repositoryUrl}/commit/${encodeURIComponent(version)}`;
+    }
+    return repositoryUrl;
+  }
+
+  function issueUrl(version: string): string {
+    const body = encodeURIComponent(`\n\nDeployed version: ${version}`);
+    return `${repositoryUrl}/issues/new?body=${body}`;
+  }
+
   function pinChangePath(url: URL): string {
     const next = `${url.pathname}${url.search}${url.hash}`;
     return `/account/pin?next=${encodeURIComponent(next)}`;
@@ -63,6 +82,7 @@
     try {
       const device = initializeDeviceMode($page.url);
       settings = await api<AppSettings>('/settings');
+      settingsLoaded = true;
       appSettingsStore.set(settings);
       applyTheme(settings);
       const bootstrap = await api<{ required: boolean }>('/auth/bootstrap-status');
@@ -245,4 +265,20 @@
   {/if}
 </main>
 
-<footer>Filter Coffee Club · Measure carefully, brew gently.</footer>
+<footer>
+  <span>Filter Coffee Club · Measure carefully, brew gently.</span>
+  {#if settingsLoaded}
+    <span class="footer-detail">
+      <span class="footer-separator" aria-hidden="true">·</span>
+      <a href={versionUrl(settings.app_version)} target="_blank" rel="noopener noreferrer"
+        >Version {settings.app_version}</a
+      >
+    </span>
+    <span class="footer-detail">
+      <span class="footer-separator" aria-hidden="true">·</span>
+      <a href={issueUrl(settings.app_version)} target="_blank" rel="noopener noreferrer"
+        >Report an issue</a
+      >
+    </span>
+  {/if}
+</footer>

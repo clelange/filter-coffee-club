@@ -3,6 +3,7 @@ import type { Brew, BrewInput, Session } from '../src/lib/types';
 
 const settings = {
   app_name: 'Filter Coffee Club',
+  app_version: 'development',
   subtitle: 'Ratio guard test',
   public_base_url: null,
   logo_path: null,

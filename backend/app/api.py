@@ -2663,6 +2663,7 @@ def public_settings(
 ) -> AppSettingsResponse:
     item = get_settings(db)
     result = AppSettingsResponse.model_validate(item)
+    result.app_version = request.app.state.settings.deployed_version
     url = effective_public_url(request, db)
     result.public_base_url = url
     result.public_url_needs_configuration = url in {

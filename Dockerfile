@@ -7,11 +7,13 @@ COPY frontend/ ./
 RUN pnpm exec svelte-kit sync && pnpm build
 
 FROM python:3.12-slim AS runtime
+ARG FCC_APP_VERSION
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/backend \
     FCC_DATA_DIR=/data \
-    FCC_FRONTEND_DIR=/app/frontend/build
+    FCC_FRONTEND_DIR=/app/frontend/build \
+    FCC_APP_VERSION=${FCC_APP_VERSION}
 WORKDIR /app
 COPY pyproject.toml README.md alembic.ini ./
 COPY backend/ backend/

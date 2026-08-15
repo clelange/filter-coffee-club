@@ -26,6 +26,7 @@ export interface Session {
 
 export interface AppSettings {
   app_name: string;
+  app_version: string;
   subtitle: string;
   public_base_url: string | null;
   logo_path: string | null;

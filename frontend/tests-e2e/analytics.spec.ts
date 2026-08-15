@@ -4,6 +4,7 @@ const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 
 const settings = {
   app_name: 'Filter Coffee Club',
+  app_version: 'development',
   subtitle: 'Analytics test',
   public_base_url: null,
   logo_path: null,

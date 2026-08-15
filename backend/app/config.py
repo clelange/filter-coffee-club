@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
 from pydantic import Field
@@ -25,8 +27,16 @@ class Settings(BaseSettings):
     catalog_photo_max_dimension: int = 1600
     catalog_photo_webp_quality: int = 82
     app_name: str = "Filter Coffee Club"
+    app_version: str = ""
     log_level: str = Field(default="info")
     demo_mode: bool = False
+
+    @property
+    def deployed_version(self) -> str:
+        version = self.app_version.strip() or os.getenv("RENDER_GIT_COMMIT", "").strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40}", version):
+            return version[:7]
+        return version or "development"
 
     @property
     def resolved_database_url(self) -> str:

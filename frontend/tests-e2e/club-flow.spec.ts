@@ -35,6 +35,7 @@ interface CoffeeRatingInsightsFixture {
 
 const publicAppSettings: AppSettings = {
   app_name: 'Filter Coffee Club',
+  app_version: 'v2026.08.5',
   subtitle: 'Brew activity test',
   public_base_url: null,
   logo_path: null,
@@ -60,8 +61,8 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
-async function mockSignedOutHome(page: Page) {
-  await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
+async function mockSignedOutHome(page: Page, appSettings: AppSettings = publicAppSettings) {
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, appSettings));
   await page.route('**/api/v1/auth/bootstrap-status', (route) =>
     fulfillJson(route, { required: false })
   );
@@ -1818,6 +1819,60 @@ test('the home brew log survives a temporary activity failure', async ({ page })
   await expect(page.getByText('No brews yet. The first measurement is waiting.')).toBeVisible();
   await expect(page.locator('.section .error')).toHaveCount(0);
   await expect(page.getByTestId('brew-activity-rail')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Version v2026.08.5' })).toHaveAttribute(
+    'href',
+    'https://github.com/clelange/filter-coffee-club/releases/tag/v2026.08.5'
+  );
+  await expect(page.getByRole('link', { name: 'Report an issue' })).toHaveAttribute(
+    'href',
+    'https://github.com/clelange/filter-coffee-club/issues/new?body=%0A%0ADeployed%20version%3A%20v2026.08.5'
+  );
+  await page.setViewportSize({ width: 393, height: 851 });
+  const footerLayout = await page.locator('footer').evaluate((footer) => ({
+    pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    detailsStayTogether: Array.from(footer.querySelectorAll('.footer-detail')).every((detail) => {
+      const children = Array.from(detail.children);
+      return (
+        children.length === 2 &&
+        children[0].getBoundingClientRect().top === children[1].getBoundingClientRect().top
+      );
+    })
+  }));
+  expect(footerLayout).toEqual({ pageFits: true, detailsStayTogether: true });
+});
+
+test('the footer links source deployments to their commit', async ({ page }) => {
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, {
+      brews: [],
+      recent_rating_brews: [],
+      active_count: 0,
+      max_active_brews: 2,
+      can_start: true
+    })
+  );
+  await mockSignedOutHome(page, { ...publicAppSettings, app_version: 'abcdef0' });
+  await page.goto('/?kiosk=0');
+
+  await expect(page.getByRole('link', { name: 'Version abcdef0' })).toHaveAttribute(
+    'href',
+    'https://github.com/clelange/filter-coffee-club/commit/abcdef0'
+  );
+  await expect(page.getByRole('link', { name: 'Report an issue' })).toHaveAttribute(
+    'href',
+    'https://github.com/clelange/filter-coffee-club/issues/new?body=%0A%0ADeployed%20version%3A%20abcdef0'
+  );
+});
+
+test('the footer omits unverified deployment metadata when settings fail', async ({ page }) => {
+  await page.route('**/api/v1/settings', (route) =>
+    fulfillJson(route, { detail: 'Temporarily unavailable' }, 503)
+  );
+  await page.route('**/api/v1/brews?*', (route) => fulfillJson(route, []));
+  await page.goto('/?kiosk=0');
+
+  await expect(page.getByText('Version development')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Report an issue' })).toHaveCount(0);
 });
 
 test('the rail waits for bootstrap and omits start during a mandatory PIN change', async ({
