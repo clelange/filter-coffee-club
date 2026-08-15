@@ -114,14 +114,20 @@ function brewFromInput(id: number, input: BrewInput, status: Brew['status'] = 'd
   };
 }
 
-async function mockCommonApi(page: Page, brewState: () => Brew | null) {
+async function mockCommonApi(
+  page: Page,
+  brewState: () => Brew | null,
+  deviceMode: Session['device_mode'] = 'personal'
+) {
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const method = route.request().method();
     if (path === '/api/v1/settings') return fulfillJson(route, settings);
     if (path === '/api/v1/auth/bootstrap-status') return fulfillJson(route, { required: false });
-    if (path === '/api/v1/auth/me') return fulfillJson(route, session);
+    if (path === '/api/v1/auth/me') {
+      return fulfillJson(route, { ...session, device_mode: deviceMode });
+    }
     if (path === '/api/v1/brews/active') {
       const current = brewState();
       const draft = current?.status === 'draft' ? current : null;
@@ -155,6 +161,16 @@ async function mockCommonApi(page: Page, brewState: () => Brew | null) {
     }
     return fulfillJson(route, { detail: `Unhandled mocked request: ${method} ${path}` }, 500);
   });
+}
+
+async function setKioskNumber(page: Page, label: string, value: string) {
+  await page.getByRole('button', { name: new RegExp(`^Set ${label};`) }).click();
+  const dialog = page.getByRole('dialog', { name: label, exact: true });
+  await dialog.getByRole('button', { name: /^(Clear|Clear value)$/ }).click();
+  for (const character of value) {
+    await dialog.getByRole('button', { name: character, exact: true }).click();
+  }
+  await dialog.getByRole('button', { name: 'Apply' }).click();
 }
 
 test('servings rescale batch totals and unusual creation requires explicit confirmation', async ({
@@ -198,6 +214,22 @@ test('servings rescale batch totals and unusual creation requires explicit confi
   await expect(page).toHaveURL(/\/brews\/101$/);
   expect(createRequests).toBe(1);
   expect(confirmationHeader).toBe('true');
+});
+
+test('kiosk servings rescale both batch totals', async ({ page }) => {
+  await mockCommonApi(page, () => null, 'kiosk');
+
+  await page.goto('/brews/new?kiosk=1');
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+  await setKioskNumber(page, 'Servings', '5');
+
+  await expect(
+    page.getByRole('button', { name: /^Set Total coffee dose; current value 40/ })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^Set Total water; current value 640/ })
+  ).toBeVisible();
+  await expect(page.getByText('Changing servings scales both total batch amounts.')).toBeVisible();
 });
 
 test('unusual actual water requires confirmation before finalization', async ({ page }) => {

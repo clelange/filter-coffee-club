@@ -540,16 +540,6 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   expect(inlineCoffeeCreationKeys[0]).toMatch(/^[0-9a-f-]{36}$/);
   expect(new Set(inlineCoffeeCreationKeys).size).toBe(1);
 
-  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
-  const personalServings = page.getByRole('spinbutton', { name: 'Servings', exact: true });
-  await personalServings.fill('5');
-  await personalServings.blur();
-  await expect(page.getByRole('spinbutton', { name: 'Total coffee dose' })).toHaveValue('40');
-  await expect(page.getByRole('spinbutton', { name: 'Total water', exact: true })).toHaveValue(
-    '640'
-  );
-  await expect(page.getByText('Changing servings scales both total batch amounts.')).toBeVisible();
-
   await page.goto('/coffees');
   const inlineCoffeeCard = page.locator('article[data-testid="catalog-card"]').filter({
     has: page.getByRole('heading', {
@@ -621,13 +611,6 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     label: 'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   });
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
-  await setKioskNumber(page, 'Servings', '5');
-  await expect(
-    page.getByRole('button', { name: /^Set Total coffee dose; current value 40/ })
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: /^Set Total water; current value 640/ })
-  ).toBeVisible();
   await page.getByRole('button', { name: /^Set Total coffee dose;/ }).click();
   const doseDialog = page.getByRole('dialog', { name: 'Total coffee dose', exact: true });
   await doseDialog.getByRole('button', { name: 'Clear value' }).click();
