@@ -2,7 +2,13 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import {
+    brewRatioIsUnusual,
+    calculateBrewRatio,
+    unusualBrewRatioDescription
+  } from '$lib/brew-ratio';
   import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
+  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
@@ -19,6 +25,8 @@
   let finalMinutes = $state(3);
   let finalSeconds = $state(0);
   let actualWater = $state(0);
+  let finalizing = $state(false);
+  let finalRatioConfirmationOpen = $state(false);
   let copied = $state(false);
   let statusAction: 'cancel' | 'void' | null = $state(null);
   let changingStatus = $state(false);
@@ -32,6 +40,14 @@
   let destroyed = false;
 
   const id = $derived(Number($page.params.id));
+  const finalRatio = $derived(calculateBrewRatio(actualWater, currentBrewDose()));
+  const finalRatioUnusual = $derived(
+    currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
+  );
+
+  function currentBrewDose(): number {
+    return brew?.dose_g ?? 0;
+  }
 
   onMount(async () => {
     await load();
@@ -88,7 +104,16 @@
   }
 
   async function refreshDraft() {
-    if (!brew || brew.status !== 'draft' || finishing || operatorDialog || changingStatus) return;
+    if (
+      !brew ||
+      brew.status !== 'draft' ||
+      finishing ||
+      finalizing ||
+      finalRatioConfirmationOpen ||
+      operatorDialog ||
+      changingStatus
+    )
+      return;
     try {
       const latest = await api<Brew>(`/brews/${brew.id}`);
       if (latest.revision <= brew.revision) return;
@@ -120,12 +145,19 @@
     }
   }
 
-  async function finalize() {
+  async function finalize(confirmUnusualRatio = false) {
     if (!brew) return;
+    if (finalRatioUnusual && !confirmUnusualRatio) {
+      finalRatioConfirmationOpen = true;
+      return;
+    }
+    finalRatioConfirmationOpen = false;
+    finalizing = true;
     error = '';
     try {
       brew = await api<Brew>(`/brews/${brew.id}/finalize`, {
         method: 'POST',
+        headers: confirmUnusualRatio ? { 'X-Confirm-Unusual-Ratio': 'true' } : undefined,
         body: jsonBody({
           water_g: actualWater,
           total_brew_time_s: finalMinutes * 60 + finalSeconds,
@@ -138,7 +170,10 @@
       const session = await ensureSession();
       if (session?.device_mode === 'kiosk') await logout();
     } catch (caught) {
+      finalRatioConfirmationOpen = false;
       error = caught instanceof Error ? caught.message : 'Could not finalize the brew.';
+    } finally {
+      finalizing = false;
     }
   }
 
@@ -287,7 +322,7 @@
     </div>
     <div class="recipe-display">
       <article class="hero-metric">
-        <strong>{brew.dose_g}<i>g</i></strong><span>coffee dose</span>
+        <strong>{brew.dose_g}<i>g</i></strong><span>total coffee dose</span>
       </article>
       <div class="arrow">→</div>
       <article class="hero-metric">
@@ -378,12 +413,20 @@
             inputmode="numeric"
           />
         </div>
+        <p class:warning={finalRatioUnusual} class="finish-ratio" role="status">
+          Final ratio: <strong>1:{finalRatio}</strong>{#if finalRatioUnusual}
+            — outside the normal 1:10–1:25 range. Check that both amounts are whole-batch totals.
+          {/if}
+        </p>
         <div class="actions">
           <button
             class="primary"
-            onclick={finalize}
-            disabled={finalMinutes * 60 + finalSeconds <= 0}>Finalize and invite tasters</button
-          ><button class="secondary" onclick={() => (finishing = false)}>Back</button>
+            onclick={() => finalize()}
+            disabled={finalizing || finalMinutes * 60 + finalSeconds <= 0}
+            >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
+          ><button class="secondary" disabled={finalizing} onclick={() => (finishing = false)}
+            >Back</button
+          >
         </div>
       </div>
     </div>
@@ -555,6 +598,19 @@
   </div>
 {/if}
 
+{#if brew}
+  <ConfirmDialog
+    open={finalRatioConfirmationOpen}
+    title={`Save unusual 1:${finalRatio} ratio?`}
+    description={unusualBrewRatioDescription(brew.dose_g, actualWater)}
+    confirmLabel={`Save 1:${finalRatio} anyway`}
+    cancelLabel="Review amounts"
+    busy={finalizing}
+    onconfirm={() => finalize(true)}
+    oncancel={() => (finalRatioConfirmationOpen = false)}
+  />
+{/if}
+
 <style>
   .brew-mode {
     min-height: 68vh;
@@ -669,6 +725,13 @@
   }
   .modal .actions {
     margin-top: 0;
+  }
+  .finish-ratio {
+    margin: 0;
+    color: var(--muted);
+  }
+  .finish-ratio.warning {
+    color: #8a4a00;
   }
   .invitation {
     display: grid;

@@ -3812,6 +3812,7 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
+                "X-Confirm-Unusual-Ratio"?: boolean;
             };
             path?: never;
             cookie?: never;
@@ -3896,7 +3897,9 @@ export interface operations {
     update_brew_api_v1_brews__brew_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Unusual-Ratio"?: boolean;
+            };
             path: {
                 brew_id: number;
             };
@@ -4028,7 +4031,9 @@ export interface operations {
     correct_completed_brew_api_v1_brews__brew_id__correction_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Unusual-Ratio"?: boolean;
+            };
             path: {
                 brew_id: number;
             };
@@ -4063,7 +4068,9 @@ export interface operations {
     finalize_brew_api_v1_brews__brew_id__finalize_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Unusual-Ratio"?: boolean;
+            };
             path: {
                 brew_id: number;
             };

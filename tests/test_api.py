@@ -508,6 +508,128 @@ def test_brew_creation_is_idempotent_and_profile_scoped(tmp_path: Path) -> None:
         assert len(client.get("/api/v1/brews").json()) == 1
 
 
+def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Guard", "name": "Exceptional recipe"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        payload = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 8,
+            "water_g": 640,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+            "servings": 5,
+        }
+        idempotent_headers = {**headers, "Idempotency-Key": "unusual-ratio-retry"}
+
+        blocked_create = client.post("/api/v1/brews", headers=idempotent_headers, json=payload)
+        assert blocked_create.status_code == 422
+        assert "total batch amounts" in blocked_create.json()["detail"]
+        assert client.get("/api/v1/brews").json() == []
+        assert client.get("/api/v1/brews/active").json()["active_count"] == 0
+
+        confirmed_headers = {**idempotent_headers, "X-Confirm-Unusual-Ratio": "true"}
+        created = client.post("/api/v1/brews", headers=confirmed_headers, json=payload).json()
+        assert created["ratio"] == 80
+
+        update_payload = {**payload, "water_g": 650, "revision": created["revision"]}
+        blocked_update = client.put(
+            f"/api/v1/brews/{created['id']}", headers=headers, json=update_payload
+        )
+        assert blocked_update.status_code == 422
+        unchanged = client.get(f"/api/v1/brews/{created['id']}").json()
+        assert unchanged["water_g"] == 640
+        assert unchanged["revision"] == created["revision"]
+
+        updated = client.put(
+            f"/api/v1/brews/{created['id']}",
+            headers={**headers, "X-Confirm-Unusual-Ratio": "true"},
+            json=update_payload,
+        ).json()
+        assert updated["water_g"] == 650
+
+        finalize_payload = {
+            "water_g": 655,
+            "total_brew_time_s": 180,
+            "revision": updated["revision"],
+        }
+        blocked_finalize = client.post(
+            f"/api/v1/brews/{created['id']}/finalize",
+            headers=headers,
+            json=finalize_payload,
+        )
+        assert blocked_finalize.status_code == 422
+        unchanged = client.get(f"/api/v1/brews/{created['id']}").json()
+        assert unchanged["status"] == "draft"
+        assert unchanged["water_g"] == 650
+        assert unchanged["revision"] == updated["revision"]
+
+        completed = client.post(
+            f"/api/v1/brews/{created['id']}/finalize",
+            headers={**headers, "X-Confirm-Unusual-Ratio": "true"},
+            json=finalize_payload,
+        ).json()
+        assert completed["status"] == "completed"
+        assert completed["water_g"] == 655
+
+        correction_payload = {**payload, "water_g": 660, "total_brew_time_s": 181}
+        blocked_correction = client.put(
+            f"/api/v1/brews/{created['id']}/correction",
+            headers=headers,
+            json=correction_payload,
+        )
+        assert blocked_correction.status_code == 422
+        unchanged = client.get(f"/api/v1/brews/{created['id']}").json()
+        assert unchanged["water_g"] == 655
+        assert unchanged["revision"] == completed["revision"]
+
+        corrected = client.put(
+            f"/api/v1/brews/{created['id']}/correction",
+            headers={**headers, "X-Confirm-Unusual-Ratio": "true"},
+            json=correction_payload,
+        ).json()
+        assert corrected["water_g"] == 660
+        assert corrected["ratio"] == 82.5
+        assert corrected["total_brew_time_s"] == 181
+        assert "unusual_brew_ratio_blocked" in caplog.messages
+        assert "unusual_brew_ratio_confirmed" in caplog.messages
+
+
+@pytest.mark.parametrize(("dose_g", "water_g"), [(10, 100), (10, 250)])
+def test_normal_brew_ratio_boundaries_do_not_require_confirmation(
+    tmp_path: Path, dose_g: float, water_g: float
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Boundary", "name": f"Ratio {water_g / dose_g:g}"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        response = client.post(
+            "/api/v1/brews",
+            headers=headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": dose_g,
+                "water_g": water_g,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+
 def test_concurrent_brew_creation_with_same_key_uses_one_capacity_slot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

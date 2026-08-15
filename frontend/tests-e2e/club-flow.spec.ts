@@ -611,8 +611,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     label: 'Responsive Layout Review Roastery · Ethiopia Guji Hambela Buku Abel Extended Lot Name'
   });
   await page.getByRole('button', { name: /Light natural \/ fruity/ }).click();
-  await page.getByRole('button', { name: /^Set Coffee dose;/ }).click();
-  const doseDialog = page.getByRole('dialog', { name: 'Coffee dose', exact: true });
+  await page.getByRole('button', { name: /^Set Total coffee dose;/ }).click();
+  const doseDialog = page.getByRole('dialog', { name: 'Total coffee dose', exact: true });
   await doseDialog.getByRole('button', { name: 'Clear value' }).click();
   await doseDialog.getByRole('button', { name: '0', exact: true }).click();
   await doseDialog.getByRole('button', { name: 'Apply' }).click();
@@ -1593,7 +1593,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('Profile').selectOption({ label: 'Ada' });
   await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.goto('/brews/new');
+  await expect(page).toHaveURL(/\/brews\/new$/);
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await page.getByRole('button', { name: 'Cancel brew' }).click();
   const cancelDialog = page.getByRole('dialog', { name: 'Cancel this draft?' });
@@ -1606,6 +1606,9 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.goto('/brews/new');
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
+  await expect(
+    page.getByRole('main').getByRole('link', { name: 'Ada', exact: true })
+  ).toBeVisible();
   await expect(page.getByTestId('active-brew-chip')).toHaveCount(1);
   await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
   const collaborativeBrewPath = new URL(page.url()).pathname;
@@ -1614,8 +1617,22 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await bobPhone.goto(`/login?kiosk=0&next=${encodeURIComponent(collaborativeBrewPath)}`);
   await bobPhone.getByLabel('Profile').selectOption({ label: 'Bob' });
   await bobPhone.getByLabel('PIN').fill('1357');
+  const bobLogin = bobPhone.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/auth/login') &&
+      response.request().method() === 'POST' &&
+      response.ok()
+  );
+  const bobBrewLoad = bobPhone.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1${collaborativeBrewPath}`) &&
+      response.request().method() === 'GET' &&
+      response.ok()
+  );
   await bobPhone.getByRole('button', { name: 'Sign in' }).click();
+  await Promise.all([bobLogin, bobBrewLoad]);
   await expect(bobPhone).toHaveURL(new RegExp(`${collaborativeBrewPath}$`));
+  await expect(bobPhone.getByRole('button', { name: 'Join brew' })).toBeVisible();
   await bobPhone.getByRole('button', { name: 'Join brew' }).click();
   await expect(bobPhone.getByRole('button', { name: 'Finish brew' })).toBeVisible();
   await bobPhone.getByRole('link', { name: 'Edit recipe' }).click();

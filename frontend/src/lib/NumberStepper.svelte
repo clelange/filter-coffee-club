@@ -10,7 +10,8 @@
     max = Number.POSITIVE_INFINITY,
     unit = '',
     inputmode = 'decimal',
-    nullable = false
+    nullable = false,
+    onchange
   }: {
     label: string;
     value: number | null;
@@ -20,6 +21,7 @@
     unit?: string;
     inputmode?: 'numeric' | 'decimal';
     nullable?: boolean;
+    onchange?: (value: number | null) => void;
   } = $props();
 
   let padOpen = $state(false);
@@ -40,6 +42,7 @@
     const base = value ?? Math.max(min, 0);
     const next = Math.min(max, Math.max(min, Number(base) + direction * step));
     value = Number(next.toFixed(precision));
+    onchange?.(value);
   }
 
   async function openPad() {
@@ -82,6 +85,7 @@
     if (!draft) {
       if (nullable) {
         value = null;
+        onchange?.(value);
         void closePad();
       } else {
         error = `${label} is required.`;
@@ -101,6 +105,7 @@
       return;
     }
     value = Number(parsed.toFixed(precision));
+    onchange?.(value);
     void closePad();
   }
 
@@ -155,6 +160,7 @@
         aria-label={label}
         type="number"
         bind:value
+        onchange={() => onchange?.(value)}
         {min}
         {max}
         {step}

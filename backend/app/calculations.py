@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+NORMAL_BREW_RATIO_MIN = 10.0
+NORMAL_BREW_RATIO_MAX = 25.0
+
 
 def brew_ratio(water_g: float, dose_g: float) -> float:
     if dose_g <= 0:
         raise ValueError("Coffee dose must be positive")
     return round(water_g / dose_g, 2)
+
+
+def brew_ratio_is_unusual(water_g: float, dose_g: float) -> bool:
+    ratio = brew_ratio(water_g, dose_g)
+    return not NORMAL_BREW_RATIO_MIN <= ratio <= NORMAL_BREW_RATIO_MAX
 
 
 def serving_shortcut_from_water(servings: int, ratio: float) -> tuple[float, float]:

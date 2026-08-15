@@ -3,7 +3,13 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
+  import {
+    brewRatioIsUnusual,
+    calculateBrewRatio,
+    unusualBrewRatioDescription
+  } from '$lib/brew-ratio';
   import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
+  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
@@ -45,6 +51,8 @@
   let originalOperatorId = $state(0);
   let originalOperatorName = $state('');
   let selectedRatio = $state(16);
+  let previousServings = $state(1);
+  let ratioConfirmationOpen = $state(false);
   let showCoffeeForm = $state(false);
   let coffeeError = $state('');
   let addingCoffee = $state(false);
@@ -80,7 +88,8 @@
     technique_note: null
   });
 
-  const ratio = $derived(form.dose_g ? Math.round((form.water_g / form.dose_g) * 10) / 10 : 0);
+  const ratio = $derived(calculateBrewRatio(form.water_g, form.dose_g));
+  const unusualRatio = $derived(brewRatioIsUnusual(form.water_g, form.dose_g));
   const grinder = $derived(grinders.find((item) => item.id === Number(form.grinder_id)));
   const clickGrinder = $derived(isClickGrinder(grinder));
   const settingWarning = $derived(
@@ -221,6 +230,7 @@
       pour_count: source.pour_count,
       technique_note: source.technique_note
     };
+    previousServings = source.servings;
     selectedRatio = Math.round(source.ratio * 10) / 10;
   }
 
@@ -250,6 +260,16 @@
   function useCoffeeBasis() {
     form.dose_g = form.servings * 8;
     form.water_g = Math.round(form.dose_g * selectedRatio);
+  }
+
+  function rescaleServings(value: number | null) {
+    if (value === null || value <= 0) return;
+    const oldServings = previousServings;
+    previousServings = value;
+    if (oldServings <= 0 || oldServings === value) return;
+    const scale = value / oldServings;
+    form.dose_g = Math.round(form.dose_g * scale * 10) / 10;
+    form.water_g = Math.round(form.water_g * scale);
   }
 
   async function addCoffee(event: SubmitEvent) {
@@ -305,12 +325,24 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
+    if (unusualRatio) {
+      ratioConfirmationOpen = true;
+      return;
+    }
+    await saveBrew(false);
+  }
+
+  async function saveBrew(confirmUnusualRatio: boolean) {
     if (saving) return;
+    ratioConfirmationOpen = false;
     saving = true;
     error = '';
     const creatingBrew = !editId && !correctionId;
     const idempotencyKey = creatingBrew ? brewCreationKey || crypto.randomUUID() : '';
     if (creatingBrew) brewCreationKey = idempotencyKey;
+    const requestHeaders: Record<string, string> = {};
+    if (creatingBrew) requestHeaders['Idempotency-Key'] = idempotencyKey;
+    if (confirmUnusualRatio) requestHeaders['X-Confirm-Unusual-Ratio'] = 'true';
     try {
       const path = correctionId
         ? `/brews/${correctionId}/correction`
@@ -319,7 +351,7 @@
           : '/brews';
       const brew = await api<Brew>(path, {
         method: editId || correctionId ? 'PUT' : 'POST',
-        headers: creatingBrew ? { 'Idempotency-Key': idempotencyKey } : undefined,
+        headers: requestHeaders,
         body: jsonBody(
           correctionId
             ? {
@@ -507,6 +539,7 @@
         <NumberStepper
           label="Servings"
           bind:value={form.servings}
+          onchange={rescaleServings}
           min={1}
           max={30}
           step={1}
@@ -521,11 +554,12 @@
         />
         <button class="secondary" type="button" onclick={useWaterBasis}>120 g water/person</button>
         <button class="secondary" type="button" onclick={useCoffeeBasis}>8 g coffee/person</button>
+        <p class="calculator-hint">Changing servings scales both total batch amounts.</p>
       </div>
 
       <div class="big-inputs">
         <NumberStepper
-          label="Coffee dose"
+          label="Total coffee dose"
           bind:value={form.dose_g}
           min={1}
           max={500}
@@ -543,6 +577,12 @@
           inputmode="numeric"
         />
       </div>
+      {#if unusualRatio}
+        <p class="warning ratio-warning" role="alert">
+          A 1:{ratio} ratio is outside the normal 1:10–1:25 range. Check that coffee and water are totals
+          for the whole batch.
+        </p>
+      {/if}
 
       <div class="field-grid">
         <NumberStepper
@@ -740,6 +780,17 @@
   </div>
 {/if}
 
+<ConfirmDialog
+  open={ratioConfirmationOpen}
+  title={`Save unusual 1:${ratio} ratio?`}
+  description={unusualBrewRatioDescription(form.dose_g, form.water_g)}
+  confirmLabel={`Save 1:${ratio} anyway`}
+  cancelLabel="Review amounts"
+  busy={saving}
+  onconfirm={() => saveBrew(true)}
+  oncancel={() => (ratioConfirmationOpen = false)}
+/>
+
 <style>
   .field-row {
     display: grid;
@@ -829,6 +880,12 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
+  .calculator-hint {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
   .correction-time {
     max-width: 360px;
   }
@@ -854,6 +911,13 @@
   .warning {
     color: #8a4a00;
     font-size: 0.78rem;
+  }
+  .ratio-warning {
+    margin-top: -8px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--amber) 10%, var(--surface));
   }
   .trial-list {
     display: grid;
