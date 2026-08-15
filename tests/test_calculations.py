@@ -30,6 +30,8 @@ def test_ratio_and_overall_throughput_labels_are_distinct() -> None:
         (250, 10, False),
         (99, 10, True),
         (251, 10, True),
+        (4999, 500, True),
+        (250.01, 10, True),
     ],
 )
 def test_unusual_brew_ratio_uses_inclusive_normal_boundaries(

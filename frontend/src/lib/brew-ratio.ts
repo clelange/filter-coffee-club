@@ -3,11 +3,20 @@ export const NORMAL_BREW_RATIO_MAX = 25;
 
 export function calculateBrewRatio(waterG: number, doseG: number): number {
   if (!doseG) return 0;
-  return Math.round((waterG / doseG) * 100) / 100;
+  const ratio = waterG / doseG;
+  const rounded = Math.round(ratio * 100) / 100;
+  if (
+    (ratio < NORMAL_BREW_RATIO_MIN && rounded >= NORMAL_BREW_RATIO_MIN) ||
+    (ratio > NORMAL_BREW_RATIO_MAX && rounded <= NORMAL_BREW_RATIO_MAX)
+  ) {
+    return ratio;
+  }
+  return rounded;
 }
 
 export function brewRatioIsUnusual(waterG: number, doseG: number): boolean {
-  const ratio = calculateBrewRatio(waterG, doseG);
+  if (!doseG) return true;
+  const ratio = waterG / doseG;
   return ratio < NORMAL_BREW_RATIO_MIN || ratio > NORMAL_BREW_RATIO_MAX;
 }
 
