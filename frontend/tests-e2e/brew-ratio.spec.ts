@@ -51,7 +51,9 @@ const coffee = {
   chart_color: '#0072B2',
   photo_path: null,
   photo_framing: null,
+  finished_at: null,
   archived: false,
+  available: true,
   cloned_from_id: null,
   created_at: '2026-08-15T10:00:00Z',
   updated_at: '2026-08-15T10:00:00Z'

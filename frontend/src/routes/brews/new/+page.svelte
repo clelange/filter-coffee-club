@@ -91,6 +91,7 @@
   const ratio = $derived(calculateBrewRatio(form.water_g, form.dose_g));
   const unusualRatio = $derived(brewRatioIsUnusual(form.water_g, form.dose_g));
   const grinder = $derived(grinders.find((item) => item.id === Number(form.grinder_id)));
+  const selectedCoffee = $derived(coffees.find((item) => item.id === Number(form.coffee_id)));
   const clickGrinder = $derived(isClickGrinder(grinder));
   const settingWarning = $derived(
     grinder &&
@@ -127,7 +128,7 @@
       }
       const [coffeeItems, grinderItems, dripperItems, filterItems, presetItems, operatorItems] =
         await Promise.all([
-          api<Coffee[]>('/coffees?include_archived=true'),
+          api<Coffee[]>('/coffees?include_finished=true'),
           api<Grinder[]>('/grinders'),
           api<Dripper[]>('/drippers'),
           api<BrewFilter[]>('/filters'),
@@ -135,13 +136,18 @@
           correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
         ]);
       coffeeColorPeers = coffeeItems;
-      coffees = coffeeItems.filter((coffee) => !coffee.archived);
+      coffees = coffeeItems.filter((coffee) => coffee.available);
       grinders = grinderItems;
       drippers = dripperItems;
       filters = filterItems;
       presets = presetItems;
       operators = operatorItems;
-      form.coffee_id = Number($page.url.searchParams.get('coffee')) || coffees[0]?.id || 0;
+      const requestedCoffeeId = Number($page.url.searchParams.get('coffee')) || 0;
+      form.coffee_id =
+        coffees.find((coffee) => coffee.id === requestedCoffeeId)?.id || coffees[0]?.id || 0;
+      if (requestedCoffeeId && form.coffee_id !== requestedCoffeeId) {
+        error = 'That coffee is no longer available for brewing. Choose an available bag.';
+      }
       form.grinder_id = grinders[0]?.id ?? 0;
       if (editId || repeatId || correctionId) {
         const source = await api<Brew>(`/brews/${editId || repeatId || correctionId}`);
@@ -154,6 +160,18 @@
           return;
         }
         copyBrew(source);
+        let sourceCoffee = coffeeItems.find((coffee) => coffee.id === source.coffee_id);
+        if (!sourceCoffee && (editId || correctionId)) {
+          sourceCoffee = await api<Coffee>(`/coffees/${source.coffee_id}`);
+          coffeeColorPeers = [...coffeeColorPeers, sourceCoffee];
+        }
+        if ((editId || correctionId) && sourceCoffee && !sourceCoffee.available) {
+          coffees = [sourceCoffee, ...coffees.filter((coffee) => coffee.id !== sourceCoffee.id)];
+        } else if (repeatId && !sourceCoffee?.available) {
+          form.coffee_id = coffees[0]?.id || 0;
+          error =
+            'The coffee from that recipe is no longer available. Choose an available bag before saving.';
+        }
         sourceRevision = source.revision;
         if (editId) revisionTimer = setInterval(checkEditorRevision, 3000);
         if (correctionId) {
@@ -370,7 +388,15 @@
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save the brew.';
       if (!editId && !correctionId && caught instanceof ApiError && caught.status === 409) {
-        active = await api<ActiveBrews>('/brews/active');
+        if (caught.code === 'coffee_unavailable') {
+          coffees = await api<Coffee[]>('/coffees');
+          if (!coffees.some((coffee) => coffee.id === form.coffee_id)) {
+            form.coffee_id = coffees[0]?.id || 0;
+            await loadHistory();
+          }
+        } else if (caught.code === 'brew_capacity_reached') {
+          active = await api<ActiveBrews>('/brews/active');
+        }
       }
     } finally {
       saving = false;
@@ -378,12 +404,17 @@
   }
 
   async function clone(source: Brew) {
-    const brew = await api<Brew>(`/brews/${source.id}/clone`, {
-      method: 'POST',
-      body: jsonBody({})
-    });
-    await refreshBrewStatusAfterMutation().catch(() => undefined);
-    await goto(`/brews/${brew.id}`);
+    error = '';
+    try {
+      const brew = await api<Brew>(`/brews/${source.id}/clone`, {
+        method: 'POST',
+        body: jsonBody({})
+      });
+      await refreshBrewStatusAfterMutation().catch(() => undefined);
+      await goto(`/brews/${brew.id}`);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not repeat this brew.';
+    }
   }
 
   async function join(source: BrewActivityItem) {
@@ -451,10 +482,10 @@
 {:else if $deviceModeStore === 'kiosk' && (!coffees.length || !grinders.length)}
   <section class="panel section kiosk-missing-data">
     <p class="eyebrow">Personal device required</p>
-    <h2>Register the brewing setup first.</h2>
+    <h2>Make a coffee and grinder available first.</h2>
     <p class="muted">
-      Add at least one coffee and grinder from a phone or computer, then return to this shared
-      display.
+      Add or restore at least one coffee and register a grinder from a phone or computer, then
+      return to this shared display.
     </p>
     <a class="button secondary" href="/">Return home</a>
   </section>
@@ -467,7 +498,9 @@
           Coffee
           <select bind:value={form.coffee_id} onchange={loadHistory} required>
             {#each coffees as coffee}<option value={coffee.id}
-                >{coffee.roaster} · {coffee.name}</option
+                >{coffee.roaster} · {coffee.name}{coffee.available
+                  ? ''
+                  : ' · unavailable (current brew)'}</option
               >{/each}
           </select>
         </label>
@@ -480,6 +513,11 @@
           >
         {/if}
       </div>
+      {#if selectedCoffee && !selectedCoffee.available}
+        <p class="warning" role="status">
+          This bag is no longer available for new brews, but it can remain on this existing brew.
+        </p>
+      {/if}
       {#if showCoffeeForm && $deviceModeStore !== 'kiosk'}
         <div class="inline-form">
           <h3>Add this bag</h3>

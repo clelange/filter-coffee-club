@@ -200,3 +200,51 @@ def test_brew_creation_token_migration_preserves_existing_rows(tmp_path: Path) -
         indexes = {item["name"]: item for item in inspect(connection).get_indexes("brews")}
         assert indexes["ix_brews_creation_token"]["unique"]
     engine.dispose()
+
+
+def test_finished_coffee_migration_preserves_existing_availability(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-finished-coffees.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "9c17b3e5a204")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO profiles (
+                    id, display_name, pin_hash, role, active, pin_change_required,
+                    failed_login_attempts, created_at, updated_at
+                ) VALUES (
+                    1, 'Ada', 'legacy-hash', 'admin', 1, 0,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO coffees (
+                    id, roaster, name, chart_color, archived, created_by_id,
+                    created_at, updated_at
+                ) VALUES
+                    (1, 'Legacy', 'Available', '#0072B2', 0, 1,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00'),
+                    (2, 'Legacy', 'Archived', '#D55E00', 1, 1,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00')
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "b71d0f4a2c3e")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, archived, finished_at FROM coffees ORDER BY id")
+        ).all() == [(1, 0, None), (2, 1, None)]
+        columns = {column["name"] for column in inspect(connection).get_columns("coffees")}
+        assert "finished_at" in columns
+    engine.dispose()

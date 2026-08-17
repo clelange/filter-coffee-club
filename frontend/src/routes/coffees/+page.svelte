@@ -18,6 +18,7 @@
   import type { CatalogUsageResponse, Coffee, PhotoFraming } from '$lib/types';
 
   let coffees: Coffee[] = $state([]);
+  let finishedCoffees: Coffee[] = $state([]);
   let coffeeColorPeers: Coffee[] = $state([]);
   let usage: CatalogUsageResponse['items'] = $state([]);
   let showForm = $state(false);
@@ -36,10 +37,11 @@
     error = '';
     try {
       const [coffeeItems, usageResponse] = await Promise.all([
-        api<Coffee[]>('/coffees?include_archived=true'),
+        api<Coffee[]>('/coffees?include_finished=true'),
         api<CatalogUsageResponse>('/catalog/usage')
       ]);
-      coffees = coffeeItems.filter((coffee) => !coffee.archived);
+      coffees = coffeeItems.filter((coffee) => coffee.available);
+      finishedCoffees = coffeeItems.filter((coffee) => !coffee.available);
       coffeeColorPeers = coffeeItems;
       usage = usageResponse.items;
     } catch (caught) {
@@ -158,7 +160,11 @@
     {#if loading}
       <div class="empty" role="status">Loading coffee catalog…</div>
     {:else if coffees.length === 0}
-      <div class="empty">No coffee bags registered yet.</div>
+      <div class="empty">
+        {finishedCoffees.length
+          ? 'No coffee bags are currently available.'
+          : 'No coffee bags registered yet.'}
+      </div>
     {:else}
       <div class="summary-grid">
         {#each coffees as coffee}
@@ -189,6 +195,36 @@
       </div>
     {/if}
   </section>
+
+  {#if !loading && finishedCoffees.length > 0}
+    <details class="finished-section">
+      <summary>
+        <span>Finished bags</span>
+        <small>{finishedCoffees.length} {finishedCoffees.length === 1 ? 'bag' : 'bags'}</small>
+      </summary>
+      <p class="muted">These bags remain available for brew history and can be restored.</p>
+      <div class="summary-grid">
+        {#each finishedCoffees as coffee}
+          <CatalogCard
+            href={`/coffees/${coffee.id}`}
+            photoPath={coffee.photo_path}
+            photoFraming={coffee.photo_framing}
+            photoEndpoint={`/coffees/${coffee.id}/photo`}
+            alt={`${coffee.roaster} ${coffee.name}`}
+            eyebrow={coffee.roaster}
+            title={coffee.name}
+            metadata={[coffee.country, coffee.region, coffee.process, coffee.roast_level]
+              .filter(Boolean)
+              .join(' · ')}
+            notes={coffee.package_notes}
+            usage={usageFor(usage, 'coffee', coffee.id)}
+            beanFallback
+            statusLabel="Finished"
+          />
+        {/each}
+      </div>
+    </details>
+  {/if}
 </div>
 
 <style>
@@ -235,6 +271,15 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
     gap: var(--catalog-gap-md);
     align-items: stretch;
+  }
+  .finished-section > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .finished-section > summary small {
+    color: var(--muted);
   }
   @media (min-width: 900px) and (max-height: 650px) {
     .catalog-page {

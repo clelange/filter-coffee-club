@@ -25,6 +25,7 @@
   let finalMinutes = $state(3);
   let finalSeconds = $state(0);
   let actualWater = $state(0);
+  let markCoffeeFinished = $state(false);
   let finalizing = $state(false);
   let finalRatioConfirmationOpen = $state(false);
   let copied = $state(false);
@@ -161,7 +162,8 @@
         body: jsonBody({
           water_g: actualWater,
           total_brew_time_s: finalMinutes * 60 + finalSeconds,
-          revision: brew.revision
+          revision: brew.revision,
+          mark_coffee_finished: markCoffeeFinished
         })
       });
       finishing = false;
@@ -418,6 +420,13 @@
             — outside the normal 1:10–1:25 range. Check that both amounts are whole-batch totals.
           {/if}
         </p>
+        <label class="finish-coffee-check">
+          <input type="checkbox" bind:checked={markCoffeeFinished} />
+          <span>
+            <strong>This was the last brew from this bag</strong>
+            <small>Mark the coffee as finished and remove it from future brewing choices.</small>
+          </span>
+        </label>
         <div class="actions">
           <button
             class="primary"
@@ -617,6 +626,29 @@
     display: grid;
     align-content: center;
     gap: 24px;
+  }
+  .finish-coffee-check {
+    display: flex;
+    align-items: flex-start;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--cream);
+  }
+  .finish-coffee-check input {
+    width: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    margin-top: 2px;
+  }
+  .finish-coffee-check span {
+    display: grid;
+    gap: 3px;
+  }
+  .finish-coffee-check small {
+    color: var(--muted);
+    font-weight: 600;
+    line-height: 1.4;
   }
   .brew-heading {
     display: flex;

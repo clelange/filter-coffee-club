@@ -45,6 +45,8 @@
   let cloning = $state(false);
   let archiveOpen = $state(false);
   let archiving = $state(false);
+  let lifecycleAction: 'finish' | 'restore' | null = $state(null);
+  let lifecycleBusy = $state(false);
   let loadingMore = $state(false);
 
   const id = $derived(Number($page.params.id));
@@ -241,6 +243,27 @@
     }
   }
 
+  async function updateLifecycle() {
+    if (!coffee || !lifecycleAction) return;
+    lifecycleBusy = true;
+    error = '';
+    success = '';
+    const action = lifecycleAction;
+    try {
+      coffee = await api<Coffee>(`/coffees/${coffee.id}/${action}`, {
+        method: 'POST',
+        body: jsonBody({})
+      });
+      lifecycleAction = null;
+      success =
+        action === 'finish' ? 'Bag marked as finished.' : 'Bag is available for brewing again.';
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not update bag availability.';
+    } finally {
+      lifecycleBusy = false;
+    }
+  }
+
   async function loadMoreBrews() {
     if (!ratingInsights || ratingInsights.next_offset === null) return;
     loadingMore = true;
@@ -304,7 +327,8 @@
       <div class="detail-identity" data-testid="detail-identity">
         <div class="identity-topline">
           <p class="eyebrow">{coffee.roaster}</p>
-          {#if coffee.archived}<span class="status archived">Archived</span>{/if}
+          {#if coffee.archived}<span class="status archived">Archived</span>
+          {:else if !coffee.available}<span class="status">Finished</span>{/if}
         </div>
         <h1>{coffee.name}</h1>
         <p class="lede">
@@ -315,7 +339,9 @@
         {#if coffee.package_notes}<p class="package-notes">“{coffee.package_notes}”</p>{/if}
         {#if !coffee.archived}
           <div class="detail-actions">
-            <a class="button" href={`/brews/new?coffee=${coffee.id}`}>Brew this</a>
+            {#if coffee.available}<a class="button" href={`/brews/new?coffee=${coffee.id}`}
+                >Brew this</a
+              >{/if}
             {#if canManage() && !editMode}<button class="secondary" onclick={startEdit}>Edit</button
               >{/if}
           </div>
@@ -327,6 +353,15 @@
               <button class="secondary" disabled={cloning} onclick={cloneCoffee}
                 >{cloning ? 'Cloning…' : 'Clone bag'}</button
               >
+              {#if coffee.available}
+                <button class="secondary" onclick={() => (lifecycleAction = 'finish')}
+                  >Mark bag empty</button
+                >
+              {:else}
+                <button class="secondary" onclick={() => (lifecycleAction = 'restore')}
+                  >Make available again</button
+                >
+              {/if}
               {#if $sessionStore?.profile.role === 'admin'}<button
                   class="danger"
                   onclick={() => (archiveOpen = true)}>Archive</button
@@ -434,6 +469,10 @@
             <dd>{coffee.opened_date ? formatCatalogDate(coffee.opened_date) : 'Not recorded'}</dd>
           </div>
           <div>
+            <dt>Finished</dt>
+            <dd>{coffee.finished_at ? formatCatalogDate(coffee.finished_at) : 'Not finished'}</dd>
+          </div>
+          <div>
             <dt>Cataloged</dt>
             <dd>{formatCatalogDate(coffee.created_at)}</dd>
           </div>
@@ -480,6 +519,18 @@
     {#if insights}<RecentBrews {insights} />{/if}
   {/if}
 </div>
+
+<ConfirmDialog
+  open={lifecycleAction !== null}
+  title={lifecycleAction === 'finish' ? 'Mark this bag empty?' : 'Make this bag available again?'}
+  description={lifecycleAction === 'finish'
+    ? 'It will move to Finished bags and cannot be selected for new brews. Existing brews and history remain available.'
+    : 'It will return to the active coffee catalog and can be selected for new brews.'}
+  confirmLabel={lifecycleAction === 'finish' ? 'Mark bag empty' : 'Make available'}
+  busy={lifecycleBusy}
+  onconfirm={updateLifecycle}
+  oncancel={() => (lifecycleAction = null)}
+/>
 
 <ConfirmDialog
   open={archiveOpen}
