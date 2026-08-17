@@ -25,7 +25,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import delete, func, insert, or_, select, update
+from sqlalchemy import delete, func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
@@ -327,6 +327,41 @@ def validate_grinder_setting(db: Session, grinder_id: int, setting: float) -> No
         )
 
 
+def conflict_detail(code: str, message: str) -> dict[str, str]:
+    return {"code": code, "message": message}
+
+
+def reserve_available_coffee(db: Session, coffee_id: int) -> Coffee:
+    """Keep a coffee available until the surrounding brew transaction commits."""
+
+    # The no-op update acquires SQLite's writer lock without changing lifecycle data.
+    reserved_id = db.scalar(
+        text(
+            """
+            UPDATE coffees
+            SET finished_at = finished_at
+            WHERE id = :coffee_id
+              AND archived IS FALSE
+              AND finished_at IS NULL
+            RETURNING id
+            """
+        ),
+        {"coffee_id": coffee_id},
+    )
+    if reserved_id is not None:
+        coffee = db.get(Coffee, reserved_id)
+        assert coffee is not None
+        return coffee
+
+    db.rollback()
+    if db.get(Coffee, coffee_id) is None:
+        raise HTTPException(status_code=422, detail="Coffee not found")
+    raise HTTPException(
+        status_code=409,
+        detail=conflict_detail("coffee_unavailable", "Coffee is no longer available for brewing"),
+    )
+
+
 def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
     for grinder_range in payload.grinder_ranges:
         grinder = db.get(Grinder, grinder_range.grinder_id)
@@ -473,7 +508,10 @@ def reserve_active_brew_capacity(db: Session) -> None:
         db.rollback()
         raise HTTPException(
             status_code=409,
-            detail="The maximum number of parallel brews is already active",
+            detail=conflict_detail(
+                "brew_capacity_reached",
+                "The maximum number of parallel brews is already active",
+            ),
         )
 
 
@@ -896,11 +934,18 @@ def update_person(
 
 @router.get("/coffees", response_model=list[CoffeeResponse])
 def list_coffees(
-    include_archived: bool = False, db: Session = Depends(session_dependency)
+    include_archived: bool = False,
+    include_finished: bool = False,
+    db: Session = Depends(session_dependency),
 ) -> list[Coffee]:
-    query = select(Coffee).order_by(Coffee.archived, Coffee.roaster, Coffee.name)
-    if not include_archived:
-        query = query.where(Coffee.archived.is_(False))
+    query = select(Coffee).order_by(
+        Coffee.archived, Coffee.finished_at.is_not(None), Coffee.roaster, Coffee.name
+    )
+    if include_archived:
+        return list(db.scalars(query))
+    query = query.where(Coffee.archived.is_(False))
+    if not include_finished:
+        query = query.where(Coffee.finished_at.is_(None))
     return list(db.scalars(query))
 
 
@@ -1121,6 +1166,46 @@ def archive_coffee(
     coffee.archived = True
     db.commit()
     db.refresh(coffee)
+    return coffee
+
+
+@router.post("/coffees/{coffee_id}/finish", response_model=CoffeeResponse)
+def finish_coffee(
+    coffee_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_csrf),
+) -> Coffee:
+    enforce_demo_seed_protection(request, Coffee, coffee_id)
+    coffee = db.get(Coffee, coffee_id)
+    if coffee is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    if coffee.archived:
+        raise HTTPException(status_code=409, detail="Archived coffee cannot be marked finished")
+    if coffee.finished_at is None:
+        coffee.finished_at = utcnow()
+        db.commit()
+        db.refresh(coffee)
+    return coffee
+
+
+@router.post("/coffees/{coffee_id}/restore", response_model=CoffeeResponse)
+def restore_coffee(
+    coffee_id: int,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    _session: LoginSession = Depends(require_csrf),
+) -> Coffee:
+    enforce_demo_seed_protection(request, Coffee, coffee_id)
+    coffee = db.get(Coffee, coffee_id)
+    if coffee is None:
+        raise HTTPException(status_code=404, detail="Coffee not found")
+    if coffee.archived:
+        raise HTTPException(status_code=409, detail="Archived coffee cannot be restored")
+    if coffee.finished_at is not None:
+        coffee.finished_at = None
+        db.commit()
+        db.refresh(coffee)
     return coffee
 
 
@@ -1803,6 +1888,7 @@ def create_brew(
         if existing is not None:
             return replay_idempotent_brew_creation(db, existing, request_fingerprint)
     enforce_demo_capacity(request, db, Brew)
+    reserve_available_coffee(db, payload.coffee_id)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     confirmed_ratio = validate_brew_ratio(
         payload.water_g,
@@ -1955,6 +2041,8 @@ def update_brew(
         and login_session.profile.role != "admin"
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may edit this draft")
+    if payload.coffee_id != brew.coffee_id:
+        reserve_available_coffee(db, payload.coffee_id)
     validate_grinder_setting(db, payload.grinder_id, payload.grinder_setting)
     confirmed_ratio = validate_brew_ratio(
         payload.water_g,
@@ -2163,6 +2251,12 @@ def finalize_brew(
     }
     if payload.water_g is not None:
         values["water_g"] = payload.water_g
+    if (
+        payload.mark_coffee_finished
+        and not brew.coffee.archived
+        and brew.coffee.finished_at is None
+    ):
+        brew.coffee.finished_at = utcnow()
     result = commit_guarded_brew_update(
         db,
         brew.id,
@@ -2196,6 +2290,7 @@ def clone_brew(
 ) -> BrewResponse:
     enforce_demo_capacity(request, db, Brew)
     source = load_brew(db, brew_id)
+    reserve_available_coffee(db, source.coffee_id)
     reserve_active_brew_capacity(db)
     clone = Brew(
         coffee_id=source.coffee_id,
@@ -2751,6 +2846,7 @@ def export_rows(db: Session) -> dict[str, list[dict]]:
             "variety": item.variety,
             "package_notes": item.package_notes,
             "chart_color": item.chart_color,
+            "finished_at": item.finished_at,
             "archived": item.archived,
         }
         for item in db.scalars(select(Coffee).order_by(Coffee.id))

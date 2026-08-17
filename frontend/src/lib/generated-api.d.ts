@@ -247,6 +247,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coffees/{coffee_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish Coffee */
+        post: operations["finish_coffee_api_v1_coffees__coffee_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/coffees/{coffee_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Coffee */
+        post: operations["restore_coffee_api_v1_coffees__coffee_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/coffees/{coffee_id}/clone": {
         parameters: {
             query?: never;
@@ -1282,6 +1316,11 @@ export interface components {
             total_brew_time_s: number;
             /** Revision */
             revision: number;
+            /**
+             * Mark Coffee Finished
+             * @default false
+             */
+            mark_coffee_finished: boolean;
         };
         /** BrewInput */
         BrewInput: {
@@ -1654,8 +1693,12 @@ export interface components {
             /** Photo Path */
             photo_path: string | null;
             photo_framing: components["schemas"]["PhotoFraming"] | null;
+            /** Finished At */
+            finished_at: string | null;
             /** Archived */
             archived: boolean;
+            /** Available */
+            available: boolean;
             /** Cloned From Id */
             cloned_from_id: number | null;
             /**
@@ -2448,6 +2491,7 @@ export interface operations {
         parameters: {
             query?: {
                 include_archived?: boolean;
+                include_finished?: boolean;
             };
             header?: never;
             path?: never;
@@ -2712,6 +2756,68 @@ export interface operations {
         };
     };
     archive_coffee_api_v1_coffees__coffee_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_coffee_api_v1_coffees__coffee_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                coffee_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoffeeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_coffee_api_v1_coffees__coffee_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;

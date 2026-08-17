@@ -111,8 +111,13 @@ class Coffee(PhotoFramingMixin, TimestampMixin, Base):
     creation_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     creation_request_hash: Mapped[str | None] = mapped_column(String(64))
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("coffees.id"))
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
+
+    @property
+    def available(self) -> bool:
+        return not self.archived and self.finished_at is None
 
 
 class Grinder(PhotoFramingMixin, TimestampMixin, Base):

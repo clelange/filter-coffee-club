@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import type { ActiveBrews, AppSettings, BrewActivityItem, Session } from '../src/lib/types';
+import type { ActiveBrews, AppSettings, BrewActivityItem, Coffee, Session } from '../src/lib/types';
 
 const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 import { fileURLToPath } from 'node:url';
@@ -97,6 +97,23 @@ async function setKioskNumber(page: Page, label: string, value: string) {
     await dialog.getByRole('button', { name: character, exact: true }).click();
   }
   await dialog.getByRole('button', { name: 'Apply' }).click();
+}
+
+async function loginAda(page: Page, deviceMode: 'personal' | 'kiosk' = 'personal') {
+  const response = await page.context().request.post('/api/v1/auth/login', {
+    data: { profile_id: 1, pin: '4321', device_mode: deviceMode }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as Session;
+}
+
+async function createLifecycleCoffee(page: Page, session: Session, name: string) {
+  const response = await page.context().request.post('/api/v1/coffees', {
+    headers: { 'X-CSRF-Token': session.csrf_token },
+    data: { roaster: 'Lifecycle Roasters', name }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as Coffee;
 }
 
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
@@ -1450,7 +1467,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .filter({ has: page.getByRole('heading', { name: 'Collider Blend' }) })
     .first();
   await personalColliderCard.getByRole('link', { name: 'View details for Collider Blend' }).click();
-  await page.getByText('More actions', { exact: true }).click();
+
+  const coffeeMoreActions = page.locator('details.more-actions');
+  if ((await coffeeMoreActions.getAttribute('open')) === null) {
+    await page.getByText('More actions', { exact: true }).click();
+  }
   await page.getByRole('button', { name: 'Clone bag' }).click();
   await expect(page).toHaveURL(/\/coffees\/\d+\?edit=1$/);
   const clonedCoffeePath = new URL(page.url()).pathname;
@@ -1711,6 +1732,77 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('fcc-device-mode')))
     .toBe('kiosk');
+});
+
+test('members can finish and restore coffee while kiosk details stay read-only', async ({
+  page
+}) => {
+  const personalSession = await loginAda(page);
+  const coffee = await createLifecycleCoffee(page, personalSession, 'Detail lifecycle bag');
+
+  await page.goto(`/coffees/${coffee.id}`);
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Mark bag empty' }).click();
+  const finishDialog = page.getByRole('alertdialog', { name: 'Mark this bag empty?' });
+  await finishDialog.getByRole('button', { name: 'Mark bag empty' }).click();
+  await expect(page.getByText('Finished', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Brew this' })).toHaveCount(0);
+
+  await page.goto('/coffees');
+  const finishedSection = page.locator('details.finished-section');
+  await finishedSection.getByText('Finished bags', { exact: true }).click();
+  const finishedCard = finishedSection.locator('article[data-testid="catalog-card"]').filter({
+    has: page.getByRole('heading', { name: coffee.name, exact: true })
+  });
+  await expect(finishedCard.getByText('Finished', { exact: true })).toBeVisible();
+
+  await page.evaluate(() => localStorage.setItem('fcc-device-mode', 'kiosk'));
+  await loginAda(page, 'kiosk');
+  await page.goto(`/coffees/${coffee.id}`);
+  await expect(page.getByText('More actions', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Brew this' })).toHaveCount(0);
+
+  await page.evaluate(() => localStorage.setItem('fcc-device-mode', 'personal'));
+  await loginAda(page);
+  await page.goto(`/coffees/${coffee.id}`);
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Make available again' }).click();
+  const restoreDialog = page.getByRole('alertdialog', {
+    name: 'Make this bag available again?'
+  });
+  await restoreDialog.getByRole('button', { name: 'Make available' }).click();
+  await expect(page.getByRole('link', { name: 'Brew this' })).toBeVisible();
+});
+
+test('brew finalization can finish the selected coffee bag', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createLifecycleCoffee(page, session, 'Final Cup');
+
+  await page.goto(`/coffees/${coffee.id}`);
+  await page.getByRole('link', { name: 'Brew this' }).click();
+  await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const lastBrewCheckbox = page.getByRole('checkbox', {
+    name: /This was the last brew from this bag/
+  });
+  await expect(lastBrewCheckbox).not.toBeChecked();
+  await lastBrewCheckbox.check();
+  await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+
+  await page.goto('/brews/new');
+  await expect(page.getByLabel('Coffee').getByRole('option', { name: /Final Cup/ })).toHaveCount(0);
+  await page.goto('/coffees');
+  await expect(
+    page
+      .locator('section[aria-label="Coffee bags"]')
+      .getByRole('heading', { name: coffee.name, exact: true })
+  ).toHaveCount(0);
+  const finishedSection = page.locator('details.finished-section');
+  await finishedSection.getByText('Finished bags', { exact: true }).click();
+  await expect(
+    finishedSection.getByRole('heading', { name: coffee.name, exact: true })
+  ).toBeVisible();
 });
 
 test('the brew rail keeps parallel activity side-by-side at every breakpoint', async ({ page }) => {

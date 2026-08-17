@@ -5,6 +5,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code: string | null = null,
     public retryAfterSeconds: number | null = null
   ) {
     super(message);
@@ -17,13 +18,27 @@ let sessionSnapshot: Session | null = null;
 let sessionChecked = false;
 sessionStore.subscribe((value) => (sessionSnapshot = value));
 
-function detailMessage(body: unknown, fallback: string): string {
+function errorDetail(body: unknown, fallback: string): { message: string; code: string | null } {
   if (body && typeof body === 'object' && 'detail' in body) {
     const detail = (body as { detail: unknown }).detail;
-    if (typeof detail === 'string') return detail;
-    if (Array.isArray(detail)) return detail.map((item) => item.msg ?? String(item)).join(', ');
+    if (typeof detail === 'string') return { message: detail, code: null };
+    if (Array.isArray(detail)) {
+      return {
+        message: detail.map((item) => item.msg ?? String(item)).join(', '),
+        code: null
+      };
+    }
+    if (detail && typeof detail === 'object' && 'message' in detail) {
+      const structured = detail as { message: unknown; code?: unknown };
+      if (typeof structured.message === 'string') {
+        return {
+          message: structured.message,
+          code: typeof structured.code === 'string' ? structured.code : null
+        };
+      }
+    }
   }
-  return fallback;
+  return { message: fallback, code: null };
 }
 
 function retryAfterSeconds(response: Response): number | null {
@@ -48,12 +63,10 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (response.status === 204) return undefined as T;
   const body = await response.json().catch(() => null);
-  if (!response.ok)
-    throw new ApiError(
-      response.status,
-      detailMessage(body, response.statusText),
-      retryAfterSeconds(response)
-    );
+  if (!response.ok) {
+    const detail = errorDetail(body, response.statusText);
+    throw new ApiError(response.status, detail.message, detail.code, retryAfterSeconds(response));
+  }
   return body as T;
 }
 

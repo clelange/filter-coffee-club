@@ -67,7 +67,9 @@ export interface Coffee {
   opened_date?: string | null;
   variety?: string | null;
   package_notes?: string | null;
+  finished_at: string | null;
   archived: boolean;
+  available: boolean;
   cloned_from_id?: number | null;
   created_at: string;
 }

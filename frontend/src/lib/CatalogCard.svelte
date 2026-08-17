@@ -17,6 +17,7 @@
   export let beanFallback = false;
   export let primaryHref: string | null = null;
   export let primaryLabel = '';
+  export let statusLabel: string | null = null;
 </script>
 
 <article class="catalog-card" data-testid="catalog-card">
@@ -30,7 +31,10 @@
       {beanFallback}
     />
     <div class="catalog-copy">
-      <p class="eyebrow">{eyebrow}</p>
+      <div class="catalog-topline">
+        <p class="eyebrow">{eyebrow}</p>
+        {#if statusLabel}<span class="status">{statusLabel}</span>{/if}
+      </div>
       <h3>{title}</h3>
       <p class="metadata">{metadata || 'Details not recorded yet'}</p>
       {#if notes}<p class="notes">{notes}</p>{/if}
@@ -72,6 +76,12 @@
     align-content: start;
     gap: var(--catalog-gap-sm, 8px);
     min-width: 0;
+  }
+  .catalog-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
   .catalog-copy :global(p),
   h3 {

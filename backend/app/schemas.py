@@ -146,7 +146,9 @@ class CoffeeResponse(CoffeeInput, ORMModel):
     chart_color: str
     photo_path: str | None
     photo_framing: PhotoFraming | None
+    finished_at: datetime | None
     archived: bool
+    available: bool
     cloned_from_id: int | None
     created_at: datetime
 
@@ -286,6 +288,7 @@ class BrewFinalize(BaseModel):
     water_g: float | None = Field(default=None, gt=0, le=5000)
     total_brew_time_s: int = Field(gt=0, le=3600)
     revision: int = Field(ge=1)
+    mark_coffee_finished: bool = False
 
 
 class BrewOperatorUpdate(BaseModel):
