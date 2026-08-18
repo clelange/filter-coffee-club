@@ -85,7 +85,133 @@ def animated_gif_upload() -> bytes:
 
 def test_public_settings_expose_the_deployed_version(tmp_path: Path) -> None:
     with build_client(tmp_path, app_version="v2026.08.5") as client:
-        assert client.get("/api/v1/settings").json()["app_version"] == "v2026.08.5"
+        settings = client.get("/api/v1/settings").json()
+        assert settings["app_version"] == "v2026.08.5"
+        assert settings["brewing_logo_path"] == "/brand/filter-coffee-club-brewing.svg"
+
+
+def test_brewing_logo_uploads_replace_clear_and_restore_cleanly(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+
+        first_upload = client.post(
+            "/api/v1/settings/brewing-logo",
+            headers=headers,
+            files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert first_upload.status_code == 200, first_upload.text
+        first_path = first_upload.json()["brewing_logo_path"]
+        assert first_path.startswith("/uploads/brewing-logo-")
+        assert first_path.endswith(".png")
+        assert client.get(first_path).content.startswith(b"\x89PNG\r\n\x1a\n")
+
+        replacement = client.post(
+            "/api/v1/settings/brewing-logo",
+            headers=headers,
+            files={"logo": ("brewing.webp", image_upload("WEBP", size=(24, 24)), "image/webp")},
+        )
+        assert replacement.status_code == 200, replacement.text
+        replacement_path = replacement.json()["brewing_logo_path"]
+        assert replacement_path.startswith("/uploads/brewing-logo-")
+        assert replacement_path.endswith(".webp")
+        assert client.get(first_path).status_code == 404
+        assert client.get(replacement_path).status_code == 200
+
+        cleared = client.delete("/api/v1/settings/brewing-logo", headers=headers)
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["brewing_logo_path"] is None
+        assert client.get(replacement_path).status_code == 404
+
+        restored = client.post("/api/v1/settings/brewing-logo/default", headers=headers)
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["brewing_logo_path"] == ("/brand/filter-coffee-club-brewing.svg")
+
+
+def test_regular_logo_replacement_removes_previous_upload(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        first = client.post(
+            "/api/v1/settings/logo",
+            headers=headers,
+            files={"logo": ("logo.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert first.status_code == 200, first.text
+        first_path = first.json()["logo_path"]
+
+        replacement = client.post(
+            "/api/v1/settings/logo",
+            headers=headers,
+            files={"logo": ("logo.webp", image_upload("WEBP", size=(24, 24)), "image/webp")},
+        )
+        assert replacement.status_code == 200, replacement.text
+        assert client.get(first_path).status_code == 404
+        assert client.get(replacement.json()["logo_path"]).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "content_type", "expected_status"),
+    [
+        ("logo.txt", b"not an image", "text/plain", 415),
+        ("logo.png", b"\x89PNG\r\n\x1a\ntruncated", "image/png", 415),
+        ("logo.png", b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024), "image/png", 413),
+    ],
+)
+def test_brewing_logo_upload_validation(
+    tmp_path: Path,
+    filename: str,
+    content: bytes,
+    content_type: str,
+    expected_status: int,
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        response = client.post(
+            "/api/v1/settings/brewing-logo",
+            headers=headers,
+            files={"logo": (filename, content, content_type)},
+        )
+        assert response.status_code == expected_status, response.text
+
+
+def test_brewing_logo_rejects_excessive_dimensions(tmp_path: Path) -> None:
+    with build_client(tmp_path, max_logo_pixels=100) as client:
+        _session, headers = bootstrap(client)
+        response = client.post(
+            "/api/v1/settings/brewing-logo",
+            headers=headers,
+            files={"logo": ("large.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert response.status_code == 413, response.text
+        assert response.json()["detail"] == "Logo dimensions are too large"
+
+
+def test_brewing_logo_upload_requires_csrf(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        bootstrap(client)
+        response = client.post(
+            "/api/v1/settings/brewing-logo",
+            files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert response.status_code == 403, response.text
+
+
+def test_failed_brewing_logo_commit_removes_new_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+
+        def fail_commit(_session: Session) -> None:
+            raise RuntimeError("forced branding commit failure")
+
+        monkeypatch.setattr(Session, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="forced branding commit failure"):
+            client.post(
+                "/api/v1/settings/brewing-logo",
+                headers=headers,
+                files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
+            )
+        assert list((tmp_path / "uploads").glob("brewing-logo-*")) == []
 
 
 def test_render_deployments_fall_back_to_the_short_commit(
@@ -2007,6 +2133,19 @@ def test_demo_mode_seeds_examples_and_protects_reset_anchors(tmp_path: Path) -> 
                 files={"logo": ("logo.png", b"\x89PNG\r\n\x1a\n", "image/png")},
             )
             assert upload.status_code == 403
+            brewing_upload = client.post(
+                "/api/v1/settings/brewing-logo",
+                headers=headers,
+                files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
+            )
+            assert brewing_upload.status_code == 403
+            assert (
+                client.delete("/api/v1/settings/brewing-logo", headers=headers).status_code == 403
+            )
+            assert (
+                client.post("/api/v1/settings/brewing-logo/default", headers=headers).status_code
+                == 403
+            )
             photo_upload = client.put(
                 f"/api/v1/coffees/{coffees[0]['id']}/photo",
                 headers=headers,

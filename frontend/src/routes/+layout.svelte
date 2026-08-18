@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import BrewActivityRail from '$lib/BrewActivityRail.svelte';
   import Logo from '$lib/Logo.svelte';
+  import { brewStatusStore } from '$lib/brew-status';
   import {
     adoptSessionDeviceMode,
     deviceModeStore,
@@ -17,12 +19,13 @@
   const repositoryUrl = 'https://github.com/clelange/filter-coffee-club';
 
   let { children } = $props();
-  let settings: AppSettings = $state({
+  const fallbackSettings: AppSettings = {
     app_name: 'Filter Coffee Club',
     app_version: 'development',
     subtitle: 'High-Energy Physics coffee breaks at PSI',
     public_base_url: null,
     logo_path: null,
+    brewing_logo_path: null,
     color_cream: '#F6F1E8',
     color_surface: '#FFFDFC',
     color_ink: '#241C19',
@@ -35,13 +38,15 @@
     demo_notice: null,
     demo_pin: null,
     demo_profile_names: []
-  });
+  };
+  const settings = $derived($appSettingsStore ?? fallbackSettings);
   let ready = $state(false);
   let settingsLoaded = $state(false);
   let appBootstrapped = $state(false);
   let navOpen = $state(false);
   let navToggle: HTMLButtonElement;
   let navPanel: HTMLElement;
+  const brewing = $derived(Boolean($brewStatusStore?.active_count));
 
   function applyTheme(value: AppSettings) {
     const root = document.documentElement;
@@ -53,6 +58,10 @@
     root.style.setProperty('--amber', value.color_amber);
     document.title = value.app_name;
   }
+
+  $effect(() => {
+    if (browser) applyTheme(settings);
+  });
 
   function versionUrl(version: string): string {
     if (/^v\d{4}\.\d{2}\.\d+$/.test(version)) {
@@ -81,10 +90,9 @@
   onMount(async () => {
     try {
       const device = initializeDeviceMode($page.url);
-      settings = await api<AppSettings>('/settings');
+      const loadedSettings = await api<AppSettings>('/settings');
       settingsLoaded = true;
-      appSettingsStore.set(settings);
-      applyTheme(settings);
+      appSettingsStore.set(loadedSettings);
       const bootstrap = await api<{ required: boolean }>('/auth/bootstrap-status');
       if (bootstrap.required && $page.url.pathname !== '/setup') {
         await goto('/setup');
@@ -154,7 +162,12 @@
 <header class="site-header">
   <div class="header-main">
     <a class="brand" href="/" aria-label={`${settings.app_name} home`}>
-      <Logo logoPath={settings.logo_path} compact />
+      <Logo
+        logoPath={settings.logo_path}
+        brewingLogoPath={settings.brewing_logo_path}
+        {brewing}
+        compact
+      />
       <span>
         <strong>{settings.app_name}</strong>
         <small>{settings.subtitle}</small>

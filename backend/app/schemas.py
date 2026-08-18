@@ -567,6 +567,7 @@ class AppSettingsResponse(ORMModel):
     subtitle: str
     public_base_url: str | None
     logo_path: str | None
+    brewing_logo_path: str | None
     color_cream: str
     color_surface: str
     color_ink: str

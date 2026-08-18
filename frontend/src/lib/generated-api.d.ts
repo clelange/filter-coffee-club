@@ -962,6 +962,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/brewing-logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Brewing Logo */
+        post: operations["upload_brewing_logo_api_v1_settings_brewing_logo_post"];
+        /** Clear Brewing Logo */
+        delete: operations["clear_brewing_logo_api_v1_settings_brewing_logo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/brewing-logo/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Default Brewing Logo */
+        post: operations["restore_default_brewing_logo_api_v1_settings_brewing_logo_default_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/exports/json": {
         parameters: {
             query?: never;
@@ -1137,6 +1172,8 @@ export interface components {
             public_base_url: string | null;
             /** Logo Path */
             logo_path: string | null;
+            /** Brewing Logo Path */
+            brewing_logo_path: string | null;
             /** Color Cream */
             color_cream: string;
             /** Color Surface */
@@ -1234,6 +1271,11 @@ export interface components {
             focus_y?: number | null;
             /** Zoom */
             zoom?: number | null;
+        };
+        /** Body_upload_brewing_logo_api_v1_settings_brewing_logo_post */
+        Body_upload_brewing_logo_api_v1_settings_brewing_logo_post: {
+            /** Logo */
+            logo: string;
         };
         /** Body_upload_logo_api_v1_settings_logo_post */
         Body_upload_logo_api_v1_settings_logo_post: {
@@ -4639,6 +4681,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_brewing_logo_api_v1_settings_brewing_logo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_brewing_logo_api_v1_settings_brewing_logo_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_brewing_logo_api_v1_settings_brewing_logo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettingsResponse"];
+                };
+            };
+        };
+    };
+    restore_default_brewing_logo_api_v1_settings_brewing_logo_default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettingsResponse"];
                 };
             };
         };

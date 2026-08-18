@@ -39,6 +39,7 @@ const publicAppSettings: AppSettings = {
   subtitle: 'Brew activity test',
   public_base_url: null,
   logo_path: null,
+  brewing_logo_path: '/brand/filter-coffee-club-brewing.svg',
   color_cream: '#f6f1e8',
   color_surface: '#fffdfc',
   color_ink: '#241c19',
@@ -180,14 +181,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       response.request().method() === 'PUT' &&
       response.ok()
   );
-  const reloadedRaisedSettings = page.waitForResponse(
-    (response) =>
-      response.url().endsWith('/api/v1/settings') &&
-      response.request().method() === 'GET' &&
-      response.ok()
-  );
   await page.getByRole('button', { name: 'Save settings' }).click();
-  await Promise.all([raisedParallelBrews, reloadedRaisedSettings]);
+  await raisedParallelBrews;
   await expect(page.getByText('Settings saved.')).toBeVisible();
   await parallelBrews.fill('2');
   const resetParallelBrews = page.waitForResponse(
@@ -196,14 +191,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       response.request().method() === 'PUT' &&
       response.ok()
   );
-  const reloadedResetSettings = page.waitForResponse(
-    (response) =>
-      response.url().endsWith('/api/v1/settings') &&
-      response.request().method() === 'GET' &&
-      response.ok()
-  );
   await page.getByRole('button', { name: 'Save settings' }).click();
-  await Promise.all([resetParallelBrews, reloadedResetSettings]);
+  await resetParallelBrews;
   await peopleTab.click();
 
   await page.getByRole('tab', { name: 'Presets & flavors' }).click();
@@ -1803,6 +1792,166 @@ test('brew finalization can finish the selected coffee bag', async ({ page }) =>
   await expect(
     finishedSection.getByRole('heading', { name: coffee.name, exact: true })
   ).toBeVisible();
+});
+
+test('active brews use the configured brewing logo with regular-logo fallback', async ({
+  page
+}) => {
+  const settings: AppSettings = {
+    ...publicAppSettings,
+    logo_path: '/brand/filter-coffee-club-logo-256.webp'
+  };
+  let status: ActiveBrews = {
+    brews: [railBrew(101, 'Logo Test Brew')],
+    recent_rating_brews: [],
+    active_count: 1,
+    max_active_brews: 2,
+    can_start: true
+  };
+
+  await page.route('**/api/v1/brews/active', (route) => fulfillJson(route, status));
+  await mockSignedOutHome(page, settings);
+  await page.goto('/?kiosk=0');
+
+  await expect(page.locator('.brand img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-brewing.svg'
+  );
+  await expect(page.locator('.hero-logo img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-brewing.svg'
+  );
+  await expect
+    .poll(() =>
+      page.locator('.brand img').evaluate((image) => (image as HTMLImageElement).naturalWidth)
+    )
+    .toBeGreaterThan(0);
+
+  status = {
+    brews: [],
+    recent_rating_brews: [railBrew(100, 'Rating Only', 'rating-token')],
+    active_count: 0,
+    max_active_brews: 2,
+    can_start: true
+  };
+  await expect(page.locator('.brand img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-logo-256.webp',
+    { timeout: 8_000 }
+  );
+  await expect(page.locator('.hero-logo img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-logo-256.webp',
+    { timeout: 8_000 }
+  );
+
+  settings.brewing_logo_path = null;
+  status = {
+    ...status,
+    brews: [railBrew(102, 'Fallback Brew')],
+    recent_rating_brews: [],
+    active_count: 1
+  };
+  await page.reload();
+  await expect(page.locator('.brand img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-logo-256.webp'
+  );
+  await expect(page.locator('.hero-logo img')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-logo-256.webp'
+  );
+});
+
+test('admin brewing-logo actions update settings without reloading unrelated data', async ({
+  page
+}) => {
+  let settings: AppSettings = { ...publicAppSettings };
+  let peopleRequests = 0;
+  const adminSession: Session = {
+    profile: {
+      id: 1,
+      display_name: 'Ada',
+      role: 'admin',
+      active: true,
+      pin_change_required: false
+    },
+    csrf_token: 'branding-test-token',
+    device_mode: 'personal',
+    expires_at: '2030-01-01T00:00:00Z'
+  };
+
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, settings));
+  await page.route('**/api/v1/auth/bootstrap-status', (route) =>
+    fulfillJson(route, { required: false })
+  );
+  await page.route('**/api/v1/auth/me', (route) => fulfillJson(route, adminSession));
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, {
+      brews: [],
+      recent_rating_brews: [],
+      active_count: 0,
+      max_active_brews: 2,
+      can_start: true
+    })
+  );
+  await page.route('**/api/v1/people', (route) => {
+    peopleRequests += 1;
+    return fulfillJson(route, []);
+  });
+  for (const path of ['grinders', 'drippers', 'filters']) {
+    await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
+  }
+  await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/settings/brewing-logo/default', (route) => {
+    settings = {
+      ...settings,
+      brewing_logo_path: '/brand/filter-coffee-club-brewing.svg'
+    };
+    return fulfillJson(route, settings);
+  });
+  await page.route('**/api/v1/settings/brewing-logo', (route) => {
+    settings = {
+      ...settings,
+      brewing_logo_path:
+        route.request().method() === 'DELETE' ? null : '/brand/filter-coffee-club-logo-256.webp'
+    };
+    return fulfillJson(route, settings);
+  });
+
+  await page.goto('/admin?kiosk=0');
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await expect(page.getByAltText('Current brew-in-progress logo')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-brewing.svg'
+  );
+  expect(peopleRequests).toBe(1);
+
+  await page.getByLabel('Replacement PNG/WebP').setInputFiles({
+    name: 'custom-brewing.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('mock image handled by the route')
+  });
+  await expect(page.getByText('Brewing logo uploaded.')).toBeVisible();
+  await expect(page.getByAltText('Current brew-in-progress logo')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-logo-256.webp'
+  );
+  expect(peopleRequests).toBe(1);
+
+  await page.getByRole('button', { name: 'Use regular logo while brewing' }).click();
+  await expect(page.getByText('The regular logo will be used while brewing.')).toBeVisible();
+  await expect(page.getByText('The regular logo is currently reused while brewing.')).toBeVisible();
+  expect(peopleRequests).toBe(1);
+
+  await page.getByRole('button', { name: 'Restore default brewing animation' }).click();
+  await expect(page.getByText('Default brewing animation restored.')).toBeVisible();
+  await expect(page.getByAltText('Current brew-in-progress logo')).toHaveAttribute(
+    'src',
+    '/brand/filter-coffee-club-brewing.svg'
+  );
+  expect(peopleRequests).toBe(1);
 });
 
 test('the brew rail keeps parallel activity side-by-side at every breakpoint', async ({ page }) => {

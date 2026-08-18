@@ -325,3 +325,49 @@ def test_target_ratio_migration_backfills_existing_brews(tmp_path: Path) -> None
         )
         assert target_ratio["nullable"] is False
     engine.dispose()
+
+
+def test_brewing_logo_migration_defaults_existing_installations(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-brewing-logo.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "e2a4c6d8f901")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO app_settings (
+                    id, app_name, subtitle, public_base_url, logo_path,
+                    color_cream, color_surface, color_ink, color_coffee, color_cyan, color_amber
+                ) VALUES
+                    (
+                        1, 'Custom club', 'Custom identity', NULL, '/uploads/custom-logo.webp',
+                        '#F6F1E8', '#FFFDFC', '#241C19', '#6B3F2A', '#007F9E', '#D88700'
+                    ),
+                    (
+                        2, 'Default club', 'Bundled identity', NULL, NULL,
+                        '#F6F1E8', '#FFFDFC', '#241C19', '#6B3F2A', '#007F9E', '#D88700'
+                    )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "f4a1b2c3d4e5")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, logo_path, brewing_logo_path FROM app_settings ORDER BY id")
+        ).all() == [
+            (1, "/uploads/custom-logo.webp", None),
+            (2, None, "/brand/filter-coffee-club-brewing.svg"),
+        ]
+        brewing_logo = next(
+            column
+            for column in inspect(connection).get_columns("app_settings")
+            if column["name"] == "brewing_logo_path"
+        )
+        assert brewing_logo["nullable"] is True
+    engine.dispose()

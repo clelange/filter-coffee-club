@@ -30,6 +30,7 @@ export interface AppSettings {
   subtitle: string;
   public_base_url: string | null;
   logo_path: string | null;
+  brewing_logo_path: string | null;
   color_cream: string;
   color_surface: string;
   color_ink: string;

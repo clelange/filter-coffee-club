@@ -8,6 +8,7 @@ const settings = {
   subtitle: 'Analytics test',
   public_base_url: null,
   logo_path: null,
+  brewing_logo_path: '/brand/filter-coffee-club-brewing.svg',
   color_cream: '#f6f1e8',
   color_surface: '#fffdfc',
   color_ink: '#241c19',

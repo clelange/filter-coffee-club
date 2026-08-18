@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { deviceModeStore, loginPath } from '$lib/device';
-  import { api, ensureSession, jsonBody } from '$lib/api';
+  import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
     AppSettings,
     Dripper,
@@ -93,6 +93,7 @@
       api<FlavorTag[]>('/flavor-tags?active_only=false'),
       api<AppSettings>('/settings')
     ]);
+    appSettingsStore.set(settings);
   }
   async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     error = '';
@@ -101,6 +102,23 @@
       await action();
       message = success;
       await load();
+      return true;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'The change could not be saved.';
+      return false;
+    }
+  }
+  async function runSettingsAction(
+    action: () => Promise<AppSettings>,
+    success: string
+  ): Promise<boolean> {
+    error = '';
+    message = '';
+    try {
+      const updatedSettings = await action();
+      settings = updatedSettings;
+      appSettingsStore.set(updatedSettings);
+      message = success;
       return true;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The change could not be saved.';
@@ -247,8 +265,8 @@
   async function saveSettings(event: SubmitEvent) {
     event.preventDefault();
     if (!settings) return;
-    await run(
-      () => api('/settings', { method: 'PUT', body: jsonBody(settings) }),
+    await runSettingsAction(
+      () => api<AppSettings>('/settings', { method: 'PUT', body: jsonBody(settings) }),
       'Settings saved.'
     );
   }
@@ -258,7 +276,39 @@
     if (!file) return;
     const body = new FormData();
     body.set('logo', file);
-    await run(() => api('/settings/logo', { method: 'POST', body }), 'Logo uploaded.');
+    if (
+      await runSettingsAction(
+        () => api<AppSettings>('/settings/logo', { method: 'POST', body }),
+        'Logo uploaded.'
+      )
+    )
+      input.value = '';
+  }
+  async function uploadBrewingLogo(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const body = new FormData();
+    body.set('logo', file);
+    if (
+      await runSettingsAction(
+        () => api<AppSettings>('/settings/brewing-logo', { method: 'POST', body }),
+        'Brewing logo uploaded.'
+      )
+    )
+      input.value = '';
+  }
+  async function clearBrewingLogo() {
+    await runSettingsAction(
+      () => api<AppSettings>('/settings/brewing-logo', { method: 'DELETE' }),
+      'The regular logo will be used while brewing.'
+    );
+  }
+  async function restoreDefaultBrewingLogo() {
+    await runSettingsAction(
+      () => api<AppSettings>('/settings/brewing-logo/default', { method: 'POST' }),
+      'Default brewing animation restored.'
+    );
   }
 
   function grinderForRange(grinderId: number) {
@@ -720,6 +770,40 @@
               disabled={settings.demo_mode}
             /></label
           >
+          <div class="brewing-logo-setting">
+            <div>
+              <h3>Brew-in-progress logo</h3>
+              <p class="muted">
+                Show a separate logo while at least one brew is active. Clear it to keep using the
+                regular logo instead.
+              </p>
+            </div>
+            {#if settings.brewing_logo_path}
+              <img src={settings.brewing_logo_path} alt="Current brew-in-progress logo" />
+              <label
+                >Replacement PNG/WebP<input
+                  type="file"
+                  accept="image/png,image/webp"
+                  onchange={uploadBrewingLogo}
+                  disabled={settings.demo_mode}
+                /></label
+              >
+              <button
+                class="secondary"
+                type="button"
+                onclick={clearBrewingLogo}
+                disabled={settings.demo_mode}>Use regular logo while brewing</button
+              >
+            {:else}
+              <p class="muted">The regular logo is currently reused while brewing.</p>
+              <button
+                class="secondary"
+                type="button"
+                onclick={restoreDefaultBrewingLogo}
+                disabled={settings.demo_mode}>Restore default brewing animation</button
+              >
+            {/if}
+          </div>
         </div>
         <div>
           <h3>Palette</h3>
@@ -927,6 +1011,25 @@
     grid-template-columns: 1fr 1fr;
     gap: 30px;
     margin-top: 18px;
+  }
+  .brewing-logo-setting {
+    display: grid;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .brewing-logo-setting h3,
+  .brewing-logo-setting p {
+    margin: 0;
+  }
+  .brewing-logo-setting img {
+    width: 96px;
+    height: 96px;
+    object-fit: contain;
+  }
+  .brewing-logo-setting button {
+    justify-self: start;
   }
   .colors {
     display: grid;
