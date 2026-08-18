@@ -34,6 +34,16 @@ const session: Session = {
   expires_at: '2030-01-01T00:00:00Z'
 };
 
+const memberSession: Session = {
+  ...session,
+  profile: { ...session.profile, role: 'member' }
+};
+
+const overseeingAdminSession: Session = {
+  ...session,
+  profile: { ...session.profile, id: 2, display_name: 'Grace' }
+};
+
 const coffee = {
   id: 11,
   roaster: 'Guard Roasters',
@@ -114,6 +124,25 @@ const inactivePreset = {
   sort_order: 2
 };
 
+const finishInput: BrewInput = {
+  coffee_id: coffee.id,
+  grinder_id: grinder.id,
+  dripper_id: null,
+  filter_id: null,
+  source_preset_id: preset.id,
+  dose_g: 8,
+  water_g: 128,
+  target_ratio: 16,
+  temperature_c: 94,
+  grinder_setting: 26,
+  servings: 1,
+  target_flow_g_s: 4.5,
+  bloom_water_g: 45,
+  bloom_time_s: null,
+  pour_count: null,
+  technique_note: null
+};
+
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -150,7 +179,8 @@ function brewFromInput(id: number, input: BrewInput, status: Brew['status'] = 'd
 async function mockCommonApi(
   page: Page,
   brewState: () => Brew | null,
-  deviceMode: Session['device_mode'] = 'personal'
+  deviceMode: Session['device_mode'] = 'personal',
+  viewerSession: Session = session
 ) {
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url());
@@ -159,7 +189,7 @@ async function mockCommonApi(
     if (path === '/api/v1/settings') return fulfillJson(route, settings);
     if (path === '/api/v1/auth/bootstrap-status') return fulfillJson(route, { required: false });
     if (path === '/api/v1/auth/me') {
-      return fulfillJson(route, { ...session, device_mode: deviceMode });
+      return fulfillJson(route, { ...viewerSession, device_mode: deviceMode });
     }
     if (path === '/api/v1/brews/active') {
       const current = brewState();
@@ -487,4 +517,193 @@ test('unusual actual water requires confirmation before finalization', async ({ 
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   expect(finalizeRequests).toBe(1);
   expect(confirmationHeader).toBe('true');
+});
+
+for (const [viewerLabel, viewerSession] of [
+  ['member operator', memberSession],
+  ['administrator overseeing another operator', overseeingAdminSession]
+] as const) {
+  test(`${viewerLabel} reviews a concurrent change before retrying finalization`, async ({
+    page
+  }) => {
+    let currentBrew = brewFromInput(404, finishInput);
+    let finalizeAttempts = 0;
+    let finalPayload: {
+      water_g: number;
+      total_brew_time_s: number;
+      revision: number;
+      mark_coffee_finished: boolean;
+    } | null = null;
+    await mockCommonApi(page, () => currentBrew, 'personal', viewerSession);
+    await page.route('**/api/v1/brews/404/finalize', (route) => {
+      finalizeAttempts += 1;
+      const payload = route.request().postDataJSON() as {
+        water_g: number;
+        total_brew_time_s: number;
+        revision: number;
+        mark_coffee_finished: boolean;
+      };
+      if (finalizeAttempts === 1) {
+        currentBrew = { ...currentBrew, revision: 2, temperature_c: 91 };
+        return fulfillJson(route, { detail: 'Brew changed; refresh and try again' }, 409);
+      }
+      finalPayload = payload;
+      currentBrew = {
+        ...currentBrew,
+        water_g: payload.water_g,
+        ratio: Math.round((payload.water_g / currentBrew.dose_g) * 100) / 100,
+        total_brew_time_s: payload.total_brew_time_s,
+        revision: currentBrew.revision + 1,
+        status: 'completed',
+        completed_at: '2026-08-15T10:04:12Z',
+        rating_token: 'conflict-test-token'
+      };
+      return fulfillJson(route, currentBrew);
+    });
+
+    await page.goto('/brews/404?kiosk=0');
+    const finishButton = page.getByRole('button', { name: 'Finish brew' });
+    await finishButton.click();
+    const finishDialog = page.getByRole('dialog', { name: 'Finish this brew' });
+    const minutes = finishDialog.getByRole('spinbutton', { name: 'Minutes' });
+    await expect(minutes).toBeFocused();
+    await minutes.fill('4');
+    await finishDialog.getByRole('spinbutton', { name: 'Seconds' }).fill('12');
+    await finishDialog.getByRole('spinbutton', { name: 'Actual water' }).fill('126');
+    await finishDialog.getByRole('checkbox', { name: /last brew from this bag/i }).check();
+    await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+
+    await expect(finishDialog.getByRole('alert')).toContainText('Another device changed this brew');
+    await expect(
+      finishDialog.getByRole('button', { name: 'Finalize and invite tasters' })
+    ).toHaveCount(0);
+    const reviewButton = finishDialog.getByRole('button', { name: 'Review latest recipe' });
+    await expect(reviewButton).toBeFocused();
+    await reviewButton.click();
+    await expect(finishDialog).toBeHidden();
+    await expect(finishButton).toBeFocused();
+    await expect(page.getByText('91 °C', { exact: true })).toBeVisible();
+
+    await finishButton.click();
+    await expect(finishDialog.getByRole('spinbutton', { name: 'Minutes' })).toHaveValue('4');
+    await expect(finishDialog.getByRole('spinbutton', { name: 'Seconds' })).toHaveValue('12');
+    await expect(finishDialog.getByRole('spinbutton', { name: 'Actual water' })).toHaveValue('126');
+    await expect(
+      finishDialog.getByRole('checkbox', { name: /last brew from this bag/i })
+    ).toBeChecked();
+    await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+    expect(finalizeAttempts).toBe(2);
+    expect(finalPayload).toMatchObject({
+      water_g: 126,
+      total_brew_time_s: 252,
+      revision: 2,
+      mark_coffee_finished: true
+    });
+  });
+}
+
+test('finish dialog restores focus and keeps an ordinary failure retryable', async ({ page }) => {
+  let currentBrew = brewFromInput(405, finishInput);
+  let finalizeAttempts = 0;
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/brews/405/finalize', (route) => {
+    finalizeAttempts += 1;
+    if (finalizeAttempts === 1) {
+      return fulfillJson(route, { detail: 'The brewer is temporarily unavailable' }, 500);
+    }
+    currentBrew = {
+      ...currentBrew,
+      status: 'completed',
+      revision: 2,
+      total_brew_time_s: 180,
+      completed_at: '2026-08-15T10:04:12Z',
+      rating_token: 'retry-test-token'
+    };
+    return fulfillJson(route, currentBrew);
+  });
+
+  await page.goto('/brews/405?kiosk=0');
+  const finishButton = page.getByRole('button', { name: 'Finish brew' });
+  const finishDialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await finishButton.click();
+  await expect(finishDialog.getByRole('spinbutton', { name: 'Minutes' })).toBeFocused();
+  await finishDialog.getByRole('button', { name: 'Back' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(finishDialog.getByRole('button', { name: 'Decrease Minutes' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(finishDialog).toBeHidden();
+  await expect(finishButton).toBeFocused();
+
+  await finishButton.click();
+  const finalizeButton = finishDialog.getByRole('button', {
+    name: 'Finalize and invite tasters'
+  });
+  await finalizeButton.click();
+  await expect(finishDialog.getByRole('alert')).toHaveText('The brewer is temporarily unavailable');
+  await expect(finalizeButton).toBeEnabled();
+  await finalizeButton.click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  expect(finalizeAttempts).toBe(2);
+});
+
+test('failed conflict refresh requires a successful reload before review', async ({ page }) => {
+  let currentBrew = brewFromInput(406, finishInput);
+  let brewReads = 0;
+  let finalizeAttempts = 0;
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/brews/406', (route) => {
+    brewReads += 1;
+    if (brewReads === 2) {
+      return fulfillJson(route, { detail: 'Could not load this brew' }, 503);
+    }
+    return fulfillJson(route, currentBrew);
+  });
+  await page.route('**/api/v1/brews/406/finalize', (route) => {
+    finalizeAttempts += 1;
+    currentBrew = { ...currentBrew, revision: 2, temperature_c: 90 };
+    return fulfillJson(route, { detail: 'Brew changed; refresh and try again' }, 409);
+  });
+
+  await page.goto('/brews/406?kiosk=0');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const finishDialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+
+  await expect(finishDialog.getByRole('alert')).toContainText('latest version could not be loaded');
+  await expect(
+    finishDialog.getByRole('button', { name: 'Finalize and invite tasters' })
+  ).toHaveCount(0);
+  const reloadButton = finishDialog.getByRole('button', { name: 'Reload latest brew' });
+  await expect(reloadButton).toBeFocused();
+  await reloadButton.click();
+  const reviewButton = finishDialog.getByRole('button', { name: 'Review latest recipe' });
+  await expect(reviewButton).toBeFocused();
+  expect(finalizeAttempts).toBe(1);
+  expect(brewReads).toBe(3);
+});
+
+test('conflict refresh follows a brew already completed elsewhere', async ({ page }) => {
+  let currentBrew = brewFromInput(407, finishInput);
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/brews/407/finalize', (route) => {
+    currentBrew = {
+      ...currentBrew,
+      status: 'completed',
+      revision: 2,
+      total_brew_time_s: 195,
+      completed_at: '2026-08-15T10:04:12Z',
+      rating_token: 'completed-elsewhere-token'
+    };
+    return fulfillJson(route, { detail: 'Brew changed; refresh and try again' }, 409);
+  });
+
+  await page.goto('/brews/407?kiosk=0');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const finishDialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+
+  await expect(finishDialog).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
 });

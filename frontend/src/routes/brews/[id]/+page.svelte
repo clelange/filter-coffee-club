@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import {
@@ -14,8 +14,21 @@
   import NumberStepper from '$lib/NumberStepper.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
-  import { api, ensureSession, formatTime, jsonBody, sessionStore, logout } from '$lib/api';
+  import {
+    ApiError,
+    api,
+    ensureSession,
+    formatTime,
+    jsonBody,
+    sessionStore,
+    logout
+  } from '$lib/api';
   import type { Brew, ProfileIdentity, RatingAggregate } from '$lib/types';
+
+  type FinishIssue =
+    | { kind: 'request'; message: string }
+    | { kind: 'review'; message: string }
+    | { kind: 'reload'; message: string };
 
   let brew: Brew | null = $state(null);
   let ratingInsights: RatingAggregate | null = $state(null);
@@ -27,6 +40,10 @@
   let actualWater = $state(0);
   let markCoffeeFinished = $state(false);
   let finalizing = $state(false);
+  let finishIssue = $state<FinishIssue | null>(null);
+  let finishDialog = $state<HTMLElement>();
+  let finishRecoveryButton = $state<HTMLButtonElement>();
+  let finishPreviouslyFocused: HTMLElement | null = null;
   let finalRatioConfirmationOpen = $state(false);
   let copied = $state(false);
   let statusAction: 'cancel' | 'void' | null = $state(null);
@@ -46,6 +63,20 @@
     currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
   );
   const finalBloomWaterInvalid = $derived(bloomWaterExceeds(actualWater));
+
+  $effect(() => {
+    const dialog = finishDialog;
+    if (!finishing || !dialog) return;
+    const frame = requestAnimationFrame(() => {
+      if (!finishing || dialog.contains(document.activeElement)) return;
+      dialog
+        .querySelector<HTMLElement>(
+          'input[aria-label="Minutes"], button[aria-label^="Set Minutes;"]'
+        )
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  });
 
   function currentBrewDose(): number {
     return brew?.dose_g ?? 0;
@@ -126,19 +157,7 @@
       if (latest.revision <= brew.revision) return;
       brew = latest;
       actualWater = latest.water_g;
-      if (latest.status !== 'draft') {
-        await wakeLock?.release();
-        wakeLock = null;
-        if ($sessionStore?.device_mode === 'kiosk') {
-          await logout();
-        } else if (
-          latest.status === 'completed' &&
-          $sessionStore &&
-          !$sessionStore.profile.pin_change_required
-        ) {
-          await loadRatingInsights();
-        }
-      }
+      if (latest.status !== 'draft') await handleDraftEnded(latest);
     } catch {
       // Actions still surface request failures; polling is a best-effort enhancement.
     }
@@ -152,6 +171,102 @@
     }
   }
 
+  async function handleDraftEnded(latest: Brew) {
+    await refreshBrewStatusAfterMutation().catch(() => undefined);
+    await wakeLock?.release();
+    wakeLock = null;
+    const session = await ensureSession();
+    if (session?.device_mode === 'kiosk') {
+      await logout();
+    } else if (latest.status === 'completed' && session && !session.profile.pin_change_required) {
+      await loadRatingInsights();
+    }
+  }
+
+  function openFinishDialog() {
+    finishIssue = null;
+    finishPreviouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    finishing = true;
+  }
+
+  async function closeFinishDialog() {
+    finishing = false;
+    finishIssue = null;
+    await tick();
+    finishPreviouslyFocused?.focus();
+    finishPreviouslyFocused = null;
+  }
+
+  async function focusFinishRecoveryAction() {
+    if (finishIssue?.kind !== 'review' && finishIssue?.kind !== 'reload') return;
+    await tick();
+    finishRecoveryButton?.focus();
+  }
+
+  function handleFinishDialogKeydown(event: KeyboardEvent) {
+    if (!finishing || !finishDialog) return;
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeDialog = activeElement?.closest('[role="dialog"], [role="alertdialog"]');
+    if (activeDialog && activeDialog !== finishDialog) return;
+    if (event.key === 'Escape' && !finalizing) {
+      event.preventDefault();
+      void closeFinishDialog();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = [
+      ...finishDialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]'
+      )
+    ];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (!finishDialog.contains(activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  async function refreshAfterFinalizeConflict(brewId: number) {
+    const latest = await api<Brew>(`/brews/${brewId}`);
+    brew = latest;
+    if (latest.status === 'draft') {
+      finishIssue = {
+        kind: 'review',
+        message:
+          'Another device changed this brew. The latest recipe is loaded. Review it before trying to finish again; your final measurements are preserved.'
+      };
+      return;
+    }
+    await closeFinishDialog();
+    await handleDraftEnded(latest).catch(() => undefined);
+  }
+
+  async function reloadLatestBrew() {
+    if (!brew || finalizing) return;
+    finalizing = true;
+    try {
+      await refreshAfterFinalizeConflict(brew.id);
+    } catch {
+      finishIssue = {
+        kind: 'reload',
+        message: 'The latest brew still could not be loaded. Reload it before trying to finish.'
+      };
+    } finally {
+      finalizing = false;
+      await focusFinishRecoveryAction();
+    }
+  }
+
   async function finalize(confirmUnusualRatio = false) {
     if (!brew) return;
     if (finalBloomWaterInvalid) return;
@@ -161,9 +276,11 @@
     }
     finalRatioConfirmationOpen = false;
     finalizing = true;
+    finishIssue = null;
     error = '';
+    const brewId = brew.id;
     try {
-      brew = await api<Brew>(`/brews/${brew.id}/finalize`, {
+      const finalized = await api<Brew>(`/brews/${brewId}/finalize`, {
         method: 'POST',
         headers: confirmUnusualRatio ? { 'X-Confirm-Unusual-Ratio': 'true' } : undefined,
         body: jsonBody({
@@ -173,16 +290,34 @@
           mark_coffee_finished: markCoffeeFinished
         })
       });
-      finishing = false;
-      await refreshBrewStatusAfterMutation().catch(() => undefined);
-      await wakeLock?.release();
-      const session = await ensureSession();
-      if (session?.device_mode === 'kiosk') await logout();
+      brew = finalized;
+      await closeFinishDialog();
+      await handleDraftEnded(finalized).catch(() => undefined);
     } catch (caught) {
       finalRatioConfirmationOpen = false;
-      error = caught instanceof Error ? caught.message : 'Could not finalize the brew.';
+      if (caught instanceof ApiError && caught.status === 409) {
+        finishIssue = {
+          kind: 'reload',
+          message: 'The brew changed on another device. Loading the latest version…'
+        };
+        try {
+          await refreshAfterFinalizeConflict(brewId);
+        } catch {
+          finishIssue = {
+            kind: 'reload',
+            message:
+              'The brew changed, but the latest version could not be loaded. Reload it before trying to finish.'
+          };
+        }
+      } else {
+        finishIssue = {
+          kind: 'request',
+          message: caught instanceof Error ? caught.message : 'Could not finalize the brew.'
+        };
+      }
     } finally {
       finalizing = false;
+      await focusFinishRecoveryAction();
     }
   }
 
@@ -303,6 +438,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleFinishDialogKeydown} />
+
 <svelte:head
   ><title>{brew ? `${brew.coffee_name} · Brew` : 'Brew'} · Filter Coffee Club</title></svelte:head
 >
@@ -380,23 +517,32 @@
           <button class="secondary" onclick={openOperatorDialog}>Change primary operator</button>
         {/if}
         <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
-        <button class="primary" onclick={() => (finishing = true)}>Finish brew</button>
+        <button class="primary" onclick={openFinishDialog}>Finish brew</button>
       {/if}
     </div>
   </section>
   {#if finishing}
-    <div class="modal-backdrop" role="presentation">
+    <div
+      class="modal-backdrop"
+      role="presentation"
+      onclick={(event) =>
+        event.currentTarget === event.target && !finalizing && void closeFinishDialog()}
+    >
       <div
         class="modal panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="finish-title"
+        aria-describedby="finish-description"
         tabindex="-1"
+        bind:this={finishDialog}
       >
         <div class="modal-heading">
           <p class="eyebrow">Scale result</p>
           <h2 id="finish-title">Finish this brew</h2>
-          <p class="muted">Enter the final TIMEMORE time and confirm the actual water weight.</p>
+          <p class="muted" id="finish-description">
+            Enter the final TIMEMORE time and confirm the actual water weight.
+          </p>
         </div>
         <div class="field-grid">
           <NumberStepper
@@ -430,6 +576,7 @@
         {#if finalBloomWaterInvalid}<p class="error" role="alert">
             Actual water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
           </p>{/if}
+        {#if finishIssue}<p class="error finish-error" role="alert">{finishIssue.message}</p>{/if}
         <label class="finish-coffee-check">
           <input type="checkbox" bind:checked={markCoffeeFinished} />
           <span>
@@ -438,14 +585,31 @@
           </span>
         </label>
         <div class="actions">
-          <button
-            class="primary"
-            onclick={() => finalize()}
-            disabled={finalizing || finalBloomWaterInvalid || finalMinutes * 60 + finalSeconds <= 0}
-            >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
-          ><button class="secondary" disabled={finalizing} onclick={() => (finishing = false)}
-            >Back</button
-          >
+          {#if finishIssue?.kind === 'review'}
+            <button class="primary" bind:this={finishRecoveryButton} onclick={closeFinishDialog}
+              >Review latest recipe</button
+            >
+          {:else if finishIssue?.kind === 'reload'}
+            <button
+              class="primary"
+              bind:this={finishRecoveryButton}
+              disabled={finalizing}
+              onclick={reloadLatestBrew}>{finalizing ? 'Reloading…' : 'Reload latest brew'}</button
+            ><button class="secondary" disabled={finalizing} onclick={closeFinishDialog}
+              >Back</button
+            >
+          {:else}
+            <button
+              class="primary"
+              onclick={() => finalize()}
+              disabled={finalizing ||
+                finalBloomWaterInvalid ||
+                finalMinutes * 60 + finalSeconds <= 0}
+              >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
+            ><button class="secondary" disabled={finalizing} onclick={closeFinishDialog}
+              >Back</button
+            >
+          {/if}
         </div>
       </div>
     </div>
@@ -774,6 +938,9 @@
   }
   .finish-ratio.warning {
     color: #8a4a00;
+  }
+  .finish-error {
+    margin: 0;
   }
   .invitation {
     display: grid;
