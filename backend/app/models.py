@@ -293,6 +293,9 @@ class Rating(TimestampMixin, Base):
     flavor_tags: Mapped[list[FlavorTag]] = relationship(secondary=rating_flavor_tags)
 
 
+DEFAULT_BREWING_LOGO_PATH = "/brand/filter-coffee-club-brewing.svg"
+
+
 class AppSettings(Base):
     __tablename__ = "app_settings"
 
@@ -303,6 +306,9 @@ class AppSettings(Base):
     )
     public_base_url: Mapped[str | None] = mapped_column(String(500))
     logo_path: Mapped[str | None] = mapped_column(String(500))
+    brewing_logo_path: Mapped[str | None] = mapped_column(
+        String(500), default=DEFAULT_BREWING_LOGO_PATH, server_default=DEFAULT_BREWING_LOGO_PATH
+    )
     color_cream: Mapped[str] = mapped_column(String(7), default="#F6F1E8")
     color_surface: Mapped[str] = mapped_column(String(7), default="#FFFDFC")
     color_ink: Mapped[str] = mapped_column(String(7), default="#241C19")

@@ -1,5 +1,7 @@
 <script lang="ts">
   export let logoPath: string | null = null;
+  export let brewingLogoPath: string | null = null;
+  export let brewing = false;
   export let compact = false;
   export let large = false;
 
@@ -10,14 +12,19 @@
     '/brand/filter-coffee-club-logo-384.webp 384w',
     '/brand/filter-coffee-club-logo-768.webp 768w'
   ].join(', ');
+
+  let selectedLogoPath: string | null;
+  let usesBundledLogo: boolean;
+  $: selectedLogoPath = brewing && brewingLogoPath ? brewingLogoPath : logoPath;
+  $: usesBundledLogo = !selectedLogoPath;
 </script>
 
 <img
   class:compact
   class:large
-  src={logoPath ?? defaultLogo}
-  srcset={logoPath ? undefined : defaultLogoSrcset}
-  sizes={logoPath ? undefined : large ? 'min(32vw, 340px)' : compact ? '56px' : '72px'}
+  src={selectedLogoPath ?? defaultLogo}
+  srcset={usesBundledLogo ? defaultLogoSrcset : undefined}
+  sizes={usesBundledLogo ? (large ? 'min(32vw, 340px)' : compact ? '56px' : '72px') : undefined}
   width={large ? 340 : compact ? 56 : 72}
   height={large ? 340 : compact ? 56 : 72}
   alt=""

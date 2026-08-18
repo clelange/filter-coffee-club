@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     personal_session_hours: int = 84
     kiosk_session_hours: int = 4
     max_logo_bytes: int = 2 * 1024 * 1024
+    max_logo_pixels: int = 16_000_000
     max_catalog_photo_bytes: int = 12 * 1024 * 1024
     max_catalog_photo_pixels: int = 50_000_000
     catalog_photo_max_dimension: int = 1600

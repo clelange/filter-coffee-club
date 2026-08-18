@@ -9,7 +9,6 @@ import secrets
 import zipfile
 from collections import Counter, defaultdict
 from datetime import timedelta
-from pathlib import Path
 from statistics import mean
 
 import segno
@@ -29,6 +28,7 @@ from sqlalchemy import delete, func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from .branding import replace_logo_path, store_logo_upload
 from .calculations import (
     NORMAL_BREW_RATIO_MAX,
     NORMAL_BREW_RATIO_MIN,
@@ -54,6 +54,7 @@ from .demo import (
     prune_demo_sessions,
 )
 from .models import (
+    DEFAULT_BREWING_LOGO_PATH,
     AppSettings,
     Brew,
     BrewFilter,
@@ -2809,6 +2810,13 @@ def update_settings(
     return public_settings(request, db)
 
 
+def require_branding_admin(request: Request, login_session: LoginSession) -> None:
+    if login_session.profile.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    if request.app.state.settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Branding is read-only in demo mode")
+
+
 @router.post("/settings/logo", response_model=AppSettingsResponse)
 async def upload_logo(
     logo: UploadFile,
@@ -2816,28 +2824,68 @@ async def upload_logo(
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> AppSettingsResponse:
-    if login_session.profile.role != "admin":
-        raise HTTPException(status_code=403, detail="Administrator access required")
-    if request.app.state.settings.demo_mode:
-        raise HTTPException(status_code=403, detail="Logo uploads are disabled in demo mode")
-    allowed = {"image/png": ".png", "image/webp": ".webp"}
-    if logo.content_type not in allowed:
-        raise HTTPException(status_code=415, detail="Logo must be PNG or WebP")
-    content = await logo.read(request.app.state.settings.max_logo_bytes + 1)
-    if len(content) > request.app.state.settings.max_logo_bytes:
-        raise HTTPException(status_code=413, detail="Logo exceeds 2 MB")
-    is_png = content.startswith(b"\x89PNG\r\n\x1a\n")
-    is_webp = len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
-    if (logo.content_type == "image/png" and not is_png) or (
-        logo.content_type == "image/webp" and not is_webp
-    ):
-        raise HTTPException(status_code=415, detail="Logo contents do not match its file type")
-    filename = f"logo-{secrets.token_hex(8)}{allowed[logo.content_type]}"
-    path: Path = request.app.state.settings.upload_dir / filename
-    path.write_bytes(content)
+    require_branding_admin(request, login_session)
+    logo_path = await store_logo_upload(logo, request.app.state.settings, "logo")
     item = get_settings(db)
-    item.logo_path = f"/uploads/{filename}"
-    db.commit()
+    replace_logo_path(
+        db,
+        request.app.state.settings,
+        item,
+        "logo_path",
+        logo_path,
+        created_upload=logo_path,
+    )
+    return public_settings(request, db)
+
+
+@router.post("/settings/brewing-logo", response_model=AppSettingsResponse)
+async def upload_brewing_logo(
+    logo: UploadFile,
+    request: Request,
+    db: Session = Depends(session_dependency),
+    login_session: LoginSession = Depends(require_csrf),
+) -> AppSettingsResponse:
+    require_branding_admin(request, login_session)
+    logo_path = await store_logo_upload(logo, request.app.state.settings, "brewing-logo")
+    item = get_settings(db)
+    replace_logo_path(
+        db,
+        request.app.state.settings,
+        item,
+        "brewing_logo_path",
+        logo_path,
+        created_upload=logo_path,
+    )
+    return public_settings(request, db)
+
+
+@router.delete("/settings/brewing-logo", response_model=AppSettingsResponse)
+def clear_brewing_logo(
+    request: Request,
+    db: Session = Depends(session_dependency),
+    login_session: LoginSession = Depends(require_csrf),
+) -> AppSettingsResponse:
+    require_branding_admin(request, login_session)
+    item = get_settings(db)
+    replace_logo_path(db, request.app.state.settings, item, "brewing_logo_path", None)
+    return public_settings(request, db)
+
+
+@router.post("/settings/brewing-logo/default", response_model=AppSettingsResponse)
+def restore_default_brewing_logo(
+    request: Request,
+    db: Session = Depends(session_dependency),
+    login_session: LoginSession = Depends(require_csrf),
+) -> AppSettingsResponse:
+    require_branding_admin(request, login_session)
+    item = get_settings(db)
+    replace_logo_path(
+        db,
+        request.app.state.settings,
+        item,
+        "brewing_logo_path",
+        DEFAULT_BREWING_LOGO_PATH,
+    )
     return public_settings(request, db)
 
 

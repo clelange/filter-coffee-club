@@ -114,7 +114,12 @@
     </div>
   </div>
   <div class="hero-logo" aria-hidden="true">
-    <Logo logoPath={$appSettingsStore?.logo_path ?? null} large />
+    <Logo
+      logoPath={$appSettingsStore?.logo_path ?? null}
+      brewingLogoPath={$appSettingsStore?.brewing_logo_path ?? null}
+      brewing={Boolean(active?.active_count)}
+      large
+    />
   </div>
 </section>
 
