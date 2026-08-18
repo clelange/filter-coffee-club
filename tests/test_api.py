@@ -824,6 +824,78 @@ def test_brew_creation_is_idempotent_and_profile_scoped(tmp_path: Path) -> None:
         assert len(client.get("/api/v1/brews").json()) == 1
 
 
+def test_final_water_cannot_be_lower_than_recorded_bloom_water(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Bloom", "name": "Consistency"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        payload = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+            "bloom_water_g": 45,
+        }
+
+        created = client.post("/api/v1/brews", headers=headers, json=payload).json()
+        invalid_finalize = client.post(
+            f"/api/v1/brews/{created['id']}/finalize",
+            headers=headers,
+            json={"water_g": 44, "total_brew_time_s": 180, "revision": created["revision"]},
+        )
+        assert invalid_finalize.status_code == 422
+        assert invalid_finalize.json()["detail"] == "Bloom water must not exceed total water"
+        assert client.get(f"/api/v1/brews/{created['id']}").json()["status"] == "draft"
+
+        completed = client.post(
+            f"/api/v1/brews/{created['id']}/finalize",
+            headers=headers,
+            json={"water_g": 240, "total_brew_time_s": 180, "revision": created["revision"]},
+        ).json()
+        assert completed["bloom_water_g"] == 45
+
+
+def test_target_ratio_is_persisted_cloned_and_exported(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Ratio", "name": "Intent"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        created = client.post(
+            "/api/v1/brews",
+            headers=headers,
+            json={
+                "coffee_id": coffee["id"],
+                "grinder_id": grinder["id"],
+                "dose_g": 7.4,
+                "water_g": 120,
+                "target_ratio": 16.3,
+                "temperature_c": 94,
+                "grinder_setting": 30,
+            },
+        )
+
+        assert created.status_code == 200, created.text
+        assert created.json()["target_ratio"] == 16.3
+        assert created.json()["ratio"] == 16.22
+
+        clone = client.post(f"/api/v1/brews/{created.json()['id']}/clone", headers=headers)
+        assert clone.status_code == 200, clone.text
+        assert clone.json()["target_ratio"] == 16.3
+
+        exported = client.get("/api/v1/exports/json").json()["brews"]
+        assert {brew["target_ratio"] for brew in exported} == {16.3}
+
+
 def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

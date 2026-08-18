@@ -248,3 +248,80 @@ def test_finished_coffee_migration_preserves_existing_availability(tmp_path: Pat
         columns = {column["name"] for column in inspect(connection).get_columns("coffees")}
         assert "finished_at" in columns
     engine.dispose()
+
+
+def test_target_ratio_migration_backfills_existing_brews(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-target-ratio.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "b71d0f4a2c3e")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO profiles (
+                    id, display_name, pin_hash, role, active, pin_change_required,
+                    failed_login_attempts, created_at, updated_at
+                ) VALUES (
+                    1, 'Ada', 'legacy-hash', 'admin', 1, 0,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO grinders (
+                    id, manufacturer, model, setting_unit, setting_step,
+                    archived, created_at, updated_at
+                ) VALUES (
+                    1, 'Legacy', 'Grinder', 'clicks', 1,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO coffees (
+                    id, roaster, name, chart_color, archived, created_by_id,
+                    created_at, updated_at
+                ) VALUES (
+                    1, 'Legacy', 'Coffee', '#0072B2', 0, 1,
+                    '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO brews (
+                    id, coffee_id, operator_id, grinder_id, dose_g, water_g,
+                    temperature_c, grinder_setting, servings, status, revision,
+                    created_at, updated_at
+                ) VALUES (
+                    1, 1, 1, 1, 15, 240,
+                    94, 30, 1, 'completed', 1,
+                    '2026-08-01 09:00:00', '2026-08-01 09:00:00'
+                )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "e2a4c6d8f901")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT target_ratio FROM brews")).scalar_one() == 16
+        target_ratio = next(
+            column
+            for column in inspect(connection).get_columns("brews")
+            if column["name"] == "target_ratio"
+        )
+        assert target_ratio["nullable"] is False
+    engine.dispose()

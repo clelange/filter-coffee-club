@@ -270,6 +270,7 @@ class BrewInput(BaseModel):
     source_preset_id: int | None = None
     dose_g: float = Field(gt=0, le=500)
     water_g: float = Field(gt=0, le=5000)
+    target_ratio: float | None = Field(default=None, gt=0, le=5000)
     temperature_c: float = Field(ge=50, le=100)
     grinder_setting: float = Field(ge=0, le=1000)
     servings: int = Field(default=1, ge=1, le=30)
@@ -278,6 +279,14 @@ class BrewInput(BaseModel):
     bloom_time_s: int | None = Field(default=None, ge=0, le=1200)
     pour_count: int | None = Field(default=None, ge=1, le=30)
     technique_note: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_bloom_water(self) -> BrewInput:
+        if self.bloom_water_g is not None and self.bloom_water_g > self.water_g:
+            raise ValueError("Bloom water must not exceed total water")
+        if self.target_ratio is None:
+            self.target_ratio = self.water_g / self.dose_g
+        return self
 
 
 class BrewUpdate(BrewInput):
@@ -306,6 +315,7 @@ class BrewCorrection(BrewInput):
 
 
 class BrewResponse(BrewInput):
+    target_ratio: float
     id: int
     operator_id: int
     operator_name: str

@@ -325,6 +325,7 @@ def seed_demo_database(db: Session, catalog_upload_dir: Path) -> None:
             source_preset_id=preset.id,
             dose_g=dose,
             water_g=water,
+            target_ratio=preset.ratio,
             temperature_c=temperature,
             grinder_setting=setting,
             servings=1,

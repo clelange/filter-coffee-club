@@ -41,6 +41,7 @@ jobs:
       - run: pnpm --dir frontend install --frozen-lockfile
       - run: uv run prek run --all-files
       - run: uv run pytest --cov=app --cov-report=term-missing
+      - run: pnpm --dir frontend test:unit
       - run: make types-check
       - run: pnpm --dir frontend exec playwright install --with-deps chromium
       - run: make e2e
