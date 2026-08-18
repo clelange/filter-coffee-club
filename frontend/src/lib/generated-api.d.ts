@@ -1284,6 +1284,8 @@ export interface components {
             dose_g: number;
             /** Water G */
             water_g: number;
+            /** Target Ratio */
+            target_ratio?: number | null;
             /** Temperature C */
             temperature_c: number;
             /** Grinder Setting */
@@ -1338,6 +1340,8 @@ export interface components {
             dose_g: number;
             /** Water G */
             water_g: number;
+            /** Target Ratio */
+            target_ratio?: number | null;
             /** Temperature C */
             temperature_c: number;
             /** Grinder Setting */
@@ -1381,6 +1385,8 @@ export interface components {
             dose_g: number;
             /** Water G */
             water_g: number;
+            /** Target Ratio */
+            target_ratio: number;
             /** Temperature C */
             temperature_c: number;
             /** Grinder Setting */
@@ -1463,6 +1469,8 @@ export interface components {
             dose_g: number;
             /** Water G */
             water_g: number;
+            /** Target Ratio */
+            target_ratio?: number | null;
             /** Temperature C */
             temperature_c: number;
             /** Grinder Setting */
@@ -1501,6 +1509,8 @@ export interface components {
             dose_g: number;
             /** Water G */
             water_g: number;
+            /** Target Ratio */
+            target_ratio: number;
             /** Temperature C */
             temperature_c: number;
             /** Grinder Setting */

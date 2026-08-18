@@ -73,6 +73,24 @@ const grinder = {
   archived: false
 };
 
+const alternateGrinder = {
+  ...grinder,
+  id: 22,
+  model: 'Two',
+  setting_unit: 'turns',
+  setting_step: 0.5,
+  soft_min: 2,
+  soft_max: 8
+};
+
+const uncoveredGrinder = {
+  ...grinder,
+  id: 23,
+  model: 'Three',
+  soft_min: 12,
+  soft_max: 36
+};
+
 const preset = {
   id: 31,
   name: 'Medium washed / balanced',
@@ -81,7 +99,19 @@ const preset = {
   temperature_max_c: 96,
   active: true,
   sort_order: 1,
-  grinder_ranges: [{ grinder_id: grinder.id, setting_min: 24, setting_max: 28 }]
+  grinder_ranges: [
+    { grinder_id: grinder.id, setting_min: 24, setting_max: 28 },
+    { grinder_id: alternateGrinder.id, setting_min: 4, setting_max: 6 }
+  ]
+};
+
+const inactivePreset = {
+  ...preset,
+  id: 32,
+  name: 'Retired recipe',
+  ratio: 16.3,
+  active: false,
+  sort_order: 2
 };
 
 function fulfillJson(route: Route, body: unknown, status = 200) {
@@ -154,9 +184,11 @@ async function mockCommonApi(
       });
     }
     if (path === '/api/v1/coffees') return fulfillJson(route, [coffee]);
-    if (path === '/api/v1/grinders') return fulfillJson(route, [grinder]);
+    if (path === '/api/v1/grinders') {
+      return fulfillJson(route, [grinder, alternateGrinder, uncoveredGrinder]);
+    }
     if (path === '/api/v1/drippers' || path === '/api/v1/filters') return fulfillJson(route, []);
-    if (path === '/api/v1/presets') return fulfillJson(route, [preset]);
+    if (path === '/api/v1/presets') return fulfillJson(route, [preset, inactivePreset]);
     if (path === '/api/v1/brews' && method === 'GET') return fulfillJson(route, []);
     const current = brewState();
     if (current && path === `/api/v1/brews/${current.id}` && method === 'GET') {
@@ -176,7 +208,7 @@ async function setKioskNumber(page: Page, label: string, value: string) {
   await dialog.getByRole('button', { name: 'Apply' }).click();
 }
 
-test('servings rescale batch totals and unusual creation requires explicit confirmation', async ({
+test('correlated batch values stay synchronized and unusual creation requires confirmation', async ({
   page
 }) => {
   let currentBrew: Brew | null = null;
@@ -193,6 +225,11 @@ test('servings rescale batch totals and unusual creation requires explicit confi
 
   await page.goto('/brews/new?kiosk=0');
   await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+  await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
+  await page.getByText('More pour details').click();
+  const bloomWater = page.getByRole('spinbutton', { name: 'Bloom water' });
+  await bloomWater.fill('16');
+  await bloomWater.blur();
   const servings = page.getByRole('spinbutton', { name: 'Servings', exact: true });
   await servings.fill('5');
   await servings.blur();
@@ -200,11 +237,20 @@ test('servings rescale batch totals and unusual creation requires explicit confi
   await expect(page.getByRole('spinbutton', { name: 'Total water', exact: true })).toHaveValue(
     '640'
   );
+  await expect(bloomWater).toHaveValue('80');
 
   const totalDose = page.getByRole('spinbutton', { name: 'Total coffee dose' });
   await totalDose.fill('8');
   await totalDose.blur();
+  await expect(page.getByRole('spinbutton', { name: 'Total water', exact: true })).toHaveValue(
+    '128'
+  );
+  await expect(bloomWater).toHaveValue('16');
+  const targetRatio = page.getByRole('spinbutton', { name: 'Target ratio' });
+  await targetRatio.fill('80');
+  await targetRatio.blur();
   await expect(page.getByText(/A 1:80 ratio is outside the normal/)).toBeVisible();
+  await expect(page.getByText('Customized · ratio', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   const confirmation = page.getByRole('alertdialog', { name: 'Save unusual 1:80 ratio?' });
   await expect(confirmation).toContainText('8 g total coffee and 640 g total water');
@@ -224,18 +270,130 @@ test('servings rescale batch totals and unusual creation requires explicit confi
   expect(confirmationHeader).toBe('true');
 });
 
-test('a just-outside ratio is not hidden by display rounding', async ({ page }) => {
+test('water basis keeps water fixed while ratio and dose changes stay synchronized', async ({
+  page
+}) => {
   await mockCommonApi(page, () => null);
 
   await page.goto('/brews/new?kiosk=0');
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+  await page.getByText('More pour details').click();
+  const bloomWater = page.getByRole('spinbutton', { name: 'Bloom water' });
+  await bloomWater.fill('129');
+  await bloomWater.blur();
+  await expect(page.getByText('Bloom water must not exceed total water.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
+  await bloomWater.fill('16');
+  await bloomWater.blur();
   const totalDose = page.getByRole('spinbutton', { name: 'Total coffee dose' });
   const totalWater = page.getByRole('spinbutton', { name: 'Total water', exact: true });
-  await totalDose.fill('500');
-  await totalDose.blur();
-  await totalWater.fill('4999');
+  await totalWater.fill('240');
   await totalWater.blur();
+  await expect(totalDose).toHaveValue('15');
+  await expect(bloomWater).toHaveValue('30');
+  await expect(page.getByText(/Ratio changes preserve\s+total water/)).toBeVisible();
 
-  await expect(page.getByText(/A 1:9\.998 ratio is outside the normal/)).toBeVisible();
+  const targetRatio = page.getByRole('spinbutton', { name: 'Target ratio' });
+  await targetRatio.fill('20');
+  await targetRatio.blur();
+  await expect(totalWater).toHaveValue('240');
+  await expect(totalDose).toHaveValue('12');
+  await expect(bloomWater).toHaveValue('24');
+
+  await totalDose.fill('10');
+  await totalDose.blur();
+  await expect(totalWater).toHaveValue('200');
+  await expect(bloomWater).toHaveValue('20');
+  await expect(page.getByText(/Ratio changes preserve\s+coffee dose/)).toBeVisible();
+
+  await targetRatio.fill('600');
+  await targetRatio.blur();
+  await expect(page.getByText(/require a water amount between 1 and 5000 g/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
+  await targetRatio.fill('500');
+  await targetRatio.blur();
+  await expect(page.getByText(/require a water amount between 1 and 5000 g/)).toBeHidden();
+});
+
+test('preset conformance distinguishes deviations from missing grinder guidance', async ({
+  page
+}) => {
+  await mockCommonApi(page, () => null);
+
+  await page.goto('/brews/new?kiosk=0');
+  const presetButton = page.getByRole('button', { name: /Medium washed \/ balanced/ });
+  await presetButton.click();
+  await expect(presetButton).toHaveClass(/chosen/);
+  await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
+
+  const temperature = page.getByRole('spinbutton', { name: 'Temperature' });
+  await temperature.fill('97');
+  await temperature.blur();
+  await expect(page.getByText('Customized · temperature', { exact: true })).toBeVisible();
+  await expect(page.getByText('Changed: temperature', { exact: true })).toBeVisible();
+  await expect(presetButton).toHaveClass(/chosen/);
+
+  await temperature.fill('96');
+  await temperature.blur();
+  await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
+
+  const grinderSelect = page.getByRole('combobox', { name: 'Grinder' });
+  const grinderSetting = page.getByRole('spinbutton', { name: 'Grinder setting' });
+  await grinderSelect.selectOption(String(alternateGrinder.id));
+  await expect(grinderSetting).toHaveValue('5');
+  await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
+
+  await grinderSetting.fill('7.5');
+  await grinderSetting.blur();
+  await expect(page.getByText('Customized · grind', { exact: true })).toBeVisible();
+
+  await grinderSelect.selectOption(String(uncoveredGrinder.id));
+  await expect(grinderSetting).toHaveValue('7.5');
+  await expect(
+    page.getByText('Matches guided fields · grinder not covered', { exact: true })
+  ).toBeVisible();
+  await expect(page.getByText(/Retained from the previous grinder/)).toBeVisible();
+  await expect(page.getByText(/No guidance for Orbit Three/)).toBeVisible();
+  await expect(page.getByText('Click-based grinder settings must be whole numbers.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
+  await grinderSetting.fill('20');
+  await grinderSetting.blur();
+  await expect(page.getByText(/Retained from the previous grinder/)).toBeHidden();
+  await expect(page.getByText('Click-based grinder settings must be whole numbers.')).toBeHidden();
+  await expect(presetButton).toHaveClass(/chosen/);
+});
+
+test('an inactive source preset remains visible while editing an existing brew', async ({
+  page
+}) => {
+  const existing = brewFromInput(303, {
+    coffee_id: coffee.id,
+    grinder_id: grinder.id,
+    dripper_id: null,
+    filter_id: null,
+    source_preset_id: inactivePreset.id,
+    dose_g: 7.4,
+    water_g: 120,
+    target_ratio: 16.3,
+    temperature_c: 94,
+    grinder_setting: 26,
+    servings: 1,
+    target_flow_g_s: 4.5,
+    bloom_water_g: null,
+    bloom_time_s: null,
+    pour_count: null,
+    technique_note: null
+  });
+  await mockCommonApi(page, () => existing);
+
+  await page.goto('/brews/new?edit=303&kiosk=0');
+  const inactiveButton = page.getByRole('button', { name: /Retired recipe/ });
+  await expect(inactiveButton).toBeVisible();
+  await expect(inactiveButton).toBeDisabled();
+  await expect(inactiveButton).toHaveClass(/chosen/);
+  await expect(inactiveButton).toContainText('Inactive starting point');
+  await expect(page.getByRole('spinbutton', { name: 'Target ratio' })).toHaveValue('16.3');
+  await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
 });
 
 test('kiosk servings rescale both batch totals', async ({ page }) => {
@@ -251,7 +409,18 @@ test('kiosk servings rescale both batch totals', async ({ page }) => {
   await expect(
     page.getByRole('button', { name: /^Set Total water; current value 640/ })
   ).toBeVisible();
-  await expect(page.getByText('Changing servings scales both total batch amounts.')).toBeVisible();
+  await setKioskNumber(page, 'Total water', '240');
+  await expect(
+    page.getByRole('button', { name: /^Set Total coffee dose; current value 15/ })
+  ).toBeVisible();
+  await setKioskNumber(page, 'Target ratio', '20');
+  await expect(
+    page.getByRole('button', { name: /^Set Total coffee dose; current value 12/ })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^Set Total water; current value 240/ })
+  ).toBeVisible();
+  await expect(page.getByText(/Changing servings scales the whole batch/)).toBeVisible();
 });
 
 test('unusual actual water requires confirmation before finalization', async ({ page }) => {
@@ -263,11 +432,12 @@ test('unusual actual water requires confirmation before finalization', async ({ 
     source_preset_id: preset.id,
     dose_g: 8,
     water_g: 128,
+    target_ratio: 16,
     temperature_c: 94,
     grinder_setting: 26,
     servings: 1,
     target_flow_g_s: 4.5,
-    bloom_water_g: null,
+    bloom_water_g: 45,
     bloom_time_s: null,
     pour_count: null,
     technique_note: null
@@ -299,6 +469,10 @@ test('unusual actual water requires confirmation before finalization', async ({ 
   await page.goto('/brews/202?kiosk=0');
   await page.getByRole('button', { name: 'Finish brew' }).click();
   const actualWater = page.getByRole('spinbutton', { name: 'Actual water', exact: true });
+  await actualWater.fill('40');
+  await actualWater.blur();
+  await expect(page.getByText(/cannot be lower than the recorded 45 g bloom/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Finalize and invite tasters' })).toBeDisabled();
   await actualWater.fill('640');
   await actualWater.blur();
   await expect(page.getByText(/Final ratio:/)).toContainText('1:80');

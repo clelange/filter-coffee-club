@@ -172,6 +172,7 @@ export interface BrewInput {
   source_preset_id: number | null;
   dose_g: number;
   water_g: number;
+  target_ratio: number;
   temperature_c: number;
   grinder_setting: number;
   servings: number;

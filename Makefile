@@ -22,6 +22,7 @@ check:
 
 test:
 	uv run pytest
+	pnpm --dir frontend test:unit
 
 build:
 	pnpm --dir frontend build

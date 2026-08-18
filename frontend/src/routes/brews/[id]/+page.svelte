@@ -45,9 +45,15 @@
   const finalRatioUnusual = $derived(
     currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
   );
+  const finalBloomWaterInvalid = $derived(bloomWaterExceeds(actualWater));
 
   function currentBrewDose(): number {
     return brew?.dose_g ?? 0;
+  }
+
+  function bloomWaterExceeds(waterG: number): boolean {
+    const bloomWater = brew?.bloom_water_g;
+    return bloomWater !== null && bloomWater !== undefined && bloomWater > waterG;
   }
 
   onMount(async () => {
@@ -148,6 +154,7 @@
 
   async function finalize(confirmUnusualRatio = false) {
     if (!brew) return;
+    if (finalBloomWaterInvalid) return;
     if (finalRatioUnusual && !confirmUnusualRatio) {
       finalRatioConfirmationOpen = true;
       return;
@@ -420,6 +427,9 @@
             — outside the normal 1:10–1:25 range. Check that both amounts are whole-batch totals.
           {/if}
         </p>
+        {#if finalBloomWaterInvalid}<p class="error" role="alert">
+            Actual water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
+          </p>{/if}
         <label class="finish-coffee-check">
           <input type="checkbox" bind:checked={markCoffeeFinished} />
           <span>
@@ -431,7 +441,7 @@
           <button
             class="primary"
             onclick={() => finalize()}
-            disabled={finalizing || finalMinutes * 60 + finalSeconds <= 0}
+            disabled={finalizing || finalBloomWaterInvalid || finalMinutes * 60 + finalSeconds <= 0}
             >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
           ><button class="secondary" disabled={finalizing} onclick={() => (finishing = false)}
             >Back</button

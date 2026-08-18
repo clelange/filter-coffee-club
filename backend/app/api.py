@@ -281,6 +281,14 @@ def validate_brew_ratio(
     )
 
 
+def validate_bloom_water(bloom_water_g: float | None, water_g: float) -> None:
+    if bloom_water_g is not None and bloom_water_g > water_g:
+        raise HTTPException(
+            status_code=422,
+            detail="Bloom water must not exceed total water",
+        )
+
+
 def session_payload(login_session: LoginSession) -> SessionResponse:
     return SessionResponse(
         profile=ProfilePublic.model_validate(login_session.profile),
@@ -409,6 +417,7 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
         cloned_from_id=brew.cloned_from_id,
         dose_g=brew.dose_g,
         water_g=brew.water_g,
+        target_ratio=brew.target_ratio,
         temperature_c=brew.temperature_c,
         grinder_setting=brew.grinder_setting,
         servings=brew.servings,
@@ -2236,6 +2245,7 @@ def finalize_brew(
     ):
         raise HTTPException(status_code=403, detail="Only a brew operator may finalize this brew")
     final_water_g = payload.water_g if payload.water_g is not None else brew.water_g
+    validate_bloom_water(brew.bloom_water_g, final_water_g)
     confirmed_ratio = validate_brew_ratio(
         final_water_g,
         brew.dose_g,
@@ -2290,6 +2300,7 @@ def clone_brew(
 ) -> BrewResponse:
     enforce_demo_capacity(request, db, Brew)
     source = load_brew(db, brew_id)
+    validate_bloom_water(source.bloom_water_g, source.water_g)
     reserve_available_coffee(db, source.coffee_id)
     reserve_active_brew_capacity(db)
     clone = Brew(
@@ -2302,6 +2313,7 @@ def clone_brew(
         cloned_from_id=source.id,
         dose_g=source.dose_g,
         water_g=source.water_g,
+        target_ratio=source.target_ratio,
         temperature_c=source.temperature_c,
         grinder_setting=source.grinder_setting,
         servings=source.servings,
@@ -2864,6 +2876,7 @@ def export_rows(db: Session) -> dict[str, list[dict]]:
                 "dose_g": item.dose_g,
                 "water_g": item.water_g,
                 "ratio": round(item.water_g / item.dose_g, 2),
+                "target_ratio": item.target_ratio,
                 "temperature_c": item.temperature_c,
                 "grinder_setting": item.grinder_setting,
                 "servings": item.servings,
