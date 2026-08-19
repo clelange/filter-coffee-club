@@ -45,6 +45,48 @@ export interface AppSettings {
   demo_profile_names: string[];
 }
 
+export type MattermostAuthMode = 'pat' | 'webhook';
+
+export interface MattermostChannelOption {
+  team_id: string;
+  team_name: string;
+  team_display_name: string;
+  channel_id: string;
+  channel_name: string;
+  channel_display_name: string;
+}
+
+export interface MattermostVerifyResult {
+  user_id: string;
+  username: string;
+  channels: MattermostChannelOption[];
+}
+
+export interface MattermostSettings {
+  enabled: boolean;
+  server_url: string;
+  auth_mode: MattermostAuthMode;
+  credential_configured: boolean;
+  encryption_available: boolean;
+  account_user_id: string | null;
+  account_username: string | null;
+  team_id: string | null;
+  team_name: string | null;
+  channel_id: string | null;
+  channel_name: string | null;
+  channel_display_name: string | null;
+  announce_brew_started: boolean;
+  mention_channel_on_started: boolean;
+  announce_ready_to_rate: boolean;
+  mention_channel_on_ready: boolean;
+  last_tested_at: string | null;
+  last_delivery_at: string | null;
+  last_error_at: string | null;
+  last_error: string | null;
+  pending_count: number;
+  failed_count: number;
+}
+
 export interface PhotoFraming {
   focus_x: number;
   focus_y: number;

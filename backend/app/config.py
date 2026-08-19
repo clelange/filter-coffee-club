@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     app_version: str = ""
     log_level: str = Field(default="info")
     demo_mode: bool = False
+    mattermost_secret_key: str | None = None
 
     @property
     def deployed_version(self) -> str:

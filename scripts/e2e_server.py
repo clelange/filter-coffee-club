@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import uvicorn
+from cryptography.fernet import Fernet
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -23,6 +24,7 @@ def main() -> None:
             database_url=f"sqlite:///{data_dir / 'e2e.sqlite3'}",
             frontend_dir=ROOT / "frontend" / "build",
             public_base_url=f"http://127.0.0.1:{port}",
+            mattermost_secret_key=Fernet.generate_key().decode(),
         )
     )
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

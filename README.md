@@ -155,8 +155,50 @@ All environment variables use the `FCC_` prefix. Important values are:
 | `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB)               | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
 | `FCC_LOG_LEVEL`               | `info`                            | Application and structured request log level.                                                                                                  |
 | `FCC_DEMO_MODE`               | `false`                           | Seed fictional data and enable public-demo protections.                                                                                        |
+| `FCC_MATTERMOST_SECRET_KEY`   | empty                             | URL-safe Fernet key used to encrypt saved Mattermost PATs or webhook URLs. Required only when the Mattermost integration is configured.         |
 
 If the public URL is blank, the API uses the current request origin. Administrators see a warning while the development placeholder is active.
+
+### Mattermost notifications
+
+Administrators can configure one Mattermost destination from Admin → Settings. The server
+defaults to `https://mattermost.web.cern.ch` and supports either a Personal Access Token (PAT) or
+an incoming webhook. Generate the required deployment encryption key once and keep it stable:
+
+```sh
+uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+Set the result as `FCC_MATTERMOST_SECRET_KEY` before saving a credential. The encrypted credential
+is stored in SQLite, but the encryption key must be managed separately from database backups.
+Changing or losing the key makes the saved credential unreadable; enter the credential again after
+restoring the original key or clearing the old credential.
+
+For PAT mode, use a dedicated non-admin service account. A PAT has the permissions of its account,
+does not expire automatically, and must be a member of private channels it posts to. CERN users
+must ask the CERN Mattermost team to enable PAT creation for the selected user or service account.
+The setup screen verifies the account and lists its joined public and private channels. See the
+[CERN integration guidance](https://mattermost.docs.cern.ch/faq/#integrations) and the
+[Mattermost PAT documentation](https://developers.mattermost.com/integrate/reference/personal-access-token/).
+
+For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
+URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and
+must belong to the configured Mattermost server. A test message can be sent before announcements
+are enabled.
+
+To rotate a PAT or webhook, paste the replacement credential in Admin → Settings, verify a PAT if
+applicable, save, and send a test message. Re-enter the credential whenever the Mattermost server
+changes. PAT rotation for the same server and channel preserves queued announcements; changing the
+server, transport, channel, or webhook cancels queued work for the previous destination.
+
+Brew operations never wait for Mattermost. Announcements are stored in a durable outbox and retried
+for up to 24 hours after transient failures. Before retrying a PAT delivery, the worker reconciles
+its stable pending-post ID against Mattermost channel history and defers rather than posting if that
+history cannot be checked safely. Incoming webhooks remain at-least-once and can rarely duplicate a
+post if Mattermost accepted it immediately before a network timeout. Failed deliveries and manual
+retry controls appear in Admin → Settings. The public demo never sends Mattermost traffic.
+Channel-wide mentions are disabled by default and also depend on the posting account's channel
+permissions and each recipient's preferences.
 
 Docker Compose also reads `FCC_IMAGE` and `FCC_IMAGE_TAG` from `.env` to select the published container. These values configure Compose itself and are not passed into the application container.
 

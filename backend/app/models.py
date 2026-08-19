@@ -317,3 +317,63 @@ class AppSettings(Base):
     color_amber: Mapped[str] = mapped_column(String(7), default="#D88700")
     max_active_brews: Mapped[int] = mapped_column(Integer, default=2)
     active_brew_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class MattermostIntegration(TimestampMixin, Base):
+    __tablename__ = "mattermost_integrations"
+    __table_args__ = (
+        CheckConstraint("auth_mode IN ('pat', 'webhook')", name="ck_mattermost_auth_mode"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    server_url: Mapped[str] = mapped_column(String(500), default="https://mattermost.web.cern.ch")
+    auth_mode: Mapped[str] = mapped_column(String(20), default="pat")
+    credential_ciphertext: Mapped[str | None] = mapped_column(Text)
+    account_user_id: Mapped[str | None] = mapped_column(String(64))
+    account_username: Mapped[str | None] = mapped_column(String(120))
+    team_id: Mapped[str | None] = mapped_column(String(64))
+    team_name: Mapped[str | None] = mapped_column(String(160))
+    channel_id: Mapped[str | None] = mapped_column(String(64))
+    channel_name: Mapped[str | None] = mapped_column(String(160))
+    channel_display_name: Mapped[str | None] = mapped_column(String(160))
+    target_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    announce_brew_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    mention_channel_on_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    announce_ready_to_rate: Mapped[bool] = mapped_column(Boolean, default=False)
+    mention_channel_on_ready: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_tested_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_delivery_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_error_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class MattermostNotification(TimestampMixin, Base):
+    __tablename__ = "mattermost_notifications"
+    __table_args__ = (
+        UniqueConstraint("brew_id", "event_type", name="uq_mattermost_notification_event"),
+        CheckConstraint(
+            "event_type IN ('brew_started', 'ready_to_rate')",
+            name="ck_mattermost_notification_event_type",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'delivering', 'sent', 'failed', 'cancelled')",
+            name="ck_mattermost_notification_state",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    brew_id: Mapped[int] = mapped_column(ForeignKey("brews.id", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(String(30))
+    message: Mapped[str] = mapped_column(Text)
+    target_fingerprint: Mapped[str] = mapped_column(String(64))
+    pending_post_id: Mapped[str] = mapped_column(String(80), unique=True)
+    state: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_error: Mapped[str | None] = mapped_column(Text)
+    mattermost_post_id: Mapped[str | None] = mapped_column(String(64))
+
+    brew: Mapped[Brew] = relationship()

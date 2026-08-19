@@ -927,6 +927,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/mattermost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Mattermost Settings */
+        get: operations["get_mattermost_settings_api_v1_settings_mattermost_get"];
+        /** Update Mattermost Settings */
+        put: operations["update_mattermost_settings_api_v1_settings_mattermost_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/mattermost/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Mattermost Pat */
+        post: operations["verify_mattermost_pat_api_v1_settings_mattermost_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/mattermost/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Clear Mattermost Credential */
+        delete: operations["clear_mattermost_credential_api_v1_settings_mattermost_credential_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/mattermost/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Mattermost Delivery */
+        post: operations["test_mattermost_delivery_api_v1_settings_mattermost_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/mattermost/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Mattermost Deliveries */
+        post: operations["retry_mattermost_deliveries_api_v1_settings_mattermost_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings": {
         parameters: {
             query?: never;
@@ -1933,6 +2019,159 @@ export interface components {
              * @enum {string}
              */
             device_mode: "kiosk" | "personal";
+        };
+        /** MattermostChannelOption */
+        MattermostChannelOption: {
+            /** Team Id */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Team Display Name */
+            team_display_name: string;
+            /** Channel Id */
+            channel_id: string;
+            /** Channel Name */
+            channel_name: string;
+            /** Channel Display Name */
+            channel_display_name: string;
+        };
+        /** MattermostRetryResponse */
+        MattermostRetryResponse: {
+            /** Requeued */
+            requeued: number;
+        };
+        /** MattermostSettingsResponse */
+        MattermostSettingsResponse: {
+            /** Enabled */
+            enabled: boolean;
+            /** Server Url */
+            server_url: string;
+            /**
+             * Auth Mode
+             * @enum {string}
+             */
+            auth_mode: "pat" | "webhook";
+            /** Credential Configured */
+            credential_configured: boolean;
+            /** Encryption Available */
+            encryption_available: boolean;
+            /** Account User Id */
+            account_user_id: string | null;
+            /** Account Username */
+            account_username: string | null;
+            /** Team Id */
+            team_id: string | null;
+            /** Team Name */
+            team_name: string | null;
+            /** Channel Id */
+            channel_id: string | null;
+            /** Channel Name */
+            channel_name: string | null;
+            /** Channel Display Name */
+            channel_display_name: string | null;
+            /** Announce Brew Started */
+            announce_brew_started: boolean;
+            /** Mention Channel On Started */
+            mention_channel_on_started: boolean;
+            /** Announce Ready To Rate */
+            announce_ready_to_rate: boolean;
+            /** Mention Channel On Ready */
+            mention_channel_on_ready: boolean;
+            /** Last Tested At */
+            last_tested_at: string | null;
+            /** Last Delivery At */
+            last_delivery_at: string | null;
+            /** Last Error At */
+            last_error_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Pending Count
+             * @default 0
+             */
+            pending_count: number;
+            /**
+             * Failed Count
+             * @default 0
+             */
+            failed_count: number;
+        };
+        /** MattermostSettingsUpdate */
+        MattermostSettingsUpdate: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Server Url
+             * @default https://mattermost.web.cern.ch
+             */
+            server_url: string;
+            /**
+             * Auth Mode
+             * @default pat
+             * @enum {string}
+             */
+            auth_mode: "pat" | "webhook";
+            /** Credential */
+            credential?: string | null;
+            /** Team Id */
+            team_id?: string | null;
+            /** Team Name */
+            team_name?: string | null;
+            /** Channel Id */
+            channel_id?: string | null;
+            /** Channel Name */
+            channel_name?: string | null;
+            /** Channel Display Name */
+            channel_display_name?: string | null;
+            /**
+             * Announce Brew Started
+             * @default false
+             */
+            announce_brew_started: boolean;
+            /**
+             * Mention Channel On Started
+             * @default false
+             */
+            mention_channel_on_started: boolean;
+            /**
+             * Announce Ready To Rate
+             * @default false
+             */
+            announce_ready_to_rate: boolean;
+            /**
+             * Mention Channel On Ready
+             * @default false
+             */
+            mention_channel_on_ready: boolean;
+        };
+        /** MattermostTestResponse */
+        MattermostTestResponse: {
+            /** Delivered */
+            delivered: boolean;
+            /** Message */
+            message: string;
+        };
+        /** MattermostVerifyInput */
+        MattermostVerifyInput: {
+            /**
+             * Server Url
+             * @default https://mattermost.web.cern.ch
+             */
+            server_url: string;
+            /** Credential */
+            credential?: string | null;
+        };
+        /** MattermostVerifyResponse */
+        MattermostVerifyResponse: {
+            /** User Id */
+            user_id: string;
+            /** Username */
+            username: string;
+            /** Channels */
+            channels: components["schemas"]["MattermostChannelOption"][];
         };
         /** PhotoFraming */
         PhotoFraming: {
@@ -4595,6 +4834,152 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalyticsResponse"];
+                };
+            };
+        };
+    };
+    get_mattermost_settings_api_v1_settings_mattermost_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostSettingsResponse"];
+                };
+            };
+        };
+    };
+    update_mattermost_settings_api_v1_settings_mattermost_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MattermostSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostSettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_mattermost_pat_api_v1_settings_mattermost_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MattermostVerifyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostVerifyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_mattermost_credential_api_v1_settings_mattermost_credential_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostSettingsResponse"];
+                };
+            };
+        };
+    };
+    test_mattermost_delivery_api_v1_settings_mattermost_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostTestResponse"];
+                };
+            };
+        };
+    };
+    retry_mattermost_deliveries_api_v1_settings_mattermost_retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MattermostRetryResponse"];
                 };
             };
         };
