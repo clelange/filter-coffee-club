@@ -1005,7 +1005,13 @@
         </form>
 
         {#if mattermost}
-          <form class="panel mattermost-form" onsubmit={saveMattermost}>
+          <form
+            class="panel mattermost-form"
+            aria-describedby={!mattermost.encryption_available
+              ? 'mattermost-encryption-warning'
+              : undefined}
+            onsubmit={saveMattermost}
+          >
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Channel notifications</p>
@@ -1026,8 +1032,15 @@
               advanced channel discovery and retry reconciliation.
             </p>
             {#if !mattermost.encryption_available}
-              <p class="warning" role="status">
-                Set <code>FCC_MATTERMOST_SECRET_KEY</code> on the server before saving a credential.
+              <p
+                id="mattermost-encryption-warning"
+                class="warning mattermost-lockout"
+                role="status"
+              >
+                <strong>Mattermost setup is locked.</strong>
+                Credential encryption is unavailable. Set a stable
+                <code>FCC_MATTERMOST_SECRET_KEY</code> in the deployment environment, restart the application,
+                and reload this page.
               </p>
             {/if}
 
@@ -1037,7 +1050,7 @@
                 <select
                   bind:value={mattermost.auth_mode}
                   onchange={changeMattermostMode}
-                  disabled={settings.demo_mode}
+                  disabled={settings.demo_mode || !mattermost.encryption_available}
                 >
                   <option value="webhook">Incoming webhook</option>
                   <option value="pat">Personal access token</option>
@@ -1049,7 +1062,7 @@
                   type="url"
                   bind:value={mattermost.server_url}
                   placeholder="https://mattermost.web.cern.ch"
-                  disabled={settings.demo_mode}
+                  disabled={settings.demo_mode || !mattermost.encryption_available}
                   required
                 />
               </label>
@@ -1104,7 +1117,9 @@
                 <select
                   bind:value={mattermost.channel_id}
                   onchange={selectMattermostChannel}
-                  disabled={settings.demo_mode || mattermostBusy}
+                  disabled={settings.demo_mode ||
+                    mattermostBusy ||
+                    !mattermost.encryption_available}
                   required={mattermost.enabled}
                 >
                   <option value={null}>Select a channel</option>
@@ -1141,7 +1156,7 @@
                       if (!mattermost?.announce_brew_started)
                         mattermost!.mention_channel_on_started = false;
                     }}
-                    disabled={settings.demo_mode}
+                    disabled={settings.demo_mode || !mattermost.encryption_available}
                   />
                   Post when a brew starts
                 </label>
@@ -1149,7 +1164,9 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_started}
-                    disabled={settings.demo_mode || !mattermost.announce_brew_started}
+                    disabled={settings.demo_mode ||
+                      !mattermost.encryption_available ||
+                      !mattermost.announce_brew_started}
                   />
                   Include @channel
                 </label>
@@ -1163,7 +1180,7 @@
                       if (!mattermost?.announce_ready_to_rate)
                         mattermost!.mention_channel_on_ready = false;
                     }}
-                    disabled={settings.demo_mode}
+                    disabled={settings.demo_mode || !mattermost.encryption_available}
                   />
                   Post when rating opens
                 </label>
@@ -1171,7 +1188,9 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_ready}
-                    disabled={settings.demo_mode || !mattermost.announce_ready_to_rate}
+                    disabled={settings.demo_mode ||
+                      !mattermost.encryption_available ||
+                      !mattermost.announce_ready_to_rate}
                   />
                   Include @channel
                 </label>
@@ -1206,6 +1225,7 @@
                 disabled={settings.demo_mode ||
                   mattermostBusy ||
                   mattermostTestDirty ||
+                  !mattermost.encryption_available ||
                   !mattermost.credential_configured}>Send test message</button
               >
               {#if mattermostTestDirty && mattermost.credential_configured}
@@ -1216,8 +1236,10 @@
                   class="secondary"
                   type="button"
                   onclick={retryMattermost}
-                  disabled={settings.demo_mode || mattermostBusy || !mattermost.enabled}
-                  >Retry failed</button
+                  disabled={settings.demo_mode ||
+                    mattermostBusy ||
+                    !mattermost.encryption_available ||
+                    !mattermost.enabled}>Retry failed</button
                 >
               {/if}
               {#if mattermost.credential_configured}
@@ -1435,6 +1457,17 @@
   }
   .integration-enabled {
     min-height: auto;
+  }
+  .mattermost-lockout {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid currentColor;
+    border-radius: 12px;
+  }
+  .mattermost-lockout strong {
+    font-size: 1rem;
   }
   .mattermost-connection {
     grid-template-columns: minmax(200px, 0.7fr) minmax(280px, 1.3fr);

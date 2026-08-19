@@ -155,7 +155,7 @@ All environment variables use the `FCC_` prefix. Important values are:
 | `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB)               | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
 | `FCC_LOG_LEVEL`               | `info`                            | Application and structured request log level.                                                                                                  |
 | `FCC_DEMO_MODE`               | `false`                           | Seed fictional data and enable public-demo protections.                                                                                        |
-| `FCC_MATTERMOST_SECRET_KEY`   | empty                             | URL-safe Fernet key used to encrypt saved Mattermost PATs or webhook URLs. Required only when the Mattermost integration is configured.         |
+| `FCC_MATTERMOST_SECRET_KEY`   | empty                             | URL-safe Fernet key used to encrypt saved Mattermost PATs or webhook URLs. Required only when the Mattermost integration is configured.        |
 
 If the public URL is blank, the API uses the current request origin. Administrators see a warning while the development placeholder is active.
 
@@ -224,6 +224,11 @@ podman exec filter-coffee-club python -c \
 This should print `True`; after reloading Admin → Settings, the Mattermost controls are enabled.
 Keep the environment file out of version control and include the key in a separate, access-controlled
 secret backup so restored database credentials remain decryptable.
+
+When the key is missing or invalid, Admin → Settings displays **Mattermost setup is locked** and
+disables destination, credential, announcement, testing, and retry controls. Configure the key and
+restart the application; changing browser state cannot unlock the integration. Removing an existing
+credential remains available so an installation with a lost key can clear the unreadable value.
 
 For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
 URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and

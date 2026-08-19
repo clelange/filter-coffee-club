@@ -1941,6 +1941,75 @@ test('active brews use the configured brewing logo with regular-logo fallback', 
   );
 });
 
+test('Mattermost setup clearly locks controls when credential encryption is unavailable', async ({
+  page
+}) => {
+  const lockedMattermost: MattermostSettings = {
+    ...defaultMattermostSettings,
+    enabled: true,
+    auth_mode: 'webhook',
+    credential_configured: true,
+    encryption_available: false,
+    failed_count: 2
+  };
+  const adminSession: Session = {
+    profile: {
+      id: 1,
+      display_name: 'Ada',
+      role: 'admin',
+      active: true,
+      pin_change_required: false
+    },
+    csrf_token: 'locked-mattermost-test-token',
+    device_mode: 'personal',
+    expires_at: '2030-01-01T00:00:00Z'
+  };
+
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
+  await page.route('**/api/v1/settings/mattermost', (route) =>
+    fulfillJson(route, lockedMattermost)
+  );
+  await page.route('**/api/v1/auth/bootstrap-status', (route) =>
+    fulfillJson(route, { required: false })
+  );
+  await page.route('**/api/v1/auth/me', (route) => fulfillJson(route, adminSession));
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, {
+      brews: [],
+      recent_rating_brews: [],
+      active_count: 0,
+      max_active_brews: 2,
+      can_start: true
+    })
+  );
+  for (const path of ['people', 'grinders', 'drippers', 'filters']) {
+    await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
+  }
+  await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
+
+  await page.goto('/admin?kiosk=0');
+  await page.getByRole('tab', { name: 'Settings' }).click();
+
+  const mattermostForm = page.locator('.mattermost-form');
+  const lockout = mattermostForm.getByText('Mattermost setup is locked.');
+  await expect(lockout).toBeVisible();
+  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-encryption-warning');
+  await expect(mattermostForm.getByLabel('Enabled')).toBeChecked();
+  await expect(mattermostForm.getByLabel('Enabled')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Authentication')).toBeDisabled();
+  await expect(mattermostForm.getByRole('textbox', { name: /^Mattermost server/ })).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Incoming webhook URL')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Post when a brew starts')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Post when rating opens')).toBeDisabled();
+  await expect(
+    mattermostForm.getByRole('button', { name: 'Save Mattermost settings' })
+  ).toBeDisabled();
+  await expect(mattermostForm.getByRole('button', { name: 'Send test message' })).toBeDisabled();
+  await expect(mattermostForm.getByRole('button', { name: 'Retry failed' })).toBeDisabled();
+  await expect(mattermostForm.getByRole('button', { name: 'Remove credential' })).toBeEnabled();
+});
+
 test('admin settings actions update without reloading unrelated data', async ({ page }) => {
   let settings: AppSettings = { ...publicAppSettings };
   let peopleRequests = 0;
