@@ -60,7 +60,10 @@ docker compose up -d --no-build
 
 Open `http://localhost:8000` and create the first administrator. There are no default credentials and no public registration. The container runs one Uvicorn worker and expects one replica; SQLite is not suitable for horizontal application scaling.
 
-Images are published for `linux/amd64` and `linux/arm64`, so the same release can run on a conventional server or a 64-bit Raspberry Pi. Production deployments should pin `FCC_IMAGE_TAG` to an exact release; `latest` is provided as a convenience and moves whenever a stable release is published.
+Images are published for `linux/amd64` and `linux/arm64`, so the same release can run on a
+conventional server or a 64-bit Raspberry Pi. Production deployments can pin `FCC_IMAGE_TAG` to
+an exact release for controlled rollouts, or deliberately follow `latest` with automated backups
+and container updates. The `latest` tag moves only when a stable release is published.
 
 ### Raspberry Pi kiosk display
 
@@ -209,13 +212,21 @@ that owns the user service:
 
 ```ini
 [Container]
+Image=ghcr.io/clelange/filter-coffee-club:latest
+AutoUpdate=registry
 EnvironmentFile=/home/USER/.config/filter-coffee-club/filter-coffee-club.env
 ```
+
+The `latest` image plus `AutoUpdate=registry` follows every stable release automatically. For
+manually controlled upgrades, use an immutable release tag such as `v2026.08.9` and omit
+`AutoUpdate`. Ensure a validated database and secret backup runs before the Podman auto-update
+window.
 
 Reload the user manager and restart the generated service:
 
 ```sh
 systemctl --user daemon-reload
+systemctl --user enable --now podman-auto-update.timer
 systemctl --user restart filter-coffee-club.service
 ```
 
