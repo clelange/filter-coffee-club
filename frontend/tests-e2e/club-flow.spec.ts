@@ -5,6 +5,7 @@ import type {
   BrewActivityItem,
   Coffee,
   MattermostSettings,
+  ProfileIdentity,
   Session
 } from '../src/lib/types';
 
@@ -61,12 +62,13 @@ const publicAppSettings: AppSettings = {
   demo_profile_names: []
 };
 
-const defaultMattermostSettings: MattermostSettings = {
+const patMattermostSettings: MattermostSettings = {
   enabled: false,
   server_url: 'https://mattermost.web.cern.ch',
   auth_mode: 'pat',
   credential_configured: false,
   encryption_available: true,
+  credential_status: 'not_configured',
   account_user_id: null,
   account_username: null,
   team_id: null,
@@ -133,11 +135,29 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 }
 
 async function loginAda(page: Page, deviceMode: 'personal' | 'kiosk' = 'personal') {
-  const response = await page.context().request.post('/api/v1/auth/login', {
-    data: { profile_id: 1, pin: '4321', device_mode: deviceMode }
-  });
-  expect(response.ok()).toBeTruthy();
-  return (await response.json()) as Session;
+  const bootstrapStatus = await page.context().request.get('/api/v1/auth/bootstrap-status');
+  expect(bootstrapStatus.ok()).toBeTruthy();
+  if (((await bootstrapStatus.json()) as { required: boolean }).required) {
+    const response = await page.context().request.post('/api/v1/auth/bootstrap', {
+      data: { display_name: 'Ada', pin: '4321', device_mode: deviceMode }
+    });
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()) as Session;
+  }
+
+  const profilesResponse = await page.context().request.get('/api/v1/auth/profiles');
+  expect(profilesResponse.ok()).toBeTruthy();
+  const profiles = (await profilesResponse.json()) as ProfileIdentity[];
+  const ada = profiles.find((profile) => profile.display_name === 'Ada');
+  if (!ada) throw new Error('The Ada test profile is unavailable.');
+
+  for (const pin of ['4321', '1234']) {
+    const response = await page.context().request.post('/api/v1/auth/login', {
+      data: { profile_id: ada.id, pin, device_mode: deviceMode }
+    });
+    if (response.ok()) return (await response.json()) as Session;
+  }
+  throw new Error('The Ada test profile could not be authenticated.');
 }
 
 async function createLifecycleCoffee(page: Page, session: Session, name: string) {
@@ -191,19 +211,37 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByTestId('start-brew-chip')).toContainText('Start a brew');
 
   const peopleTab = page.getByRole('tab', { name: 'People' });
+  await page.goto('/admin?tab=unknown');
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
+  await page.goto('/admin?tab=people');
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
+  await page.goto('/admin?tab=data');
+  await expect(page.getByRole('tab', { name: 'Data' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Exports' })).toBeVisible();
+  await peopleTab.click();
+  await expect(page).toHaveURL(/\/admin$/);
   await expect(page.getByRole('tab')).toHaveCount(5);
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
   await peopleTab.focus();
   await page.keyboard.press('ArrowRight');
   const equipmentTab = page.getByRole('tab', { name: 'Equipment' });
+  await expect(page).toHaveURL(/\/admin\?tab=equipment$/);
   await expect(equipmentTab).toHaveAttribute('aria-selected', 'true');
   await expect(equipmentTab).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await page.keyboard.press('ArrowLeft');
+  await expect(page).toHaveURL(/\/admin$/);
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
 
   const settingsTab = page.getByRole('tab', { name: 'Settings' });
+  const historyLengthBeforeTabSwitch = await page.evaluate(() => history.length);
   await settingsTab.click();
+  await expect(page).toHaveURL(/\/admin\?tab=settings$/);
+  expect(await page.evaluate(() => history.length)).toBe(historyLengthBeforeTabSwitch);
+  await page.reload();
+  await expect(settingsTab).toHaveAttribute('aria-selected', 'true');
   const parallelBrews = page.getByLabel('Maximum parallel brews');
   await expect(parallelBrews).toHaveValue('2');
   await parallelBrews.fill('3');
@@ -314,8 +352,10 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   const adminSectionSelect = page.getByRole('combobox', { name: 'Admin section', exact: true });
   await expect(adminSectionSelect).toBeVisible();
   await adminSectionSelect.selectOption('equipment');
+  await expect(page).toHaveURL(/\/admin\?tab=equipment$/);
   await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
   await adminSectionSelect.selectOption('people');
+  await expect(page).toHaveURL(/\/admin$/);
   await expect
     .poll(() =>
       page.evaluate(
@@ -337,6 +377,43 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     'href',
     /\/profiles\/\d+/
   );
+  await expect(bobAdminRow.getByLabel('Display name')).toBeVisible();
+  await expect(bobAdminRow.getByLabel('Role for Bob')).toBeVisible();
+  await expect(bobAdminRow.getByLabel('New PIN for Bob')).toBeVisible();
+  await expect(bobAdminRow.getByLabel('Require PIN change for Bob')).toBeVisible();
+  await expect(bobAdminRow.getByRole('button', { name: 'Save' })).toBeEnabled();
+  await expect(bobAdminRow.getByRole('button', { name: 'Deactivate' })).toBeEnabled();
+  const longDisplayName = 'B'.repeat(80);
+  await page.getByLabel('Display name', { exact: true }).last().fill(longDisplayName);
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 1024, height: 600 },
+    { width: 901, height: 800 },
+    { width: 900, height: 800 },
+    { width: 393, height: 851 },
+    { width: 320, height: 568 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(() =>
+        page.locator('.profiles-panel').evaluate((panel) => {
+          const panelBounds = panel.getBoundingClientRect();
+          const controls = panel.querySelectorAll<HTMLElement>(
+            '.profile-row input, .profile-row select, .profile-row button, .profile-row a, .pin-required'
+          );
+          return {
+            pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+            controlsFit: [...controls].every((control) => {
+              const bounds = control.getBoundingClientRect();
+              return bounds.left >= panelBounds.left && bounds.right <= panelBounds.right + 0.5;
+            })
+          };
+        })
+      )
+      .toEqual({ pageFits: true, controlsFit: true });
+  }
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.getByLabel('Display name', { exact: true }).last().fill('Bob');
 
   await page.goto('/profiles');
   await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible();
@@ -1941,6 +2018,103 @@ test('active brews use the configured brewing logo with regular-logo fallback', 
   );
 });
 
+async function mockMattermostAdmin(page: Page, mattermostSettings: MattermostSettings) {
+  const adminSession: Session = {
+    profile: {
+      id: 1,
+      display_name: 'Ada',
+      role: 'admin',
+      active: true,
+      pin_change_required: false
+    },
+    csrf_token: 'locked-mattermost-test-token',
+    device_mode: 'personal',
+    expires_at: '2030-01-01T00:00:00Z'
+  };
+
+  await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
+  await page.route('**/api/v1/settings/mattermost', (route) =>
+    fulfillJson(route, mattermostSettings)
+  );
+  await page.route('**/api/v1/auth/bootstrap-status', (route) =>
+    fulfillJson(route, { required: false })
+  );
+  await page.route('**/api/v1/auth/me', (route) => fulfillJson(route, adminSession));
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, {
+      brews: [],
+      recent_rating_brews: [],
+      active_count: 0,
+      max_active_brews: 2,
+      can_start: true
+    })
+  );
+  for (const path of ['people', 'grinders', 'drippers', 'filters']) {
+    await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
+  }
+  await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
+
+  await page.goto('/admin?tab=settings&kiosk=0');
+}
+
+async function expectMattermostConfigurationLocked(page: Page) {
+  const mattermostForm = page.locator('.mattermost-form');
+
+  await expect(mattermostForm.getByLabel('Enabled')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Authentication')).toBeDisabled();
+  await expect(mattermostForm.getByRole('textbox', { name: /^Mattermost server/ })).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Incoming webhook URL')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Post when a brew starts')).toBeDisabled();
+  await expect(mattermostForm.getByLabel('Post when rating opens')).toBeDisabled();
+  await expect(
+    mattermostForm.getByRole('button', { name: 'Save Mattermost settings' })
+  ).toBeDisabled();
+  await expect(mattermostForm.getByRole('button', { name: 'Send test message' })).toBeDisabled();
+}
+
+test('fresh Mattermost setup clearly locks controls when encryption is unavailable', async ({
+  page
+}) => {
+  await mockMattermostAdmin(page, {
+    ...patMattermostSettings,
+    auth_mode: 'webhook',
+    encryption_available: false,
+    credential_status: 'not_configured'
+  });
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await expect(mattermostForm.getByText('Mattermost setup is locked.')).toBeVisible();
+  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-encryption-warning');
+  await expect(mattermostForm.getByLabel('Enabled')).not.toBeChecked();
+  await expectMattermostConfigurationLocked(page);
+  await expect(mattermostForm.getByRole('button', { name: 'Remove credential' })).toHaveCount(0);
+});
+
+test('a mismatched Mattermost key is diagnosed and only credential removal remains', async ({
+  page
+}) => {
+  await mockMattermostAdmin(page, {
+    ...patMattermostSettings,
+    enabled: true,
+    auth_mode: 'webhook',
+    credential_configured: true,
+    encryption_available: true,
+    credential_status: 'unreadable',
+    failed_count: 2
+  });
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await expect(
+    mattermostForm.getByText('Saved Mattermost credential is unreadable.')
+  ).toBeVisible();
+  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-credential-warning');
+  await expect(mattermostForm.getByLabel('Enabled')).toBeChecked();
+  await expectMattermostConfigurationLocked(page);
+  await expect(mattermostForm.getByRole('button', { name: 'Retry failed' })).toBeDisabled();
+  await expect(mattermostForm.getByRole('button', { name: 'Remove credential' })).toBeEnabled();
+});
+
 test('admin settings actions update without reloading unrelated data', async ({ page }) => {
   let settings: AppSettings = { ...publicAppSettings };
   let peopleRequests = 0;
@@ -1959,7 +2133,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
 
   await page.route('**/api/v1/settings', (route) => fulfillJson(route, settings));
   await page.route('**/api/v1/settings/mattermost', (route) =>
-    fulfillJson(route, defaultMattermostSettings)
+    fulfillJson(route, patMattermostSettings)
   );
   await page.route('**/api/v1/auth/bootstrap-status', (route) =>
     fulfillJson(route, { required: false })
@@ -2058,6 +2232,25 @@ test('admin settings actions update without reloading unrelated data', async ({ 
     '/brand/filter-coffee-club-brewing.svg'
   );
   expect(peopleRequests).toBe(1);
+});
+
+test('admin tab deep links survive the sign-in redirect', async ({ page }) => {
+  await page.route('**/api/v1/auth/profiles', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/brews/active', (route) =>
+    fulfillJson(route, {
+      brews: [],
+      recent_rating_brews: [],
+      active_count: 0,
+      max_active_brews: 2,
+      can_start: true
+    })
+  );
+  await mockSignedOutHome(page);
+
+  await page.goto('/admin?tab=settings&kiosk=0');
+
+  await expect(page).toHaveURL(/\/login\?/);
+  expect(new URL(page.url()).searchParams.get('next')).toBe('/admin?tab=settings');
 });
 
 test('the brew rail keeps parallel activity side-by-side at every breakpoint', async ({ page }) => {

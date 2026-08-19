@@ -68,6 +68,7 @@ export interface MattermostSettings {
   auth_mode: MattermostAuthMode;
   credential_configured: boolean;
   encryption_available: boolean;
+  credential_status: 'not_configured' | 'ready' | 'key_unavailable' | 'unreadable';
   account_user_id: string | null;
   account_username: string | null;
   team_id: string | null;

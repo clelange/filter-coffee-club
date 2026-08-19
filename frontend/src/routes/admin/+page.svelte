@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
+  import { page } from '$app/state';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
@@ -16,14 +17,23 @@
     Profile
   } from '$lib/types';
 
-  type AdminTab = 'people' | 'equipment' | 'presets' | 'branding' | 'data';
+  type AdminTab = 'people' | 'equipment' | 'presets' | 'settings' | 'data';
   const adminSections: { id: AdminTab; label: string }[] = [
     { id: 'people', label: 'People' },
     { id: 'equipment', label: 'Equipment' },
     { id: 'presets', label: 'Presets & flavors' },
-    { id: 'branding', label: 'Settings' },
+    { id: 'settings', label: 'Settings' },
     { id: 'data', label: 'Data' }
   ];
+
+  function isAdminTab(value: string | null): value is AdminTab {
+    return adminSections.some((section) => section.id === value);
+  }
+
+  function adminTabFromUrl(url: URL): AdminTab {
+    const requested = url.searchParams.get('tab');
+    return isAdminTab(requested) ? requested : 'people';
+  }
 
   let people: Profile[] = $state([]);
   let grinders: Grinder[] = $state([]);
@@ -38,7 +48,7 @@
   let mattermostBusy = $state(false);
   let savedMattermostDestination = $state('');
   let savedMattermostServer = $state('');
-  let activeTab: AdminTab = $state('people');
+  let activeTab: AdminTab = $state(adminTabFromUrl(page.url));
   let tabButtons: Partial<Record<AdminTab, HTMLButtonElement>> = {};
   let message = $state('');
   let error = $state('');
@@ -87,6 +97,20 @@
   const mattermostTestDirty = $derived(
     mattermostDestinationDirty || mattermostCredential.length > 0
   );
+  const mattermostCredentialUnreadable = $derived(isMattermostCredentialUnreadable(mattermost));
+  const mattermostConfigurationLocked = $derived(
+    isMattermostConfigurationLocked(settings, mattermost)
+  );
+
+  $effect(() => {
+    const requestedTab = page.url.searchParams.get('tab');
+    activeTab = adminTabFromUrl(page.url);
+    if (requestedTab && (!isAdminTab(requestedTab) || requestedTab === 'people')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      replaceState(url, page.state);
+    }
+  });
 
   function mattermostDestinationKey(value: MattermostSettings): string {
     return JSON.stringify([value.auth_mode, value.server_url, value.channel_id]);
@@ -94,6 +118,21 @@
 
   function mattermostServerDiffers(value: MattermostSettings | null, savedServer: string): boolean {
     return value !== null && value.server_url !== savedServer;
+  }
+
+  function isMattermostCredentialUnreadable(value: MattermostSettings | null): boolean {
+    return value?.credential_status === 'unreadable';
+  }
+
+  function isMattermostConfigurationLocked(
+    appSettings: AppSettings | null,
+    value: MattermostSettings | null
+  ): boolean {
+    return (
+      appSettings?.demo_mode === true ||
+      value?.encryption_available === false ||
+      isMattermostCredentialUnreadable(value)
+    );
   }
 
   function rememberMattermostDestination(): void {
@@ -114,7 +153,11 @@
     if ($deviceModeStore === 'kiosk') return;
     const session = await ensureSession();
     if (!session) {
-      await goto(loginPath('/admin'));
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('kiosk');
+      if (activeTab === 'people') nextUrl.searchParams.delete('tab');
+      else nextUrl.searchParams.set('tab', activeTab);
+      await goto(loginPath(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`));
       return;
     }
     if (session.profile.role !== 'admin') {
@@ -328,6 +371,7 @@
     mattermostChannels = [];
     mattermost.enabled = false;
     mattermost.credential_configured = false;
+    mattermost.credential_status = 'not_configured';
     mattermost.account_user_id = null;
     mattermost.account_username = null;
     mattermost.team_id = null;
@@ -538,6 +582,10 @@
 
   function selectTab(tab: AdminTab) {
     activeTab = tab;
+    const url = new URL(window.location.href);
+    if (tab === 'people') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', tab);
+    replaceState(url, page.state);
   }
   function handleTabKeydown(event: KeyboardEvent, index: number) {
     let nextIndex: number | null = null;
@@ -549,7 +597,7 @@
     if (nextIndex === null) return;
     event.preventDefault();
     const nextTab = adminSections[nextIndex].id;
-    activeTab = nextTab;
+    selectTab(nextTab);
     requestAnimationFrame(() => tabButtons[nextTab]?.focus());
   }
 </script>
@@ -580,7 +628,11 @@
 
   <label class="admin-section-select section" for="admin-section-select">
     Admin section
-    <select id="admin-section-select" bind:value={activeTab}>
+    <select
+      id="admin-section-select"
+      value={activeTab}
+      onchange={(event) => selectTab(event.currentTarget.value as AdminTab)}
+    >
       {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
     </select>
   </label>
@@ -640,10 +692,10 @@
             ></label
           ><button class="primary">Add member</button>
         </form>
-        <section class="panel">
+        <section class="panel profiles-panel">
           <h2>Profiles</h2>
           <div class="item-list">
-            {#each people as person}<article>
+            {#each people as person}<article class="profile-row">
                 <input
                   aria-label="Display name"
                   bind:value={person.display_name}
@@ -670,17 +722,20 @@
                     disabled={isSeededDemoProfile(person)}
                   />
                   Require PIN change for {person.display_name}</label
-                ><button
-                  class="secondary"
-                  onclick={() => savePerson(person)}
-                  disabled={isSeededDemoProfile(person)}>Save</button
-                ><button
-                  class="secondary"
-                  onclick={() => togglePerson(person)}
-                  disabled={isSeededDemoProfile(person)}
-                  >{person.active ? 'Deactivate' : 'Activate'}</button
                 >
-                <a class="button secondary" href={`/profiles/${person.id}`}>View profile</a>
+                <div class="profile-actions">
+                  <button
+                    class="secondary"
+                    onclick={() => savePerson(person)}
+                    disabled={isSeededDemoProfile(person)}>Save</button
+                  ><button
+                    class="secondary"
+                    onclick={() => togglePerson(person)}
+                    disabled={isSeededDemoProfile(person)}
+                    >{person.active ? 'Deactivate' : 'Activate'}</button
+                  >
+                  <a class="button secondary" href={`/profiles/${person.id}`}>View profile</a>
+                </div>
               </article>{/each}
           </div>
         </section>
@@ -904,7 +959,7 @@
           </section>
         </div>
       </div>
-    {:else if activeTab === 'branding' && settings}
+    {:else if activeTab === 'settings' && settings}
       <div class="stack">
         <form class="panel brand-form" onsubmit={saveSettings}>
           <div>
@@ -1005,7 +1060,15 @@
         </form>
 
         {#if mattermost}
-          <form class="panel mattermost-form" onsubmit={saveMattermost}>
+          <form
+            class="panel mattermost-form"
+            aria-describedby={mattermostCredentialUnreadable
+              ? 'mattermost-credential-warning'
+              : !mattermost.encryption_available
+                ? 'mattermost-encryption-warning'
+                : undefined}
+            onsubmit={saveMattermost}
+          >
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Channel notifications</p>
@@ -1015,7 +1078,7 @@
                 <input
                   type="checkbox"
                   bind:checked={mattermost.enabled}
-                  disabled={settings.demo_mode || !mattermost.encryption_available}
+                  disabled={mattermostConfigurationLocked}
                 />
                 Enabled
               </label>
@@ -1026,8 +1089,26 @@
               advanced channel discovery and retry reconciliation.
             </p>
             {#if !mattermost.encryption_available}
-              <p class="warning" role="status">
-                Set <code>FCC_MATTERMOST_SECRET_KEY</code> on the server before saving a credential.
+              <p
+                id="mattermost-encryption-warning"
+                class="warning mattermost-lockout"
+                role="status"
+              >
+                <strong>Mattermost setup is locked.</strong>
+                Credential encryption is unavailable. Set a stable
+                <code>FCC_MATTERMOST_SECRET_KEY</code> in the deployment environment, restart the application,
+                and reload this page.
+              </p>
+            {:else if mattermostCredentialUnreadable}
+              <p
+                id="mattermost-credential-warning"
+                class="warning mattermost-lockout"
+                role="status"
+              >
+                <strong>Saved Mattermost credential is unreadable.</strong>
+                The configured <code>FCC_MATTERMOST_SECRET_KEY</code> cannot decrypt this credential.
+                Restore the original key and restart the application, or remove the credential below and
+                enter it again.
               </p>
             {/if}
 
@@ -1037,7 +1118,7 @@
                 <select
                   bind:value={mattermost.auth_mode}
                   onchange={changeMattermostMode}
-                  disabled={settings.demo_mode}
+                  disabled={mattermostConfigurationLocked}
                 >
                   <option value="webhook">Incoming webhook</option>
                   <option value="pat">Personal access token</option>
@@ -1049,7 +1130,7 @@
                   type="url"
                   bind:value={mattermost.server_url}
                   placeholder="https://mattermost.web.cern.ch"
-                  disabled={settings.demo_mode}
+                  disabled={mattermostConfigurationLocked}
                   required
                 />
               </label>
@@ -1066,7 +1147,7 @@
                   : mattermost.auth_mode === 'pat'
                     ? 'Paste the access token'
                     : 'https://mattermost.example/hooks/…'}
-                disabled={settings.demo_mode || !mattermost.encryption_available}
+                disabled={mattermostConfigurationLocked}
               />
               <span class="hint">
                 {mattermost.auth_mode === 'pat'
@@ -1086,9 +1167,8 @@
                   class="secondary"
                   type="button"
                   onclick={verifyMattermost}
-                  disabled={settings.demo_mode ||
+                  disabled={mattermostConfigurationLocked ||
                     mattermostBusy ||
-                    !mattermost.encryption_available ||
                     (mattermostServerChanged && !mattermostCredential) ||
                     (!mattermostCredential && !mattermost.credential_configured)}
                   >{mattermostBusy ? 'Working…' : 'Verify token & load channels'}</button
@@ -1104,7 +1184,7 @@
                 <select
                   bind:value={mattermost.channel_id}
                   onchange={selectMattermostChannel}
-                  disabled={settings.demo_mode || mattermostBusy}
+                  disabled={mattermostConfigurationLocked || mattermostBusy}
                   required={mattermost.enabled}
                 >
                   <option value={null}>Select a channel</option>
@@ -1141,7 +1221,7 @@
                       if (!mattermost?.announce_brew_started)
                         mattermost!.mention_channel_on_started = false;
                     }}
-                    disabled={settings.demo_mode}
+                    disabled={mattermostConfigurationLocked}
                   />
                   Post when a brew starts
                 </label>
@@ -1149,7 +1229,7 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_started}
-                    disabled={settings.demo_mode || !mattermost.announce_brew_started}
+                    disabled={mattermostConfigurationLocked || !mattermost.announce_brew_started}
                   />
                   Include @channel
                 </label>
@@ -1163,7 +1243,7 @@
                       if (!mattermost?.announce_ready_to_rate)
                         mattermost!.mention_channel_on_ready = false;
                     }}
-                    disabled={settings.demo_mode}
+                    disabled={mattermostConfigurationLocked}
                   />
                   Post when rating opens
                 </label>
@@ -1171,7 +1251,7 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_ready}
-                    disabled={settings.demo_mode || !mattermost.announce_ready_to_rate}
+                    disabled={mattermostConfigurationLocked || !mattermost.announce_ready_to_rate}
                   />
                   Include @channel
                 </label>
@@ -1194,16 +1274,14 @@
             {/if}
 
             <div class="actions mattermost-actions">
-              <button
-                class="primary"
-                disabled={settings.demo_mode || mattermostBusy || !mattermost.encryption_available}
+              <button class="primary" disabled={mattermostConfigurationLocked || mattermostBusy}
                 >{mattermostBusy ? 'Working…' : 'Save Mattermost settings'}</button
               >
               <button
                 class="secondary"
                 type="button"
                 onclick={testMattermost}
-                disabled={settings.demo_mode ||
+                disabled={mattermostConfigurationLocked ||
                   mattermostBusy ||
                   mattermostTestDirty ||
                   !mattermost.credential_configured}>Send test message</button
@@ -1216,7 +1294,7 @@
                   class="secondary"
                   type="button"
                   onclick={retryMattermost}
-                  disabled={settings.demo_mode || mattermostBusy || !mattermost.enabled}
+                  disabled={mattermostConfigurationLocked || mattermostBusy || !mattermost.enabled}
                   >Retry failed</button
                 >
               {/if}
@@ -1327,17 +1405,32 @@
     display: grid;
     gap: 7px;
   }
-  .item-list article {
+  .profiles-panel {
+    min-width: 0;
+    container-type: inline-size;
+  }
+  .profile-row {
     display: grid;
-    grid-template-columns: minmax(130px, 1fr) 130px 110px 150px auto auto auto;
+    grid-template-columns: minmax(130px, 1fr) 130px 110px minmax(150px, 1fr);
     gap: 7px;
     align-items: center;
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
   }
+  .profile-row > * {
+    min-width: 0;
+  }
+  .profile-actions {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+  }
   .pin-required {
     min-height: auto;
     font-size: 0.78rem;
+    overflow-wrap: anywhere;
   }
   .rack article {
     display: flex;
@@ -1436,6 +1529,17 @@
   .integration-enabled {
     min-height: auto;
   }
+  .mattermost-lockout {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid currentColor;
+    border-radius: 12px;
+  }
+  .mattermost-lockout strong {
+    font-size: 1rem;
+  }
   .mattermost-connection {
     grid-template-columns: minmax(200px, 0.7fr) minmax(280px, 1.3fr);
   }
@@ -1520,6 +1624,11 @@
     background: var(--ink);
     color: var(--cream);
   }
+  @container (max-width: 560px) {
+    .profile-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
   @media (max-width: 900px) {
     .equipment-grid {
       grid-template-columns: 1fr 1fr;
@@ -1537,8 +1646,8 @@
     .tag-editor article {
       grid-template-columns: 1fr 80px auto;
     }
-    .item-list article {
-      grid-template-columns: 1fr 1fr;
+    .profile-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
   @media (max-width: 650px) {
@@ -1563,9 +1672,8 @@
     .mattermost-events > div {
       grid-template-columns: 1fr;
     }
-    .tag-editor article,
-    .item-list article {
-      grid-template-columns: 1fr 1fr;
+    .tag-editor article {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
 </style>

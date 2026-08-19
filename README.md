@@ -60,7 +60,10 @@ docker compose up -d --no-build
 
 Open `http://localhost:8000` and create the first administrator. There are no default credentials and no public registration. The container runs one Uvicorn worker and expects one replica; SQLite is not suitable for horizontal application scaling.
 
-Images are published for `linux/amd64` and `linux/arm64`, so the same release can run on a conventional server or a 64-bit Raspberry Pi. Production deployments should pin `FCC_IMAGE_TAG` to an exact release; `latest` is provided as a convenience and moves whenever a stable release is published.
+Images are published for `linux/amd64` and `linux/arm64`, so the same release can run on a
+conventional server or a 64-bit Raspberry Pi. Production deployments can pin `FCC_IMAGE_TAG` to
+an exact release for controlled rollouts, or deliberately follow `latest` with automated backups
+and container updates. The `latest` tag moves only when a stable release is published.
 
 ### Raspberry Pi kiosk display
 
@@ -155,7 +158,7 @@ All environment variables use the `FCC_` prefix. Important values are:
 | `FCC_MAX_CATALOG_PHOTO_BYTES` | `12582912` (12 MiB)               | Maximum accepted coffee or equipment photo upload. JPEG, PNG, WebP, HEIC, and HEIF are normalized to WebP with a maximum dimension of 1600 px. |
 | `FCC_LOG_LEVEL`               | `info`                            | Application and structured request log level.                                                                                                  |
 | `FCC_DEMO_MODE`               | `false`                           | Seed fictional data and enable public-demo protections.                                                                                        |
-| `FCC_MATTERMOST_SECRET_KEY`   | empty                             | URL-safe Fernet key used to encrypt saved Mattermost PATs or webhook URLs. Required only when the Mattermost integration is configured.         |
+| `FCC_MATTERMOST_SECRET_KEY`   | empty                             | URL-safe Fernet key used to encrypt saved Mattermost PATs or webhook URLs. Required only when the Mattermost integration is configured.        |
 
 If the public URL is blank, the API uses the current request origin. Administrators see a warning while the development placeholder is active.
 
@@ -167,13 +170,81 @@ configurations. Personal Access Token (PAT) delivery remains available for advan
 Generate the required deployment encryption key once and keep it stable:
 
 ```sh
-uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+podman exec filter-coffee-club python -c \
+  'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
+
+For Docker Compose, replace `podman exec filter-coffee-club` with
+`docker compose exec filter-coffee-club`. During local development, the equivalent command is
+`uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`.
 
 Set the result as `FCC_MATTERMOST_SECRET_KEY` before saving a credential. The encrypted credential
 is stored in SQLite, but the encryption key must be managed separately from database backups.
 Changing or losing the key makes the saved credential unreadable; enter the credential again after
 restoring the original key or clearing the old credential.
+
+For Docker Compose, put the generated value in `.env` and recreate the container so the new
+environment reaches the application:
+
+```dotenv
+FCC_MATTERMOST_SECRET_KEY=<generated Fernet key>
+```
+
+```sh
+docker compose up -d --no-build --force-recreate
+```
+
+For a rootless Podman Quadlet deployment, keep the key in a separate owner-only environment file
+instead of embedding it in the `.container` file. Create the file and set its contents to the same
+environment declaration:
+
+```sh
+install -d -m 700 ~/.config/filter-coffee-club
+install -m 600 /dev/null ~/.config/filter-coffee-club/filter-coffee-club.env
+```
+
+```dotenv
+FCC_MATTERMOST_SECRET_KEY=<generated Fernet key>
+```
+
+Reference its absolute path from the Quadlet's `[Container]` section; replace `USER` with the account
+that owns the user service:
+
+```ini
+[Container]
+Image=ghcr.io/clelange/filter-coffee-club:latest
+AutoUpdate=registry
+EnvironmentFile=/home/USER/.config/filter-coffee-club/filter-coffee-club.env
+```
+
+The `latest` image plus `AutoUpdate=registry` follows every stable release automatically. For
+manually controlled upgrades, use an immutable release tag such as `v2026.08.9` and omit
+`AutoUpdate`. Ensure a validated database and secret backup runs before the Podman auto-update
+window.
+
+Reload the user manager and restart the generated service:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now podman-auto-update.timer
+systemctl --user restart filter-coffee-club.service
+```
+
+The application can confirm that it loaded a valid key without printing the key itself:
+
+```sh
+podman exec filter-coffee-club python -c \
+  'from app.config import Settings; from app.mattermost import encryption_available; print(encryption_available(Settings()))'
+```
+
+This should print `True`; after reloading Admin → Settings, the Mattermost controls are enabled.
+Keep the environment file out of version control and include the key in a separate, access-controlled
+secret backup so restored database credentials remain decryptable.
+
+When the key is missing or invalid, Admin → Settings displays **Mattermost setup is locked** and
+disables destination, credential, announcement, testing, and retry controls. Configure the key and
+restart the application; changing browser state cannot unlock the integration. Removing an existing
+credential remains available so an installation with a lost key can clear the unreadable value.
 
 For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
 URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and
@@ -257,10 +328,25 @@ The Playwright flow covers a 1024×600 Pi operator journey and a touch-enabled 3
 
 ## Backup and restore
 
-Catalog photos and uploaded branding live beside SQLite under `/data/uploads`. A complete backup
-must therefore copy or snapshot the entire `/data` volume, preferably while the application is
-stopped. The SQLite-only procedure below is still useful for a consistent database backup, but it
-does not include uploaded files.
+Catalog photos and uploaded branding live beside SQLite under `/data/uploads`. A recoverable
+application backup must copy or snapshot the entire `/data` volume, preferably while the
+application is stopped. If Mattermost is configured, the recovery set must also contain the
+matching `FCC_MATTERMOST_SECRET_KEY`: the key intentionally lives outside `/data` and is required
+to decrypt the credential stored in SQLite. Keep that secret backup encrypted or owner-readable
+only, separate from broadly accessible database copies.
+
+For a Quadlet deployment using the environment-file layout above, back up
+`~/.config/filter-coffee-club/filter-coffee-club.env` alongside each matching `/data` snapshot or
+SQLite backup. A scheduled backup can use timestamp-paired files with restrictive permissions:
+
+```sh
+install -d -m 700 /path/to/secure-backups/filter-coffee-club
+install -m 600 ~/.config/filter-coffee-club/filter-coffee-club.env \
+  /path/to/secure-backups/filter-coffee-club/fcc_YYYYMMDDTHHMMSSZ.env
+```
+
+The SQLite-only procedure below is still useful for a consistent database backup, but it does not
+include uploaded files or the external Mattermost key.
 
 For an online, consistent copy, use SQLite's backup command against the mounted database:
 
@@ -272,11 +358,13 @@ docker compose cp filter-coffee-club:/data/fcc-backup.sqlite3 ./fcc-backup.sqlit
 
 The slim production image may not include the `sqlite3` command on every platform. In that case, stop the container before copying `/data/fcc.sqlite3`, or run a temporary SQLite container against the same volume. Do not copy only the main file while the application is actively writing in WAL mode.
 
-To restore a database-only backup, stop the application, keep a copy of the current `/data`
-directory, replace `/data/fcc.sqlite3`, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if
-present, then start the application. Restore `/data/uploads` from the matching full backup whenever
-catalog photos or branding must be recovered. Alembic automatically upgrades an older restored
-schema at startup.
+To restore a database-only backup, stop the application and keep a copy of the current `/data`
+directory. If the database contains a Mattermost credential, restore its timestamp-matched secret
+environment file with mode `0600` before starting the application. Then replace
+`/data/fcc.sqlite3`, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if present, and start
+the application. Restore `/data/uploads` from the matching full backup whenever catalog photos or
+branding must be recovered. Confirm the Mattermost key health in Admin → Settings after recovery;
+Alembic automatically upgrades an older restored schema at startup.
 
 ## Data boundaries
 

@@ -2055,6 +2055,11 @@ export interface components {
             credential_configured: boolean;
             /** Encryption Available */
             encryption_available: boolean;
+            /**
+             * Credential Status
+             * @enum {string}
+             */
+            credential_status: "not_configured" | "ready" | "key_unavailable" | "unreadable";
             /** Account User Id */
             account_user_id: string | null;
             /** Account Username */
