@@ -1106,9 +1106,9 @@
                 role="status"
               >
                 <strong>Saved Mattermost credential is unreadable.</strong>
-                The configured <code>FCC_MATTERMOST_SECRET_KEY</code> cannot decrypt this credential. Restore
-                the original key and restart the application, or remove the credential below and enter it
-                again.
+                The configured <code>FCC_MATTERMOST_SECRET_KEY</code> cannot decrypt this credential.
+                Restore the original key and restart the application, or remove the credential below and
+                enter it again.
               </p>
             {/if}
 
