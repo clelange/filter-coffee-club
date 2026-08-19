@@ -61,12 +61,13 @@ const publicAppSettings: AppSettings = {
   demo_profile_names: []
 };
 
-const defaultMattermostSettings: MattermostSettings = {
+const patMattermostSettings: MattermostSettings = {
   enabled: false,
   server_url: 'https://mattermost.web.cern.ch',
   auth_mode: 'pat',
   credential_configured: false,
   encryption_available: true,
+  credential_status: 'not_configured',
   account_user_id: null,
   account_username: null,
   team_id: null,
@@ -1941,17 +1942,7 @@ test('active brews use the configured brewing logo with regular-logo fallback', 
   );
 });
 
-test('Mattermost setup clearly locks controls when credential encryption is unavailable', async ({
-  page
-}) => {
-  const lockedMattermost: MattermostSettings = {
-    ...defaultMattermostSettings,
-    enabled: true,
-    auth_mode: 'webhook',
-    credential_configured: true,
-    encryption_available: false,
-    failed_count: 2
-  };
+async function mockMattermostAdmin(page: Page, mattermostSettings: MattermostSettings) {
   const adminSession: Session = {
     profile: {
       id: 1,
@@ -1967,7 +1958,7 @@ test('Mattermost setup clearly locks controls when credential encryption is unav
 
   await page.route('**/api/v1/settings', (route) => fulfillJson(route, publicAppSettings));
   await page.route('**/api/v1/settings/mattermost', (route) =>
-    fulfillJson(route, lockedMattermost)
+    fulfillJson(route, mattermostSettings)
   );
   await page.route('**/api/v1/auth/bootstrap-status', (route) =>
     fulfillJson(route, { required: false })
@@ -1990,12 +1981,11 @@ test('Mattermost setup clearly locks controls when credential encryption is unav
 
   await page.goto('/admin?kiosk=0');
   await page.getByRole('tab', { name: 'Settings' }).click();
+}
 
+async function expectMattermostConfigurationLocked(page: Page) {
   const mattermostForm = page.locator('.mattermost-form');
-  const lockout = mattermostForm.getByText('Mattermost setup is locked.');
-  await expect(lockout).toBeVisible();
-  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-encryption-warning');
-  await expect(mattermostForm.getByLabel('Enabled')).toBeChecked();
+
   await expect(mattermostForm.getByLabel('Enabled')).toBeDisabled();
   await expect(mattermostForm.getByLabel('Authentication')).toBeDisabled();
   await expect(mattermostForm.getByRole('textbox', { name: /^Mattermost server/ })).toBeDisabled();
@@ -2006,6 +1996,46 @@ test('Mattermost setup clearly locks controls when credential encryption is unav
     mattermostForm.getByRole('button', { name: 'Save Mattermost settings' })
   ).toBeDisabled();
   await expect(mattermostForm.getByRole('button', { name: 'Send test message' })).toBeDisabled();
+}
+
+test('fresh Mattermost setup clearly locks controls when encryption is unavailable', async ({
+  page
+}) => {
+  await mockMattermostAdmin(page, {
+    ...patMattermostSettings,
+    auth_mode: 'webhook',
+    encryption_available: false,
+    credential_status: 'not_configured'
+  });
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await expect(mattermostForm.getByText('Mattermost setup is locked.')).toBeVisible();
+  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-encryption-warning');
+  await expect(mattermostForm.getByLabel('Enabled')).not.toBeChecked();
+  await expectMattermostConfigurationLocked(page);
+  await expect(mattermostForm.getByRole('button', { name: 'Remove credential' })).toHaveCount(0);
+});
+
+test('a mismatched Mattermost key is diagnosed and only credential removal remains', async ({
+  page
+}) => {
+  await mockMattermostAdmin(page, {
+    ...patMattermostSettings,
+    enabled: true,
+    auth_mode: 'webhook',
+    credential_configured: true,
+    encryption_available: true,
+    credential_status: 'unreadable',
+    failed_count: 2
+  });
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await expect(
+    mattermostForm.getByText('Saved Mattermost credential is unreadable.')
+  ).toBeVisible();
+  await expect(mattermostForm).toHaveAttribute('aria-describedby', 'mattermost-credential-warning');
+  await expect(mattermostForm.getByLabel('Enabled')).toBeChecked();
+  await expectMattermostConfigurationLocked(page);
   await expect(mattermostForm.getByRole('button', { name: 'Retry failed' })).toBeDisabled();
   await expect(mattermostForm.getByRole('button', { name: 'Remove credential' })).toBeEnabled();
 });
@@ -2028,7 +2058,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
 
   await page.route('**/api/v1/settings', (route) => fulfillJson(route, settings));
   await page.route('**/api/v1/settings/mattermost', (route) =>
-    fulfillJson(route, defaultMattermostSettings)
+    fulfillJson(route, patMattermostSettings)
   );
   await page.route('**/api/v1/auth/bootstrap-status', (route) =>
     fulfillJson(route, { required: false })

@@ -117,6 +117,18 @@ def encryption_available(settings: Settings) -> bool:
     return True
 
 
+def credential_status(
+    settings: Settings, ciphertext: str | None
+) -> Literal["not_configured", "ready", "key_unavailable", "unreadable"]:
+    if not ciphertext:
+        return "not_configured"
+    try:
+        decrypt_credential(settings, ciphertext)
+    except MattermostError:
+        return "unreadable" if encryption_available(settings) else "key_unavailable"
+    return "ready"
+
+
 def encrypt_credential(settings: Settings, credential: str) -> str:
     value = credential.strip()
     if not value:
@@ -129,7 +141,7 @@ def decrypt_credential(settings: Settings, ciphertext: str | None) -> str:
         raise MattermostError("Mattermost credential is not configured")
     try:
         return _fernet(settings).decrypt(ciphertext.encode()).decode()
-    except InvalidToken as exc:
+    except (InvalidToken, UnicodeDecodeError) as exc:
         raise MattermostError(
             "Mattermost credential cannot be decrypted; re-enter it with the current key"
         ) from exc

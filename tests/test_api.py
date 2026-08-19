@@ -188,6 +188,7 @@ def test_mattermost_settings_encrypt_verify_test_and_clear(
         assert initial["auth_mode"] == "webhook"
         assert initial["credential_configured"] is False
         assert initial["encryption_available"] is True
+        assert initial["credential_status"] == "not_configured"
 
         verified = client.post(
             "/api/v1/settings/mattermost/verify",
@@ -209,6 +210,7 @@ def test_mattermost_settings_encrypt_verify_test_and_clear(
         assert saved.status_code == 200, saved.text
         saved_payload = saved.json()
         assert saved_payload["credential_configured"] is True
+        assert saved_payload["credential_status"] == "ready"
         assert saved_payload["account_username"] == "coffee-bot"
         assert saved_payload["channel_display_name"] == "Coffee breaks"
         assert "credential" not in saved_payload
@@ -390,10 +392,59 @@ def test_mattermost_setup_requires_encryption_key(tmp_path: Path) -> None:
         _session, headers = bootstrap(client)
         settings = client.get("/api/v1/settings/mattermost").json()
         assert settings["encryption_available"] is False
+        assert settings["credential_status"] == "not_configured"
         response = client.put(
             "/api/v1/settings/mattermost",
             headers=headers,
             json=mattermost_settings_payload(),
+        )
+        assert response.status_code == 422
+        assert "FCC_MATTERMOST_SECRET_KEY" in response.text
+
+
+def test_mattermost_settings_report_unreadable_credential_after_key_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
+    monkeypatch.setattr(
+        api_module.MattermostClient,
+        "verify_pat",
+        lambda _client: mattermost_verification(),
+    )
+    first_key = Fernet.generate_key().decode()
+    with build_client(tmp_path, mattermost_secret_key=first_key) as client:
+        _session, headers = bootstrap(client)
+        saved = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=mattermost_settings_payload(),
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["credential_status"] == "ready"
+
+    replacement_key = Fernet.generate_key().decode()
+    with build_client(tmp_path, mattermost_secret_key=replacement_key) as client:
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": 1, "pin": "1234", "device_mode": "personal"},
+        )
+        assert login.status_code == 200, login.text
+        settings = client.get("/api/v1/settings/mattermost").json()
+        assert settings["encryption_available"] is True
+        assert settings["credential_configured"] is True
+        assert settings["credential_status"] == "unreadable"
+
+
+def test_mattermost_settings_reject_invalid_encryption_key(tmp_path: Path) -> None:
+    with build_client(tmp_path, mattermost_secret_key="not-a-fernet-key") as client:
+        _session, headers = bootstrap(client)
+        settings = client.get("/api/v1/settings/mattermost").json()
+        assert settings["encryption_available"] is False
+        assert settings["credential_status"] == "not_configured"
+        response = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=mattermost_webhook_payload(),
         )
         assert response.status_code == 422
         assert "FCC_MATTERMOST_SECRET_KEY" in response.text

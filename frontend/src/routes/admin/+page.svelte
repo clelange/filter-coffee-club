@@ -88,12 +88,32 @@
     mattermostDestinationDirty || mattermostCredential.length > 0
   );
 
+  const mattermostCredentialUnreadable = $derived(isMattermostCredentialUnreadable(mattermost));
+  const mattermostConfigurationLocked = $derived(
+    isMattermostConfigurationLocked(settings, mattermost)
+  );
+
   function mattermostDestinationKey(value: MattermostSettings): string {
     return JSON.stringify([value.auth_mode, value.server_url, value.channel_id]);
   }
 
   function mattermostServerDiffers(value: MattermostSettings | null, savedServer: string): boolean {
     return value !== null && value.server_url !== savedServer;
+  }
+
+  function isMattermostCredentialUnreadable(value: MattermostSettings | null): boolean {
+    return value?.credential_status === 'unreadable';
+  }
+
+  function isMattermostConfigurationLocked(
+    appSettings: AppSettings | null,
+    value: MattermostSettings | null
+  ): boolean {
+    return (
+      appSettings?.demo_mode === true ||
+      value?.encryption_available === false ||
+      isMattermostCredentialUnreadable(value)
+    );
   }
 
   function rememberMattermostDestination(): void {
@@ -328,6 +348,7 @@
     mattermostChannels = [];
     mattermost.enabled = false;
     mattermost.credential_configured = false;
+    mattermost.credential_status = 'not_configured';
     mattermost.account_user_id = null;
     mattermost.account_username = null;
     mattermost.team_id = null;
@@ -1007,9 +1028,11 @@
         {#if mattermost}
           <form
             class="panel mattermost-form"
-            aria-describedby={!mattermost.encryption_available
-              ? 'mattermost-encryption-warning'
-              : undefined}
+            aria-describedby={mattermostCredentialUnreadable
+              ? 'mattermost-credential-warning'
+              : !mattermost.encryption_available
+                ? 'mattermost-encryption-warning'
+                : undefined}
             onsubmit={saveMattermost}
           >
             <div class="section-heading">
@@ -1021,7 +1044,7 @@
                 <input
                   type="checkbox"
                   bind:checked={mattermost.enabled}
-                  disabled={settings.demo_mode || !mattermost.encryption_available}
+                  disabled={mattermostConfigurationLocked}
                 />
                 Enabled
               </label>
@@ -1042,6 +1065,17 @@
                 <code>FCC_MATTERMOST_SECRET_KEY</code> in the deployment environment, restart the application,
                 and reload this page.
               </p>
+            {:else if mattermostCredentialUnreadable}
+              <p
+                id="mattermost-credential-warning"
+                class="warning mattermost-lockout"
+                role="status"
+              >
+                <strong>Saved Mattermost credential is unreadable.</strong>
+                The configured <code>FCC_MATTERMOST_SECRET_KEY</code> cannot decrypt this credential. Restore
+                the original key and restart the application, or remove the credential below and enter it
+                again.
+              </p>
             {/if}
 
             <div class="field-grid mattermost-connection">
@@ -1050,7 +1084,7 @@
                 <select
                   bind:value={mattermost.auth_mode}
                   onchange={changeMattermostMode}
-                  disabled={settings.demo_mode || !mattermost.encryption_available}
+                  disabled={mattermostConfigurationLocked}
                 >
                   <option value="webhook">Incoming webhook</option>
                   <option value="pat">Personal access token</option>
@@ -1062,7 +1096,7 @@
                   type="url"
                   bind:value={mattermost.server_url}
                   placeholder="https://mattermost.web.cern.ch"
-                  disabled={settings.demo_mode || !mattermost.encryption_available}
+                  disabled={mattermostConfigurationLocked}
                   required
                 />
               </label>
@@ -1079,7 +1113,7 @@
                   : mattermost.auth_mode === 'pat'
                     ? 'Paste the access token'
                     : 'https://mattermost.example/hooks/…'}
-                disabled={settings.demo_mode || !mattermost.encryption_available}
+                disabled={mattermostConfigurationLocked}
               />
               <span class="hint">
                 {mattermost.auth_mode === 'pat'
@@ -1099,9 +1133,8 @@
                   class="secondary"
                   type="button"
                   onclick={verifyMattermost}
-                  disabled={settings.demo_mode ||
+                  disabled={mattermostConfigurationLocked ||
                     mattermostBusy ||
-                    !mattermost.encryption_available ||
                     (mattermostServerChanged && !mattermostCredential) ||
                     (!mattermostCredential && !mattermost.credential_configured)}
                   >{mattermostBusy ? 'Working…' : 'Verify token & load channels'}</button
@@ -1117,9 +1150,7 @@
                 <select
                   bind:value={mattermost.channel_id}
                   onchange={selectMattermostChannel}
-                  disabled={settings.demo_mode ||
-                    mattermostBusy ||
-                    !mattermost.encryption_available}
+                  disabled={mattermostConfigurationLocked || mattermostBusy}
                   required={mattermost.enabled}
                 >
                   <option value={null}>Select a channel</option>
@@ -1156,7 +1187,7 @@
                       if (!mattermost?.announce_brew_started)
                         mattermost!.mention_channel_on_started = false;
                     }}
-                    disabled={settings.demo_mode || !mattermost.encryption_available}
+                    disabled={mattermostConfigurationLocked}
                   />
                   Post when a brew starts
                 </label>
@@ -1164,9 +1195,7 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_started}
-                    disabled={settings.demo_mode ||
-                      !mattermost.encryption_available ||
-                      !mattermost.announce_brew_started}
+                    disabled={mattermostConfigurationLocked || !mattermost.announce_brew_started}
                   />
                   Include @channel
                 </label>
@@ -1180,7 +1209,7 @@
                       if (!mattermost?.announce_ready_to_rate)
                         mattermost!.mention_channel_on_ready = false;
                     }}
-                    disabled={settings.demo_mode || !mattermost.encryption_available}
+                    disabled={mattermostConfigurationLocked}
                   />
                   Post when rating opens
                 </label>
@@ -1188,9 +1217,7 @@
                   <input
                     type="checkbox"
                     bind:checked={mattermost.mention_channel_on_ready}
-                    disabled={settings.demo_mode ||
-                      !mattermost.encryption_available ||
-                      !mattermost.announce_ready_to_rate}
+                    disabled={mattermostConfigurationLocked || !mattermost.announce_ready_to_rate}
                   />
                   Include @channel
                 </label>
@@ -1213,19 +1240,16 @@
             {/if}
 
             <div class="actions mattermost-actions">
-              <button
-                class="primary"
-                disabled={settings.demo_mode || mattermostBusy || !mattermost.encryption_available}
+              <button class="primary" disabled={mattermostConfigurationLocked || mattermostBusy}
                 >{mattermostBusy ? 'Working…' : 'Save Mattermost settings'}</button
               >
               <button
                 class="secondary"
                 type="button"
                 onclick={testMattermost}
-                disabled={settings.demo_mode ||
+                disabled={mattermostConfigurationLocked ||
                   mattermostBusy ||
                   mattermostTestDirty ||
-                  !mattermost.encryption_available ||
                   !mattermost.credential_configured}>Send test message</button
               >
               {#if mattermostTestDirty && mattermost.credential_configured}
@@ -1236,10 +1260,8 @@
                   class="secondary"
                   type="button"
                   onclick={retryMattermost}
-                  disabled={settings.demo_mode ||
-                    mattermostBusy ||
-                    !mattermost.encryption_available ||
-                    !mattermost.enabled}>Retry failed</button
+                  disabled={mattermostConfigurationLocked || mattermostBusy || !mattermost.enabled}
+                  >Retry failed</button
                 >
               {/if}
               {#if mattermost.credential_configured}

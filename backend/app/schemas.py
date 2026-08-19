@@ -660,6 +660,7 @@ class MattermostSettingsResponse(BaseModel):
     auth_mode: Literal["pat", "webhook"]
     credential_configured: bool
     encryption_available: bool
+    credential_status: Literal["not_configured", "ready", "key_unavailable", "unreadable"]
     account_user_id: str | None
     account_username: str | None
     team_id: str | None

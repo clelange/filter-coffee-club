@@ -18,6 +18,7 @@ from app.mattermost import (
     _retry_after,
     build_brew_message,
     cancel_brew_notifications,
+    credential_status,
     decrypt_credential,
     deliver_one,
     delivery_worker,
@@ -91,6 +92,10 @@ def test_mattermost_credentials_are_encrypted_and_key_bound(tmp_path) -> None:  
     )
     with pytest.raises(MattermostError, match="cannot be decrypted"):
         decrypt_credential(wrong_settings, ciphertext)
+    assert credential_status(settings, ciphertext) == "ready"
+    assert credential_status(wrong_settings, ciphertext) == "unreadable"
+    assert credential_status(Settings(data_dir=tmp_path), ciphertext) == "key_unavailable"
+    assert credential_status(settings, None) == "not_configured"
 
 
 def test_brew_messages_only_emit_the_configured_channel_mention() -> None:

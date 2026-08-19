@@ -167,8 +167,13 @@ configurations. Personal Access Token (PAT) delivery remains available for advan
 Generate the required deployment encryption key once and keep it stable:
 
 ```sh
-uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+podman exec filter-coffee-club python -c \
+  'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
+
+For Docker Compose, replace `podman exec filter-coffee-club` with
+`docker compose exec filter-coffee-club`. During local development, the equivalent command is
+`uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`.
 
 Set the result as `FCC_MATTERMOST_SECRET_KEY` before saving a credential. The encrypted credential
 is stored in SQLite, but the encryption key must be managed separately from database backups.
@@ -312,10 +317,25 @@ The Playwright flow covers a 1024×600 Pi operator journey and a touch-enabled 3
 
 ## Backup and restore
 
-Catalog photos and uploaded branding live beside SQLite under `/data/uploads`. A complete backup
-must therefore copy or snapshot the entire `/data` volume, preferably while the application is
-stopped. The SQLite-only procedure below is still useful for a consistent database backup, but it
-does not include uploaded files.
+Catalog photos and uploaded branding live beside SQLite under `/data/uploads`. A recoverable
+application backup must copy or snapshot the entire `/data` volume, preferably while the
+application is stopped. If Mattermost is configured, the recovery set must also contain the
+matching `FCC_MATTERMOST_SECRET_KEY`: the key intentionally lives outside `/data` and is required
+to decrypt the credential stored in SQLite. Keep that secret backup encrypted or owner-readable
+only, separate from broadly accessible database copies.
+
+For a Quadlet deployment using the environment-file layout above, back up
+`~/.config/filter-coffee-club/filter-coffee-club.env` alongside each matching `/data` snapshot or
+SQLite backup. A scheduled backup can use timestamp-paired files with restrictive permissions:
+
+```sh
+install -d -m 700 /path/to/secure-backups/filter-coffee-club
+install -m 600 ~/.config/filter-coffee-club/filter-coffee-club.env \
+  /path/to/secure-backups/filter-coffee-club/fcc_YYYYMMDDTHHMMSSZ.env
+```
+
+The SQLite-only procedure below is still useful for a consistent database backup, but it does not
+include uploaded files or the external Mattermost key.
 
 For an online, consistent copy, use SQLite's backup command against the mounted database:
 
@@ -327,11 +347,13 @@ docker compose cp filter-coffee-club:/data/fcc-backup.sqlite3 ./fcc-backup.sqlit
 
 The slim production image may not include the `sqlite3` command on every platform. In that case, stop the container before copying `/data/fcc.sqlite3`, or run a temporary SQLite container against the same volume. Do not copy only the main file while the application is actively writing in WAL mode.
 
-To restore a database-only backup, stop the application, keep a copy of the current `/data`
-directory, replace `/data/fcc.sqlite3`, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if
-present, then start the application. Restore `/data/uploads` from the matching full backup whenever
-catalog photos or branding must be recovered. Alembic automatically upgrades an older restored
-schema at startup.
+To restore a database-only backup, stop the application and keep a copy of the current `/data`
+directory. If the database contains a Mattermost credential, restore its timestamp-matched secret
+environment file with mode `0600` before starting the application. Then replace
+`/data/fcc.sqlite3`, remove stale `fcc.sqlite3-wal` and `fcc.sqlite3-shm` files if present, and start
+the application. Restore `/data/uploads` from the matching full backup whenever catalog photos or
+branding must be recovered. Confirm the Mattermost key health in Admin → Settings after recovery;
+Alembic automatically upgrades an older restored schema at startup.
 
 ## Data boundaries
 
