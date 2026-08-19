@@ -112,6 +112,16 @@
     }
   });
 
+  $effect(() => {
+    const requestedTab = page.url.searchParams.get('tab');
+    activeTab = adminTabFromUrl(page.url);
+    if (requestedTab && (!isAdminTab(requestedTab) || requestedTab === 'people')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      replaceState(url, page.state);
+    }
+  });
+
   function mattermostDestinationKey(value: MattermostSettings): string {
     return JSON.stringify([value.auth_mode, value.server_url, value.channel_id]);
   }
