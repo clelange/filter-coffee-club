@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
+  import { page } from '$app/state';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
@@ -16,14 +17,23 @@
     Profile
   } from '$lib/types';
 
-  type AdminTab = 'people' | 'equipment' | 'presets' | 'branding' | 'data';
+  type AdminTab = 'people' | 'equipment' | 'presets' | 'settings' | 'data';
   const adminSections: { id: AdminTab; label: string }[] = [
     { id: 'people', label: 'People' },
     { id: 'equipment', label: 'Equipment' },
     { id: 'presets', label: 'Presets & flavors' },
-    { id: 'branding', label: 'Settings' },
+    { id: 'settings', label: 'Settings' },
     { id: 'data', label: 'Data' }
   ];
+
+  function isAdminTab(value: string | null): value is AdminTab {
+    return adminSections.some((section) => section.id === value);
+  }
+
+  function adminTabFromUrl(url: URL): AdminTab {
+    const requested = url.searchParams.get('tab');
+    return isAdminTab(requested) ? requested : 'people';
+  }
 
   let people: Profile[] = $state([]);
   let grinders: Grinder[] = $state([]);
@@ -38,7 +48,7 @@
   let mattermostBusy = $state(false);
   let savedMattermostDestination = $state('');
   let savedMattermostServer = $state('');
-  let activeTab: AdminTab = $state('people');
+  let activeTab: AdminTab = $state(adminTabFromUrl(page.url));
   let tabButtons: Partial<Record<AdminTab, HTMLButtonElement>> = {};
   let message = $state('');
   let error = $state('');
@@ -87,11 +97,20 @@
   const mattermostTestDirty = $derived(
     mattermostDestinationDirty || mattermostCredential.length > 0
   );
-
   const mattermostCredentialUnreadable = $derived(isMattermostCredentialUnreadable(mattermost));
   const mattermostConfigurationLocked = $derived(
     isMattermostConfigurationLocked(settings, mattermost)
   );
+
+  $effect(() => {
+    const requestedTab = page.url.searchParams.get('tab');
+    activeTab = adminTabFromUrl(page.url);
+    if (requestedTab && (!isAdminTab(requestedTab) || requestedTab === 'people')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      replaceState(url, page.state);
+    }
+  });
 
   function mattermostDestinationKey(value: MattermostSettings): string {
     return JSON.stringify([value.auth_mode, value.server_url, value.channel_id]);
@@ -134,7 +153,11 @@
     if ($deviceModeStore === 'kiosk') return;
     const session = await ensureSession();
     if (!session) {
-      await goto(loginPath('/admin'));
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('kiosk');
+      if (activeTab === 'people') nextUrl.searchParams.delete('tab');
+      else nextUrl.searchParams.set('tab', activeTab);
+      await goto(loginPath(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`));
       return;
     }
     if (session.profile.role !== 'admin') {
@@ -559,6 +582,10 @@
 
   function selectTab(tab: AdminTab) {
     activeTab = tab;
+    const url = new URL(window.location.href);
+    if (tab === 'people') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', tab);
+    replaceState(url, page.state);
   }
   function handleTabKeydown(event: KeyboardEvent, index: number) {
     let nextIndex: number | null = null;
@@ -570,7 +597,7 @@
     if (nextIndex === null) return;
     event.preventDefault();
     const nextTab = adminSections[nextIndex].id;
-    activeTab = nextTab;
+    selectTab(nextTab);
     requestAnimationFrame(() => tabButtons[nextTab]?.focus());
   }
 </script>
@@ -601,7 +628,11 @@
 
   <label class="admin-section-select section" for="admin-section-select">
     Admin section
-    <select id="admin-section-select" bind:value={activeTab}>
+    <select
+      id="admin-section-select"
+      value={activeTab}
+      onchange={(event) => selectTab(event.currentTarget.value as AdminTab)}
+    >
       {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
     </select>
   </label>
@@ -661,10 +692,10 @@
             ></label
           ><button class="primary">Add member</button>
         </form>
-        <section class="panel">
+        <section class="panel profiles-panel">
           <h2>Profiles</h2>
           <div class="item-list">
-            {#each people as person}<article>
+            {#each people as person}<article class="profile-row">
                 <input
                   aria-label="Display name"
                   bind:value={person.display_name}
@@ -691,17 +722,20 @@
                     disabled={isSeededDemoProfile(person)}
                   />
                   Require PIN change for {person.display_name}</label
-                ><button
-                  class="secondary"
-                  onclick={() => savePerson(person)}
-                  disabled={isSeededDemoProfile(person)}>Save</button
-                ><button
-                  class="secondary"
-                  onclick={() => togglePerson(person)}
-                  disabled={isSeededDemoProfile(person)}
-                  >{person.active ? 'Deactivate' : 'Activate'}</button
                 >
-                <a class="button secondary" href={`/profiles/${person.id}`}>View profile</a>
+                <div class="profile-actions">
+                  <button
+                    class="secondary"
+                    onclick={() => savePerson(person)}
+                    disabled={isSeededDemoProfile(person)}>Save</button
+                  ><button
+                    class="secondary"
+                    onclick={() => togglePerson(person)}
+                    disabled={isSeededDemoProfile(person)}
+                    >{person.active ? 'Deactivate' : 'Activate'}</button
+                  >
+                  <a class="button secondary" href={`/profiles/${person.id}`}>View profile</a>
+                </div>
               </article>{/each}
           </div>
         </section>
@@ -925,7 +959,7 @@
           </section>
         </div>
       </div>
-    {:else if activeTab === 'branding' && settings}
+    {:else if activeTab === 'settings' && settings}
       <div class="stack">
         <form class="panel brand-form" onsubmit={saveSettings}>
           <div>
@@ -1371,17 +1405,32 @@
     display: grid;
     gap: 7px;
   }
-  .item-list article {
+  .profiles-panel {
+    min-width: 0;
+    container-type: inline-size;
+  }
+  .profile-row {
     display: grid;
-    grid-template-columns: minmax(130px, 1fr) 130px 110px 150px auto auto auto;
+    grid-template-columns: minmax(130px, 1fr) 130px 110px minmax(150px, 1fr);
     gap: 7px;
     align-items: center;
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
   }
+  .profile-row > * {
+    min-width: 0;
+  }
+  .profile-actions {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+  }
   .pin-required {
     min-height: auto;
     font-size: 0.78rem;
+    overflow-wrap: anywhere;
   }
   .rack article {
     display: flex;
@@ -1575,6 +1624,11 @@
     background: var(--ink);
     color: var(--cream);
   }
+  @container (max-width: 560px) {
+    .profile-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
   @media (max-width: 900px) {
     .equipment-grid {
       grid-template-columns: 1fr 1fr;
@@ -1592,8 +1646,8 @@
     .tag-editor article {
       grid-template-columns: 1fr 80px auto;
     }
-    .item-list article {
-      grid-template-columns: 1fr 1fr;
+    .profile-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
   @media (max-width: 650px) {
@@ -1618,9 +1672,8 @@
     .mattermost-events > div {
       grid-template-columns: 1fr;
     }
-    .tag-editor article,
-    .item-list article {
-      grid-template-columns: 1fr 1fr;
+    .tag-editor article {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
 </style>
