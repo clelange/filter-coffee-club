@@ -631,7 +631,7 @@ class MattermostVerifyResponse(BaseModel):
 class MattermostSettingsUpdate(BaseModel):
     enabled: bool = False
     server_url: str = Field(default="https://mattermost.web.cern.ch", max_length=500)
-    auth_mode: Literal["pat", "webhook"] = "pat"
+    auth_mode: Literal["pat", "webhook"]
     credential: SecretStr | None = None
     team_id: str | None = Field(default=None, max_length=64)
     team_name: str | None = Field(default=None, max_length=160)

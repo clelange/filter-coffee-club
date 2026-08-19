@@ -2110,7 +2110,6 @@ export interface components {
             server_url: string;
             /**
              * Auth Mode
-             * @default pat
              * @enum {string}
              */
             auth_mode: "pat" | "webhook";
