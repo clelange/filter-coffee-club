@@ -573,9 +573,7 @@ def test_delivery_claim_is_atomic_across_workers(tmp_path, monkeypatch) -> None:
     engine.dispose()
 
 
-def test_cancelling_brew_stops_a_claimed_delivery_before_target_load(
-    tmp_path, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
+def test_cancelling_brew_stops_a_claimed_delivery_before_target_load(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     settings, engine, factory = delivery_database(tmp_path)
     target_load_started = Event()
     release_target_load = Event()

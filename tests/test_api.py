@@ -335,9 +335,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
         foreign_webhook = client.put(
             "/api/v1/settings/mattermost",
             headers=headers,
-            json=mattermost_webhook_payload(
-                credential="https://attacker.example/hooks/stolen"
-            ),
+            json=mattermost_webhook_payload(credential="https://attacker.example/hooks/stolen"),
         )
         assert foreign_webhook.status_code == 422
         assert "configured Mattermost server" in foreign_webhook.text
@@ -345,10 +343,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
         tested = client.post("/api/v1/settings/mattermost/test", headers=headers, json={})
         assert tested.status_code == 200, tested.text
         assert deliveries[-1]["auth_mode"] == "webhook"
-        assert (
-            deliveries[-1]["credential"]
-            == "https://mattermost.web.cern.ch/hooks/coffee-webhook"
-        )
+        assert deliveries[-1]["credential"] == "https://mattermost.web.cern.ch/hooks/coffee-webhook"
         assert deliveries[-1]["channel_id"] is None
 
         rotated_url = "https://mattermost.web.cern.ch/hooks/rotated-webhook"
