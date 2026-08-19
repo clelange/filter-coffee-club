@@ -175,6 +175,56 @@ is stored in SQLite, but the encryption key must be managed separately from data
 Changing or losing the key makes the saved credential unreadable; enter the credential again after
 restoring the original key or clearing the old credential.
 
+For Docker Compose, put the generated value in `.env` and recreate the container so the new
+environment reaches the application:
+
+```dotenv
+FCC_MATTERMOST_SECRET_KEY=<generated Fernet key>
+```
+
+```sh
+docker compose up -d --no-build --force-recreate
+```
+
+For a rootless Podman Quadlet deployment, keep the key in a separate owner-only environment file
+instead of embedding it in the `.container` file. Create the file and set its contents to the same
+environment declaration:
+
+```sh
+install -d -m 700 ~/.config/filter-coffee-club
+install -m 600 /dev/null ~/.config/filter-coffee-club/filter-coffee-club.env
+```
+
+```dotenv
+FCC_MATTERMOST_SECRET_KEY=<generated Fernet key>
+```
+
+Reference its absolute path from the Quadlet's `[Container]` section; replace `USER` with the account
+that owns the user service:
+
+```ini
+[Container]
+EnvironmentFile=/home/USER/.config/filter-coffee-club/filter-coffee-club.env
+```
+
+Reload the user manager and restart the generated service:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user restart filter-coffee-club.service
+```
+
+The application can confirm that it loaded a valid key without printing the key itself:
+
+```sh
+podman exec filter-coffee-club python -c \
+  'from app.config import Settings; from app.mattermost import encryption_available; print(encryption_available(Settings()))'
+```
+
+This should print `True`; after reloading Admin → Settings, the Mattermost controls are enabled.
+Keep the environment file out of version control and include the key in a separate, access-controlled
+secret backup so restored database credentials remain decryptable.
+
 For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
 URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and
 must belong to the configured Mattermost server. A test message can be sent before announcements
