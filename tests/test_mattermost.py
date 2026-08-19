@@ -17,12 +17,14 @@ from app.mattermost import (
     MattermostError,
     _retry_after,
     build_brew_message,
+    cancel_brew_notifications,
     decrypt_credential,
     deliver_one,
     delivery_worker,
     encrypt_credential,
     normalize_server_url,
     normalize_webhook_url,
+    recover_interrupted_deliveries,
     target_fingerprint,
 )
 from app.models import (
@@ -162,6 +164,135 @@ def test_target_fingerprint_rotates_for_destinations_but_not_pat_tokens() -> Non
         credential="https://mattermost.example/hooks/two",
     )
     assert first_webhook != second_webhook
+
+
+def test_webhook_posts_text_to_bound_url_without_bearer_auth(
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    requests: list[tuple[str, str, dict[str, object] | None, dict[str, str]]] = []
+
+    class FakeResponse:
+        status_code = 200
+        is_redirect = False
+        headers: dict[str, str] = {}
+
+    class FakeHttpClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeHttpClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+        def request(
+            self,
+            method: str,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, object] | None,
+        ) -> FakeResponse:
+            requests.append((method, url, json, headers))
+            return FakeResponse()
+
+    monkeypatch.setattr("app.mattermost.httpx.Client", FakeHttpClient)
+    client = MattermostClient(
+        "https://mattermost.web.cern.ch",
+        "https://mattermost.web.cern.ch/hooks/webhook-secret",
+        "webhook",
+    )
+
+    post_id = client.send(
+        channel_id=None,
+        message="Coffee is ready",
+        pending_post_id="unused-for-webhooks",
+    )
+
+    assert post_id is None
+    assert requests == [
+        (
+            "POST",
+            "https://mattermost.web.cern.ch/hooks/webhook-secret",
+            {"text": "Coffee is ready"},
+            {},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "retryable", "message"),
+    [
+        (302, False, "unexpected redirect"),
+        (404, False, "destination was not found"),
+        (429, True, "rate limit was reached"),
+        (503, True, "status 503"),
+    ],
+)
+def test_webhook_classifies_http_failures_without_exposing_its_url(
+    monkeypatch,
+    status_code: int,
+    retryable: bool,
+    message: str,
+) -> None:  # type: ignore[no-untyped-def]
+    real_client = httpx.Client
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        headers = {"Retry-After": "75"} if status_code == 429 else {}
+        return httpx.Response(status_code, headers=headers)
+
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(
+        "app.mattermost.httpx.Client",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    client = MattermostClient(
+        "https://mattermost.web.cern.ch",
+        "https://mattermost.web.cern.ch/hooks/webhook-secret",
+        "webhook",
+    )
+
+    with pytest.raises(MattermostError, match=message) as caught:
+        client.send(
+            channel_id=None,
+            message="Coffee is ready",
+            pending_post_id="unused-for-webhooks",
+        )
+
+    assert caught.value.retryable is retryable
+    assert "webhook-secret" not in str(caught.value)
+    assert caught.value.retry_after_seconds == (75 if status_code == 429 else None)
+
+
+def test_webhook_treats_transport_failures_as_retryable_without_exposing_its_url(
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    real_client = httpx.Client
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    transport = httpx.MockTransport(fail)
+    monkeypatch.setattr(
+        "app.mattermost.httpx.Client",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    client = MattermostClient(
+        "https://mattermost.web.cern.ch",
+        "https://mattermost.web.cern.ch/hooks/webhook-secret",
+        "webhook",
+    )
+
+    with pytest.raises(MattermostError, match="could not be reached") as caught:
+        client.send(
+            channel_id=None,
+            message="Coffee is ready",
+            pending_post_id="unused-for-webhooks",
+        )
+
+    assert caught.value.retryable is True
+    assert "webhook-secret" not in str(caught.value)
 
 
 def test_pat_verification_filters_channels_and_posts_with_deduplication(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -439,6 +570,61 @@ def test_delivery_claim_is_atomic_across_workers(tmp_path, monkeypatch) -> None:
         assert first.result(timeout=5) is True
 
     assert sent_count == 1
+    engine.dispose()
+
+
+def test_cancelling_brew_stops_a_claimed_delivery_before_target_load(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    settings, engine, factory = delivery_database(tmp_path)
+    target_load_started = Event()
+    release_target_load = Event()
+    send_calls = 0
+    original_load_target = mattermost_module._load_delivery_target
+
+    def blocking_load_target(*args, **kwargs):  # type: ignore[no-untyped-def]
+        target_load_started.set()
+        assert release_target_load.wait(timeout=5)
+        return original_load_target(*args, **kwargs)
+
+    def record_send(_client, **_kwargs: object) -> str:  # type: ignore[no-untyped-def]
+        nonlocal send_calls
+        send_calls += 1
+        return "mattermost-post-1"
+
+    monkeypatch.setattr(mattermost_module, "_load_delivery_target", blocking_load_target)
+    monkeypatch.setattr(MattermostClient, "send", record_send)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        delivery = executor.submit(deliver_one, settings, factory)
+        assert target_load_started.wait(timeout=5)
+        with factory() as db:
+            cancel_brew_notifications(db, 1)
+            db.commit()
+        release_target_load.set()
+        assert delivery.result(timeout=5) is True
+
+    with factory() as db:
+        item = db.get(MattermostNotification, 1)
+        assert item is not None and item.state == "cancelled"
+    assert send_calls == 0
+    engine.dispose()
+
+
+def test_recovery_requeues_interrupted_deliveries(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _settings, engine, factory = delivery_database(tmp_path)
+    with factory() as db:
+        item = db.get(MattermostNotification, 1)
+        assert item is not None
+        item.state = "delivering"
+        item.next_attempt_at = None
+        db.commit()
+
+    recover_interrupted_deliveries(factory)
+
+    with factory() as db:
+        item = db.get(MattermostNotification, 1)
+        assert item is not None and item.state == "pending"
+        assert item.next_attempt_at is not None
     engine.dispose()
 
 

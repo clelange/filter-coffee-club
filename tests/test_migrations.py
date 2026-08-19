@@ -379,7 +379,7 @@ def test_mattermost_migration_adds_isolated_settings_and_outbox(tmp_path: Path) 
     command.upgrade(config, "ab12cd34ef56")
 
     engine = create_engine(database_url)
-    with engine.connect() as connection:
+    with engine.begin() as connection:
         tables = set(inspect(connection).get_table_names())
         assert "mattermost_integrations" in tables
         assert "mattermost_notifications" in tables
@@ -388,6 +388,17 @@ def test_mattermost_migration_adds_isolated_settings_and_outbox(tmp_path: Path) 
         }
         assert "ix_mattermost_notifications_state" in notification_indexes
         assert "ix_mattermost_notifications_next_attempt_at" in notification_indexes
+        connection.execute(
+            text(
+                """
+                INSERT INTO mattermost_integrations (id, created_at, updated_at)
+                VALUES (1, '2026-08-19 08:00:00', '2026-08-19 08:00:00')
+                """
+            )
+        )
+        assert connection.execute(
+            text("SELECT server_url, auth_mode FROM mattermost_integrations WHERE id = 1")
+        ).one() == ("https://mattermost.web.cern.ch", "webhook")
     engine.dispose()
 
     command.downgrade(config, "f4a1b2c3d4e5")

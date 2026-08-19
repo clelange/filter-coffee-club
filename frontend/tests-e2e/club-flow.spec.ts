@@ -228,10 +228,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
 
   const mattermostForm = page.locator('.mattermost-form');
   await expect(mattermostForm.getByRole('heading', { name: 'Mattermost' })).toBeVisible();
-  await mattermostForm.getByLabel('Authentication').selectOption('webhook');
+  await expect(mattermostForm.getByLabel('Authentication')).toHaveValue('webhook');
   const mattermostServer = mattermostForm.getByRole('textbox', {
     name: /^Mattermost server/
   });
+  await expect(mattermostServer).toHaveValue('https://mattermost.web.cern.ch');
   await mattermostServer.fill(e2eBaseURL);
   const webhookInput = mattermostForm.getByLabel('Incoming webhook URL');
   await webhookInput.fill(`${e2eBaseURL}/hooks/e2e-webhook-secret`);

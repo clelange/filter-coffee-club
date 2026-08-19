@@ -328,7 +328,7 @@ class MattermostIntegration(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     server_url: Mapped[str] = mapped_column(String(500), default="https://mattermost.web.cern.ch")
-    auth_mode: Mapped[str] = mapped_column(String(20), default="pat")
+    auth_mode: Mapped[str] = mapped_column(String(20), default="webhook")
     credential_ciphertext: Mapped[str | None] = mapped_column(Text)
     account_user_id: Mapped[str | None] = mapped_column(String(64))
     account_username: Mapped[str | None] = mapped_column(String(120))

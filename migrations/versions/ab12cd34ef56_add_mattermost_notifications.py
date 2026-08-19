@@ -24,7 +24,7 @@ def upgrade() -> None:
             nullable=False,
             server_default="https://mattermost.web.cern.ch",
         ),
-        sa.Column("auth_mode", sa.String(length=20), nullable=False, server_default="pat"),
+        sa.Column("auth_mode", sa.String(length=20), nullable=False, server_default="webhook"),
         sa.Column("credential_ciphertext", sa.Text(), nullable=True),
         sa.Column("account_user_id", sa.String(length=64), nullable=True),
         sa.Column("account_username", sa.String(length=120), nullable=True),

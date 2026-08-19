@@ -162,8 +162,9 @@ If the public URL is blank, the API uses the current request origin. Administrat
 ### Mattermost notifications
 
 Administrators can configure one Mattermost destination from Admin → Settings. The server
-defaults to `https://mattermost.web.cern.ch` and supports either a Personal Access Token (PAT) or
-an incoming webhook. Generate the required deployment encryption key once and keep it stable:
+defaults to `https://mattermost.web.cern.ch`, with an incoming webhook selected for new
+configurations. Personal Access Token (PAT) delivery remains available for advanced use cases.
+Generate the required deployment encryption key once and keep it stable:
 
 ```sh
 uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
@@ -174,6 +175,11 @@ is stored in SQLite, but the encryption key must be managed separately from data
 Changing or losing the key makes the saved credential unreadable; enter the credential again after
 restoring the original key or clearing the old credential.
 
+For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
+URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and
+must belong to the configured Mattermost server. A test message can be sent before announcements
+are enabled.
+
 For PAT mode, use a dedicated non-admin service account. A PAT has the permissions of its account,
 does not expire automatically, and must be a member of private channels it posts to. CERN users
 must ask the CERN Mattermost team to enable PAT creation for the selected user or service account.
@@ -181,15 +187,12 @@ The setup screen verifies the account and lists its joined public and private ch
 [CERN integration guidance](https://mattermost.docs.cern.ch/faq/#integrations) and the
 [Mattermost PAT documentation](https://developers.mattermost.com/integrate/reference/personal-access-token/).
 
-For webhook mode, create an incoming webhook in the intended Mattermost channel and paste its full
-URL. Filter Coffee Club always uses that webhook's default channel. Webhook URLs are secrets and
-must belong to the configured Mattermost server. A test message can be sent before announcements
-are enabled.
-
 To rotate a PAT or webhook, paste the replacement credential in Admin → Settings, verify a PAT if
 applicable, save, and send a test message. Re-enter the credential whenever the Mattermost server
 changes. PAT rotation for the same server and channel preserves queued announcements; changing the
 server, transport, channel, or webhook cancels queued work for the previous destination.
+Claimed work is rechecked immediately before delivery, but an HTTP request already in progress
+cannot be recalled after a brew is cancelled or the destination changes.
 
 Brew operations never wait for Mattermost. Announcements are stored in a durable outbox and retried
 for up to 24 hours after transient failures. Before retrying a PAT delivery, the worker reconciles

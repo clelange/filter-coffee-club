@@ -141,6 +141,25 @@ def mattermost_settings_payload(**overrides: object) -> dict[str, object]:
     }
 
 
+def mattermost_webhook_payload(**overrides: object) -> dict[str, object]:
+    return {
+        "enabled": True,
+        "server_url": "https://mattermost.web.cern.ch",
+        "auth_mode": "webhook",
+        "credential": "https://mattermost.web.cern.ch/hooks/coffee-webhook/",
+        "team_id": "ignored-team",
+        "team_name": "Ignored Team",
+        "channel_id": "ignored-channel",
+        "channel_name": "ignored-channel",
+        "channel_display_name": "Ignored channel",
+        "announce_brew_started": True,
+        "mention_channel_on_started": False,
+        "announce_ready_to_rate": True,
+        "mention_channel_on_ready": False,
+        **overrides,
+    }
+
+
 def test_mattermost_settings_encrypt_verify_test_and_clear(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -166,6 +185,7 @@ def test_mattermost_settings_encrypt_verify_test_and_clear(
 
         initial = client.get("/api/v1/settings/mattermost").json()
         assert initial["server_url"] == "https://mattermost.web.cern.ch"
+        assert initial["auth_mode"] == "webhook"
         assert initial["credential_configured"] is False
         assert initial["encryption_available"] is True
 
@@ -242,6 +262,132 @@ def test_mattermost_settings_encrypt_verify_test_and_clear(
         assert cleared.status_code == 200
         assert cleared.json()["enabled"] is False
         assert cleared.json()["credential_configured"] is False
+
+
+def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
+    deliveries: list[dict[str, object]] = []
+
+    def capture_send(client: api_module.MattermostClient, **kwargs: object) -> None:
+        deliveries.append(
+            {
+                "auth_mode": client.auth_mode,
+                "credential": client.credential,
+                **kwargs,
+            }
+        )
+
+    monkeypatch.setattr(api_module.MattermostClient, "send", capture_send)
+    encryption_key = Fernet.generate_key().decode()
+    with build_client(tmp_path, mattermost_secret_key=encryption_key) as client:
+        _session, headers = bootstrap(client)
+
+        missing_mode = mattermost_webhook_payload()
+        missing_mode.pop("auth_mode")
+        rejected_mode = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=missing_mode,
+        )
+        assert rejected_mode.status_code == 422
+
+        webhook_secret = str(mattermost_webhook_payload()["credential"])
+        saved = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=mattermost_webhook_payload(),
+        )
+        assert saved.status_code == 200, saved.text
+        saved_payload = saved.json()
+        assert saved_payload["auth_mode"] == "webhook"
+        assert saved_payload["credential_configured"] is True
+        assert saved_payload["team_id"] is None
+        assert saved_payload["channel_id"] is None
+        assert webhook_secret not in saved.text
+
+        with client.app.state.session_factory() as db:
+            integration = db.get(MattermostIntegration, 1)
+            assert integration is not None
+            assert integration.credential_ciphertext is not None
+            assert webhook_secret not in integration.credential_ciphertext
+            assert (
+                api_module.decrypt_credential(
+                    client.app.state.settings,
+                    integration.credential_ciphertext,
+                )
+                == "https://mattermost.web.cern.ch/hooks/coffee-webhook"
+            )
+            original_fingerprint = integration.target_fingerprint
+
+        preserved_payload = mattermost_webhook_payload(announce_ready_to_rate=False)
+        preserved_payload.pop("credential")
+        preserved = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=preserved_payload,
+        )
+        assert preserved.status_code == 200, preserved.text
+        assert preserved.json()["credential_configured"] is True
+        assert preserved.json()["announce_ready_to_rate"] is False
+
+        foreign_webhook = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=mattermost_webhook_payload(
+                credential="https://attacker.example/hooks/stolen"
+            ),
+        )
+        assert foreign_webhook.status_code == 422
+        assert "configured Mattermost server" in foreign_webhook.text
+
+        tested = client.post("/api/v1/settings/mattermost/test", headers=headers, json={})
+        assert tested.status_code == 200, tested.text
+        assert deliveries[-1]["auth_mode"] == "webhook"
+        assert (
+            deliveries[-1]["credential"]
+            == "https://mattermost.web.cern.ch/hooks/coffee-webhook"
+        )
+        assert deliveries[-1]["channel_id"] is None
+
+        rotated_url = "https://mattermost.web.cern.ch/hooks/rotated-webhook"
+        rotated = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json=mattermost_webhook_payload(credential=rotated_url),
+        )
+        assert rotated.status_code == 200, rotated.text
+        assert rotated_url not in rotated.text
+        with client.app.state.session_factory() as db:
+            integration = db.get(MattermostIntegration, 1)
+            assert integration is not None
+            assert integration.target_fingerprint != original_fingerprint
+            assert (
+                api_module.decrypt_credential(
+                    client.app.state.settings,
+                    integration.credential_ciphertext,
+                )
+                == rotated_url
+            )
+
+        switched_to_pat = client.put(
+            "/api/v1/settings/mattermost",
+            headers=headers,
+            json={
+                "enabled": False,
+                "server_url": "https://mattermost.web.cern.ch",
+                "auth_mode": "pat",
+            },
+        )
+        assert switched_to_pat.status_code == 200, switched_to_pat.text
+        assert switched_to_pat.json()["auth_mode"] == "pat"
+        assert switched_to_pat.json()["credential_configured"] is False
+        with client.app.state.session_factory() as db:
+            integration = db.get(MattermostIntegration, 1)
+            assert integration is not None
+            assert integration.credential_ciphertext is None
+            assert integration.target_fingerprint is None
 
 
 def test_mattermost_setup_requires_encryption_key(tmp_path: Path) -> None:

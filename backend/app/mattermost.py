@@ -5,6 +5,7 @@ import hashlib
 import logging
 import math
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Literal
@@ -29,6 +30,7 @@ RECONCILIATION_PAGE_SIZE = 200
 MAX_RECONCILIATION_PAGES = 50
 RECONCILIATION_CLOCK_SKEW = timedelta(minutes=5)
 logger = logging.getLogger("fcc.mattermost")
+CANCELLABLE_NOTIFICATION_STATES = ("pending", "failed", "delivering")
 
 
 class MattermostError(RuntimeError):
@@ -42,6 +44,14 @@ class MattermostError(RuntimeError):
         super().__init__(message)
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
+
+
+@dataclass(frozen=True)
+class DeliveryTarget:
+    server_url: str
+    auth_mode: str
+    credential: str
+    channel_id: str | None
 
 
 def _normalized_parts(value: str, *, base_only: bool) -> SplitResult:
@@ -448,14 +458,14 @@ def cancel_brew_notifications(db: Session, brew_id: int) -> None:
         update(MattermostNotification)
         .where(
             MattermostNotification.brew_id == brew_id,
-            MattermostNotification.state.in_(("pending", "failed")),
+            MattermostNotification.state.in_(CANCELLABLE_NOTIFICATION_STATES),
         )
         .values(state="cancelled", next_attempt_at=None)
     )
 
 
 def cancel_stale_target_notifications(db: Session, target: str | None) -> None:
-    conditions = [MattermostNotification.state.in_(("pending", "failed"))]
+    conditions = [MattermostNotification.state.in_(CANCELLABLE_NOTIFICATION_STATES)]
     if target is not None:
         conditions.append(MattermostNotification.target_fingerprint != target)
     db.execute(
@@ -506,6 +516,34 @@ def _set_delivery_failure(
     )
 
 
+def _load_delivery_target(
+    settings: Settings,
+    factory: sessionmaker[Session],
+    notification_id: int,
+    fingerprint: str,
+) -> DeliveryTarget | None:
+    with factory() as db:
+        item = db.get(MattermostNotification, notification_id)
+        if item is None or item.state != "delivering":
+            return None
+        integration = db.get(MattermostIntegration, 1)
+        if (
+            integration is None
+            or not integration.enabled
+            or integration.target_fingerprint != fingerprint
+        ):
+            item.state = "cancelled"
+            item.next_attempt_at = None
+            db.commit()
+            return None
+        return DeliveryTarget(
+            server_url=integration.server_url,
+            auth_mode=integration.auth_mode,
+            credential=decrypt_credential(settings, integration.credential_ciphertext),
+            channel_id=integration.channel_id,
+        )
+
+
 def deliver_one(settings: Settings, factory: sessionmaker[Session]) -> bool:
     now = utcnow()
     with factory() as db:
@@ -552,24 +590,15 @@ def deliver_one(settings: Settings, factory: sessionmaker[Session]) -> bool:
         db.commit()
 
     try:
-        with factory() as db:
-            integration = db.get(MattermostIntegration, 1)
-            if (
-                integration is None
-                or not integration.enabled
-                or integration.target_fingerprint != fingerprint
-            ):
-                stale = db.get(MattermostNotification, notification_id)
-                if stale and stale.state == "delivering":
-                    stale.state = "cancelled"
-                    db.commit()
-                return True
-            credential = decrypt_credential(settings, integration.credential_ciphertext)
-            auth_mode = integration.auth_mode
-            server_url = integration.server_url
-            channel_id = integration.channel_id
-        post_id = MattermostClient(server_url, credential, auth_mode).send(
-            channel_id=channel_id,
+        target = _load_delivery_target(settings, factory, notification_id, fingerprint)
+        if target is None:
+            return True
+        post_id = MattermostClient(
+            target.server_url,
+            target.credential,
+            target.auth_mode,
+        ).send(
+            channel_id=target.channel_id,
             message=message,
             pending_post_id=pending_post_id,
             notification_created_at=notification_created_at,

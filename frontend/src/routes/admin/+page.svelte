@@ -1021,9 +1021,9 @@
               </label>
             </div>
             <p class="muted">
-              Announce new brews and rating invitations in one channel. Personal access tokens
-              provide a channel picker; incoming webhooks use the default channel selected when the
-              webhook is created in Mattermost.
+              Announce new brews and rating invitations in one channel. Incoming webhooks use the
+              default channel selected when the webhook is created; personal access tokens provide
+              advanced channel discovery and retry reconciliation.
             </p>
             {#if !mattermost.encryption_available}
               <p class="warning" role="status">
@@ -1039,8 +1039,8 @@
                   onchange={changeMattermostMode}
                   disabled={settings.demo_mode}
                 >
-                  <option value="pat">Personal access token</option>
                   <option value="webhook">Incoming webhook</option>
+                  <option value="pat">Personal access token</option>
                 </select>
               </label>
               <label>
@@ -1070,7 +1070,7 @@
               />
               <span class="hint">
                 {mattermost.auth_mode === 'pat'
-                  ? 'Use a dedicated, non-admin service account. At CERN, ask the Mattermost team to enable PAT access.'
+                  ? 'Advanced: use a dedicated, non-admin service account. At CERN, ask the Mattermost team to enable PAT access.'
                   : 'The webhook URL is a secret. Its configured default channel receives every announcement.'}
               </span>
               {#if mattermostServerChanged && mattermost.credential_configured && !mattermostCredential}
