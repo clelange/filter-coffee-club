@@ -1,5 +1,12 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import type { ActiveBrews, AppSettings, BrewActivityItem, Coffee, Session } from '../src/lib/types';
+import type {
+  ActiveBrews,
+  AppSettings,
+  BrewActivityItem,
+  Coffee,
+  MattermostSettings,
+  Session
+} from '../src/lib/types';
 
 const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 import { fileURLToPath } from 'node:url';
@@ -52,6 +59,31 @@ const publicAppSettings: AppSettings = {
   demo_notice: null,
   demo_pin: null,
   demo_profile_names: []
+};
+
+const defaultMattermostSettings: MattermostSettings = {
+  enabled: false,
+  server_url: 'https://mattermost.web.cern.ch',
+  auth_mode: 'pat',
+  credential_configured: false,
+  encryption_available: true,
+  account_user_id: null,
+  account_username: null,
+  team_id: null,
+  team_name: null,
+  channel_id: null,
+  channel_name: null,
+  channel_display_name: null,
+  announce_brew_started: false,
+  mention_channel_on_started: false,
+  announce_ready_to_rate: false,
+  mention_channel_on_ready: false,
+  last_tested_at: null,
+  last_delivery_at: null,
+  last_error_at: null,
+  last_error: null,
+  pending_count: 0,
+  failed_count: 0
 };
 
 function fulfillJson(route: Route, body: unknown, status = 200) {
@@ -193,6 +225,51 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   );
   await page.getByRole('button', { name: 'Save settings' }).click();
   await resetParallelBrews;
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await expect(mattermostForm.getByRole('heading', { name: 'Mattermost' })).toBeVisible();
+  await mattermostForm.getByLabel('Authentication').selectOption('webhook');
+  const mattermostServer = mattermostForm.getByRole('textbox', {
+    name: /^Mattermost server/
+  });
+  await mattermostServer.fill(e2eBaseURL);
+  const webhookInput = mattermostForm.getByLabel('Incoming webhook URL');
+  await webhookInput.fill(`${e2eBaseURL}/hooks/e2e-webhook-secret`);
+  await mattermostForm.getByLabel('Enabled').check();
+  await mattermostForm.getByLabel('Post when a brew starts').check();
+  const saveMattermost = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings/mattermost') &&
+      response.request().method() === 'PUT' &&
+      response.ok()
+  );
+  await mattermostForm.getByRole('button', { name: 'Save Mattermost settings' }).click();
+  const mattermostResponse = await saveMattermost;
+  expect(JSON.stringify(await mattermostResponse.json())).not.toContain('e2e-webhook-secret');
+  await expect(page.getByText('Mattermost settings saved.')).toBeVisible();
+  await expect(webhookInput).toHaveValue('');
+  await expect(webhookInput).toHaveAttribute('placeholder', /Stored securely/);
+  const sendMattermostTest = mattermostForm.getByRole('button', { name: 'Send test message' });
+  await expect(sendMattermostTest).toBeEnabled();
+  await mattermostServer.fill('http://localhost:8000');
+  await expect(sendMattermostTest).toBeDisabled();
+  await expect(
+    page.getByText('Save destination or credential changes before testing.')
+  ).toBeVisible();
+  await expect(
+    page.getByText('Re-enter the credential when changing the Mattermost server.')
+  ).toBeVisible();
+  await mattermostServer.fill(e2eBaseURL);
+  await expect(sendMattermostTest).toBeEnabled();
+  const clearMattermost = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/settings/mattermost/credential') &&
+      response.request().method() === 'DELETE' &&
+      response.ok()
+  );
+  await mattermostForm.getByRole('button', { name: 'Remove credential' }).click();
+  await clearMattermost;
+  await expect(page.getByText(/credential removed and notifications disabled/i)).toBeVisible();
   await peopleTab.click();
 
   await page.getByRole('tab', { name: 'Presets & flavors' }).click();
@@ -1863,9 +1940,7 @@ test('active brews use the configured brewing logo with regular-logo fallback', 
   );
 });
 
-test('admin brewing-logo actions update settings without reloading unrelated data', async ({
-  page
-}) => {
+test('admin settings actions update without reloading unrelated data', async ({ page }) => {
   let settings: AppSettings = { ...publicAppSettings };
   let peopleRequests = 0;
   const adminSession: Session = {
@@ -1882,6 +1957,9 @@ test('admin brewing-logo actions update settings without reloading unrelated dat
   };
 
   await page.route('**/api/v1/settings', (route) => fulfillJson(route, settings));
+  await page.route('**/api/v1/settings/mattermost', (route) =>
+    fulfillJson(route, defaultMattermostSettings)
+  );
   await page.route('**/api/v1/auth/bootstrap-status', (route) =>
     fulfillJson(route, { required: false })
   );
@@ -1904,6 +1982,22 @@ test('admin brewing-logo actions update settings without reloading unrelated dat
   }
   await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
+  await page.route('**/api/v1/settings/mattermost/verify', (route) =>
+    fulfillJson(route, {
+      user_id: 'mattermost-user-1',
+      username: 'coffee-bot',
+      channels: [
+        {
+          team_id: 'team-1',
+          team_name: 'coffee-team',
+          team_display_name: 'Coffee Team',
+          channel_id: 'channel-1',
+          channel_name: 'coffee-breaks',
+          channel_display_name: 'Coffee breaks'
+        }
+      ]
+    })
+  );
   await page.route('**/api/v1/settings/brewing-logo/default', (route) => {
     settings = {
       ...settings,
@@ -1927,6 +2021,17 @@ test('admin brewing-logo actions update settings without reloading unrelated dat
     '/brand/filter-coffee-club-brewing.svg'
   );
   expect(peopleRequests).toBe(1);
+
+  const mattermostForm = page.locator('.mattermost-form');
+  await mattermostForm
+    .getByRole('textbox', { name: /^Personal access token/ })
+    .fill('write-only-token');
+  await mattermostForm.getByRole('button', { name: 'Verify token & load channels' }).click();
+  await expect(page.getByText('Token verified as @coffee-bot.')).toBeVisible();
+  await expect(mattermostForm.getByText('Connected as @coffee-bot')).toBeVisible();
+  await expect(mattermostForm.getByLabel('Destination channel')).toContainText('Coffee breaks');
+  await mattermostForm.getByLabel('Destination channel').selectOption('channel-1');
+  await expect(mattermostForm.getByRole('button', { name: 'Send test message' })).toBeDisabled();
 
   await page.getByLabel('Replacement PNG/WebP').setInputFiles({
     name: 'custom-brewing.png',

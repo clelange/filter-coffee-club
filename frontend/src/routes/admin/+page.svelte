@@ -8,6 +8,9 @@
     Dripper,
     FlavorTag,
     Grinder,
+    MattermostChannelOption,
+    MattermostSettings,
+    MattermostVerifyResult,
     Preset,
     PresetInput,
     Profile
@@ -29,6 +32,12 @@
   let presets: Preset[] = $state([]);
   let tags: FlavorTag[] = $state([]);
   let settings: AppSettings | null = $state(null);
+  let mattermost: MattermostSettings | null = $state(null);
+  let mattermostCredential = $state('');
+  let mattermostChannels: MattermostChannelOption[] = $state([]);
+  let mattermostBusy = $state(false);
+  let savedMattermostDestination = $state('');
+  let savedMattermostServer = $state('');
   let activeTab: AdminTab = $state('people');
   let tabButtons: Partial<Record<AdminTab, HTMLButtonElement>> = {};
   let message = $state('');
@@ -59,6 +68,39 @@
   const activeTabLabel = $derived(
     adminSections.find((section) => section.id === activeTab)?.label ?? 'Admin section'
   );
+  const mattermostTeams = $derived(
+    Array.from(
+      new Map(
+        mattermostChannels.map((channel) => [
+          channel.team_id,
+          { id: channel.team_id, name: channel.team_display_name }
+        ])
+      ).values()
+    )
+  );
+  const mattermostDestinationDirty = $derived(
+    mattermost !== null && mattermostDestinationKey(mattermost) !== savedMattermostDestination
+  );
+  const mattermostServerChanged = $derived(
+    mattermostServerDiffers(mattermost, savedMattermostServer)
+  );
+  const mattermostTestDirty = $derived(
+    mattermostDestinationDirty || mattermostCredential.length > 0
+  );
+
+  function mattermostDestinationKey(value: MattermostSettings): string {
+    return JSON.stringify([value.auth_mode, value.server_url, value.channel_id]);
+  }
+
+  function mattermostServerDiffers(value: MattermostSettings | null, savedServer: string): boolean {
+    return value !== null && value.server_url !== savedServer;
+  }
+
+  function rememberMattermostDestination(): void {
+    if (!mattermost) return;
+    savedMattermostDestination = mattermostDestinationKey(mattermost);
+    savedMattermostServer = mattermost.server_url;
+  }
 
   function isClickUnit(unit: string) {
     return ['click', 'clicks'].includes(unit.trim().toLowerCase());
@@ -84,16 +126,18 @@
   });
 
   async function load() {
-    [people, grinders, drippers, filters, presets, tags, settings] = await Promise.all([
+    [people, grinders, drippers, filters, presets, tags, settings, mattermost] = await Promise.all([
       api<Profile[]>('/people'),
       api<Grinder[]>('/grinders'),
       api<Dripper[]>('/drippers'),
       api<{ id: number; name: string; notes: string | null }[]>('/filters'),
       api<Preset[]>('/presets?active_only=false'),
       api<FlavorTag[]>('/flavor-tags?active_only=false'),
-      api<AppSettings>('/settings')
+      api<AppSettings>('/settings'),
+      api<MattermostSettings>('/settings/mattermost')
     ]);
     appSettingsStore.set(settings);
+    rememberMattermostDestination();
   }
   async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     error = '';
@@ -269,6 +313,145 @@
       () => api<AppSettings>('/settings', { method: 'PUT', body: jsonBody(settings) }),
       'Settings saved.'
     );
+  }
+  function selectMattermostChannel() {
+    if (!mattermost) return;
+    const channel = mattermostChannels.find((item) => item.channel_id === mattermost?.channel_id);
+    mattermost.team_id = channel?.team_id ?? null;
+    mattermost.team_name = channel?.team_display_name ?? null;
+    mattermost.channel_name = channel?.channel_name ?? null;
+    mattermost.channel_display_name = channel?.channel_display_name ?? null;
+  }
+  function changeMattermostMode() {
+    if (!mattermost) return;
+    mattermostCredential = '';
+    mattermostChannels = [];
+    mattermost.enabled = false;
+    mattermost.credential_configured = false;
+    mattermost.account_user_id = null;
+    mattermost.account_username = null;
+    mattermost.team_id = null;
+    mattermost.team_name = null;
+    mattermost.channel_id = null;
+    mattermost.channel_name = null;
+    mattermost.channel_display_name = null;
+  }
+  async function verifyMattermost() {
+    if (!mattermost || mattermostBusy) return;
+    mattermostBusy = true;
+    error = '';
+    message = '';
+    try {
+      const result = await api<MattermostVerifyResult>('/settings/mattermost/verify', {
+        method: 'POST',
+        body: jsonBody({
+          server_url: mattermost.server_url,
+          ...(mattermostCredential ? { credential: mattermostCredential } : {})
+        })
+      });
+      mattermostChannels = result.channels;
+      mattermost.account_user_id = result.user_id;
+      mattermost.account_username = result.username;
+      if (
+        mattermost.channel_id &&
+        !result.channels.some((channel) => channel.channel_id === mattermost?.channel_id)
+      ) {
+        mattermost.channel_id = null;
+        selectMattermostChannel();
+      }
+      message = `Token verified as @${result.username}.`;
+    } catch (caught) {
+      error =
+        caught instanceof Error ? caught.message : 'The Mattermost token could not be verified.';
+    } finally {
+      mattermostBusy = false;
+    }
+  }
+  async function saveMattermost(event: SubmitEvent) {
+    event.preventDefault();
+    if (!mattermost || mattermostBusy) return;
+    mattermostBusy = true;
+    error = '';
+    message = '';
+    try {
+      mattermost = await api<MattermostSettings>('/settings/mattermost', {
+        method: 'PUT',
+        body: jsonBody({
+          enabled: mattermost.enabled,
+          server_url: mattermost.server_url,
+          auth_mode: mattermost.auth_mode,
+          ...(mattermostCredential ? { credential: mattermostCredential } : {}),
+          team_id: mattermost.team_id,
+          team_name: mattermost.team_name,
+          channel_id: mattermost.channel_id,
+          channel_name: mattermost.channel_name,
+          channel_display_name: mattermost.channel_display_name,
+          announce_brew_started: mattermost.announce_brew_started,
+          mention_channel_on_started: mattermost.mention_channel_on_started,
+          announce_ready_to_rate: mattermost.announce_ready_to_rate,
+          mention_channel_on_ready: mattermost.mention_channel_on_ready
+        })
+      });
+      mattermostCredential = '';
+      rememberMattermostDestination();
+      message = 'Mattermost settings saved.';
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Mattermost settings could not be saved.';
+    } finally {
+      mattermostBusy = false;
+    }
+  }
+  async function testMattermost() {
+    if (!mattermost || mattermostBusy) return;
+    mattermostBusy = true;
+    error = '';
+    message = '';
+    try {
+      await api('/settings/mattermost/test', { method: 'POST', body: jsonBody({}) });
+      mattermost = await api<MattermostSettings>('/settings/mattermost');
+      message = 'Mattermost test message delivered.';
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'The test message could not be delivered.';
+    } finally {
+      mattermostBusy = false;
+    }
+  }
+  async function retryMattermost() {
+    if (!mattermost || mattermostBusy) return;
+    mattermostBusy = true;
+    error = '';
+    message = '';
+    try {
+      const result = await api<{ requeued: number }>('/settings/mattermost/retry', {
+        method: 'POST',
+        body: jsonBody({})
+      });
+      mattermost = await api<MattermostSettings>('/settings/mattermost');
+      message = `${result.requeued} failed notification${result.requeued === 1 ? '' : 's'} queued again.`;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Notifications could not be retried.';
+    } finally {
+      mattermostBusy = false;
+    }
+  }
+  async function clearMattermostCredential() {
+    if (!mattermost || mattermostBusy) return;
+    mattermostBusy = true;
+    error = '';
+    message = '';
+    try {
+      mattermost = await api<MattermostSettings>('/settings/mattermost/credential', {
+        method: 'DELETE'
+      });
+      mattermostCredential = '';
+      mattermostChannels = [];
+      rememberMattermostDestination();
+      message = 'Mattermost credential removed and notifications disabled.';
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'The credential could not be removed.';
+    } finally {
+      mattermostBusy = false;
+    }
   }
   async function uploadLogo(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -722,103 +905,333 @@
         </div>
       </div>
     {:else if activeTab === 'branding' && settings}
-      <form class="panel brand-form" onsubmit={saveSettings}>
-        <div>
-          <h2>Brewing</h2>
-          <p class="muted">
-            Limit how many draft brews can run at once. Lowering this below current usage lets
-            active brews finish but blocks new ones until capacity is available.
-          </p>
-          <label
-            >Maximum parallel brews<input
-              type="number"
-              min="1"
-              max="20"
-              bind:value={settings.max_active_brews}
-              disabled={settings.demo_mode}
-              required
-            /></label
-          >
-        </div>
-        <div>
-          <h2>Filter Coffee Club identity</h2>
-          <p class="muted">
-            {settings.demo_mode
-              ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
-              : 'The Filter Coffee Club logo is used by default. Upload an approved PNG or WebP to replace it.'}
-          </p>
-          <label
-            >Club name<input
-              bind:value={settings.app_name}
-              required
-              disabled={settings.demo_mode}
-            />
-          </label><label
-            >Subtitle<input bind:value={settings.subtitle} disabled={settings.demo_mode} /></label
-          ><label
-            >Public URL<input
-              type="url"
-              bind:value={settings.public_base_url}
-              placeholder="https://coffee.example.psi.ch"
-              disabled={settings.demo_mode}
-            /><span class="hint">This exact origin is encoded in permanent QR links.</span></label
-          ><label
-            >Logo PNG/WebP<input
-              type="file"
-              accept="image/png,image/webp"
-              onchange={uploadLogo}
-              disabled={settings.demo_mode}
-            /></label
-          >
-          <div class="brewing-logo-setting">
-            <div>
-              <h3>Brew-in-progress logo</h3>
-              <p class="muted">
-                Show a separate logo while at least one brew is active. Clear it to keep using the
-                regular logo instead.
-              </p>
+      <div class="stack">
+        <form class="panel brand-form" onsubmit={saveSettings}>
+          <div>
+            <h2>Brewing</h2>
+            <p class="muted">
+              Limit how many draft brews can run at once. Lowering this below current usage lets
+              active brews finish but blocks new ones until capacity is available.
+            </p>
+            <label
+              >Maximum parallel brews<input
+                type="number"
+                min="1"
+                max="20"
+                bind:value={settings.max_active_brews}
+                disabled={settings.demo_mode}
+                required
+              /></label
+            >
+          </div>
+          <div>
+            <h2>Filter Coffee Club identity</h2>
+            <p class="muted">
+              {settings.demo_mode
+                ? 'Branding is read-only in demo mode so one visitor cannot make the site unusable.'
+                : 'The Filter Coffee Club logo is used by default. Upload an approved PNG or WebP to replace it.'}
+            </p>
+            <label
+              >Club name<input
+                bind:value={settings.app_name}
+                required
+                disabled={settings.demo_mode}
+              />
+            </label><label
+              >Subtitle<input bind:value={settings.subtitle} disabled={settings.demo_mode} /></label
+            ><label
+              >Public URL<input
+                type="url"
+                bind:value={settings.public_base_url}
+                placeholder="https://coffee.example.psi.ch"
+                disabled={settings.demo_mode}
+              /><span class="hint">This exact origin is encoded in permanent QR links.</span></label
+            ><label
+              >Logo PNG/WebP<input
+                type="file"
+                accept="image/png,image/webp"
+                onchange={uploadLogo}
+                disabled={settings.demo_mode}
+              /></label
+            >
+            <div class="brewing-logo-setting">
+              <div>
+                <h3>Brew-in-progress logo</h3>
+                <p class="muted">
+                  Show a separate logo while at least one brew is active. Clear it to keep using the
+                  regular logo instead.
+                </p>
+              </div>
+              {#if settings.brewing_logo_path}
+                <img src={settings.brewing_logo_path} alt="Current brew-in-progress logo" />
+                <label
+                  >Replacement PNG/WebP<input
+                    type="file"
+                    accept="image/png,image/webp"
+                    onchange={uploadBrewingLogo}
+                    disabled={settings.demo_mode}
+                  /></label
+                >
+                <button
+                  class="secondary"
+                  type="button"
+                  onclick={clearBrewingLogo}
+                  disabled={settings.demo_mode}>Use regular logo while brewing</button
+                >
+              {:else}
+                <p class="muted">The regular logo is currently reused while brewing.</p>
+                <button
+                  class="secondary"
+                  type="button"
+                  onclick={restoreDefaultBrewingLogo}
+                  disabled={settings.demo_mode}>Restore default brewing animation</button
+                >
+              {/if}
             </div>
-            {#if settings.brewing_logo_path}
-              <img src={settings.brewing_logo_path} alt="Current brew-in-progress logo" />
-              <label
-                >Replacement PNG/WebP<input
-                  type="file"
-                  accept="image/png,image/webp"
-                  onchange={uploadBrewingLogo}
-                  disabled={settings.demo_mode}
-                /></label
-              >
-              <button
-                class="secondary"
-                type="button"
-                onclick={clearBrewingLogo}
-                disabled={settings.demo_mode}>Use regular logo while brewing</button
-              >
-            {:else}
-              <p class="muted">The regular logo is currently reused while brewing.</p>
-              <button
-                class="secondary"
-                type="button"
-                onclick={restoreDefaultBrewingLogo}
-                disabled={settings.demo_mode}>Restore default brewing animation</button
-              >
+          </div>
+          <div>
+            <h3>Palette</h3>
+            <div class="colors">
+              {#each [['color_cream', 'Background'], ['color_surface', 'Surface'], ['color_ink', 'Ink'], ['color_coffee', 'Coffee'], ['color_cyan', 'Collider'], ['color_amber', 'Accent']] as color}<label
+                  >{color[1]}<input
+                    type="color"
+                    bind:value={settings[color[0] as keyof AppSettings] as string}
+                    disabled={settings.demo_mode}
+                  /></label
+                >{/each}
+            </div>
+          </div>
+          <button class="primary" disabled={settings.demo_mode}>Save settings</button>
+        </form>
+
+        {#if mattermost}
+          <form class="panel mattermost-form" onsubmit={saveMattermost}>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Channel notifications</p>
+                <h2>Mattermost</h2>
+              </div>
+              <label class="check integration-enabled">
+                <input
+                  type="checkbox"
+                  bind:checked={mattermost.enabled}
+                  disabled={settings.demo_mode || !mattermost.encryption_available}
+                />
+                Enabled
+              </label>
+            </div>
+            <p class="muted">
+              Announce new brews and rating invitations in one channel. Personal access tokens
+              provide a channel picker; incoming webhooks use the default channel selected when the
+              webhook is created in Mattermost.
+            </p>
+            {#if !mattermost.encryption_available}
+              <p class="warning" role="status">
+                Set <code>FCC_MATTERMOST_SECRET_KEY</code> on the server before saving a credential.
+              </p>
             {/if}
-          </div>
-        </div>
-        <div>
-          <h3>Palette</h3>
-          <div class="colors">
-            {#each [['color_cream', 'Background'], ['color_surface', 'Surface'], ['color_ink', 'Ink'], ['color_coffee', 'Coffee'], ['color_cyan', 'Collider'], ['color_amber', 'Accent']] as color}<label
-                >{color[1]}<input
-                  type="color"
-                  bind:value={settings[color[0] as keyof AppSettings] as string}
+
+            <div class="field-grid mattermost-connection">
+              <label>
+                Authentication
+                <select
+                  bind:value={mattermost.auth_mode}
+                  onchange={changeMattermostMode}
                   disabled={settings.demo_mode}
-                /></label
-              >{/each}
-          </div>
-        </div>
-        <button class="primary" disabled={settings.demo_mode}>Save settings</button>
-      </form>
+                >
+                  <option value="pat">Personal access token</option>
+                  <option value="webhook">Incoming webhook</option>
+                </select>
+              </label>
+              <label>
+                Mattermost server
+                <input
+                  type="url"
+                  bind:value={mattermost.server_url}
+                  placeholder="https://mattermost.web.cern.ch"
+                  disabled={settings.demo_mode}
+                  required
+                />
+              </label>
+            </div>
+
+            <label>
+              {mattermost.auth_mode === 'pat' ? 'Personal access token' : 'Incoming webhook URL'}
+              <input
+                type="password"
+                bind:value={mattermostCredential}
+                autocomplete="new-password"
+                placeholder={mattermost.credential_configured
+                  ? 'Stored securely — leave blank to keep it'
+                  : mattermost.auth_mode === 'pat'
+                    ? 'Paste the access token'
+                    : 'https://mattermost.example/hooks/…'}
+                disabled={settings.demo_mode || !mattermost.encryption_available}
+              />
+              <span class="hint">
+                {mattermost.auth_mode === 'pat'
+                  ? 'Use a dedicated, non-admin service account. At CERN, ask the Mattermost team to enable PAT access.'
+                  : 'The webhook URL is a secret. Its configured default channel receives every announcement.'}
+              </span>
+              {#if mattermostServerChanged && mattermost.credential_configured && !mattermostCredential}
+                <span class="hint warning">
+                  Re-enter the credential when changing the Mattermost server.
+                </span>
+              {/if}
+            </label>
+
+            {#if mattermost.auth_mode === 'pat'}
+              <div class="connection-actions">
+                <button
+                  class="secondary"
+                  type="button"
+                  onclick={verifyMattermost}
+                  disabled={settings.demo_mode ||
+                    mattermostBusy ||
+                    !mattermost.encryption_available ||
+                    (mattermostServerChanged && !mattermostCredential) ||
+                    (!mattermostCredential && !mattermost.credential_configured)}
+                  >{mattermostBusy ? 'Working…' : 'Verify token & load channels'}</button
+                >
+                {#if mattermost.account_username}
+                  <span class="connection-identity"
+                    >Connected as @{mattermost.account_username}</span
+                  >
+                {/if}
+              </div>
+              <label>
+                Destination channel
+                <select
+                  bind:value={mattermost.channel_id}
+                  onchange={selectMattermostChannel}
+                  disabled={settings.demo_mode || mattermostBusy}
+                  required={mattermost.enabled}
+                >
+                  <option value={null}>Select a channel</option>
+                  {#if mattermost.channel_id && !mattermostChannels.some((channel) => channel.channel_id === mattermost?.channel_id)}
+                    <option value={mattermost.channel_id}>
+                      {mattermost.team_name} — {mattermost.channel_display_name}
+                    </option>
+                  {/if}
+                  {#each mattermostTeams as team}
+                    <optgroup label={team.name}>
+                      {#each mattermostChannels.filter((channel) => channel.team_id === team.id) as channel}
+                        <option value={channel.channel_id}>{channel.channel_display_name}</option>
+                      {/each}
+                    </optgroup>
+                  {/each}
+                </select>
+              </label>
+            {:else}
+              <p class="hint webhook-note">
+                Create the webhook in the destination channel’s Mattermost integration settings. The
+                app validates that the URL belongs to the server above; sending a test message is
+                the only non-destructive way to verify a webhook.
+              </p>
+            {/if}
+
+            <fieldset class="mattermost-events">
+              <legend>Announcements</legend>
+              <div>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    bind:checked={mattermost.announce_brew_started}
+                    onchange={() => {
+                      if (!mattermost?.announce_brew_started)
+                        mattermost!.mention_channel_on_started = false;
+                    }}
+                    disabled={settings.demo_mode}
+                  />
+                  Post when a brew starts
+                </label>
+                <label class="check mention-option">
+                  <input
+                    type="checkbox"
+                    bind:checked={mattermost.mention_channel_on_started}
+                    disabled={settings.demo_mode || !mattermost.announce_brew_started}
+                  />
+                  Include @channel
+                </label>
+              </div>
+              <div>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    bind:checked={mattermost.announce_ready_to_rate}
+                    onchange={() => {
+                      if (!mattermost?.announce_ready_to_rate)
+                        mattermost!.mention_channel_on_ready = false;
+                    }}
+                    disabled={settings.demo_mode}
+                  />
+                  Post when rating opens
+                </label>
+                <label class="check mention-option">
+                  <input
+                    type="checkbox"
+                    bind:checked={mattermost.mention_channel_on_ready}
+                    disabled={settings.demo_mode || !mattermost.announce_ready_to_rate}
+                  />
+                  Include @channel
+                </label>
+              </div>
+              <p class="hint">
+                Channel-wide mentions only notify people when the posting account has permission;
+                individual Mattermost notification preferences still apply.
+              </p>
+            </fieldset>
+
+            <div class="integration-status" aria-live="polite">
+              <span><strong>{mattermost.pending_count}</strong> pending</span>
+              <span><strong>{mattermost.failed_count}</strong> failed</span>
+              {#if mattermost.last_delivery_at}
+                <span>Last delivered {new Date(mattermost.last_delivery_at).toLocaleString()}</span>
+              {/if}
+            </div>
+            {#if mattermost.last_error}
+              <p class="error" role="status">Last delivery error: {mattermost.last_error}</p>
+            {/if}
+
+            <div class="actions mattermost-actions">
+              <button
+                class="primary"
+                disabled={settings.demo_mode || mattermostBusy || !mattermost.encryption_available}
+                >{mattermostBusy ? 'Working…' : 'Save Mattermost settings'}</button
+              >
+              <button
+                class="secondary"
+                type="button"
+                onclick={testMattermost}
+                disabled={settings.demo_mode ||
+                  mattermostBusy ||
+                  mattermostTestDirty ||
+                  !mattermost.credential_configured}>Send test message</button
+              >
+              {#if mattermostTestDirty && mattermost.credential_configured}
+                <span class="hint">Save destination or credential changes before testing.</span>
+              {/if}
+              {#if mattermost.failed_count > 0}
+                <button
+                  class="secondary"
+                  type="button"
+                  onclick={retryMattermost}
+                  disabled={settings.demo_mode || mattermostBusy || !mattermost.enabled}
+                  >Retry failed</button
+                >
+              {/if}
+              {#if mattermost.credential_configured}
+                <button
+                  class="secondary danger-outline"
+                  type="button"
+                  onclick={clearMattermostCredential}
+                  disabled={settings.demo_mode || mattermostBusy}>Remove credential</button
+                >
+              {/if}
+            </div>
+          </form>
+        {/if}
+      </div>
     {:else if activeTab === 'data'}
       <div class="admin-grid">
         <section class="panel">
@@ -1012,6 +1425,62 @@
     gap: 30px;
     margin-top: 18px;
   }
+  .mattermost-form {
+    display: grid;
+    gap: 20px;
+  }
+  .mattermost-form h2,
+  .mattermost-form .eyebrow {
+    margin-bottom: 0;
+  }
+  .integration-enabled {
+    min-height: auto;
+  }
+  .mattermost-connection {
+    grid-template-columns: minmax(200px, 0.7fr) minmax(280px, 1.3fr);
+  }
+  .connection-actions,
+  .integration-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+  }
+  .connection-identity,
+  .integration-status span {
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+    font-size: 0.86rem;
+  }
+  .mattermost-events {
+    display: grid;
+    gap: 10px;
+  }
+  .mattermost-events > div {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.7fr);
+    gap: 10px;
+    align-items: center;
+  }
+  .mattermost-events .check {
+    min-height: 40px;
+  }
+  .mention-option {
+    padding-left: 12px;
+    border-left: 2px solid var(--line);
+  }
+  .webhook-note {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .warning code {
+    display: inline;
+    padding: 2px 4px;
+    color: inherit;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
   .brewing-logo-setting {
     display: grid;
     gap: 12px;
@@ -1062,6 +1531,9 @@
     .brand-form {
       grid-template-columns: 1fr;
     }
+    .mattermost-connection {
+      grid-template-columns: 1fr;
+    }
     .tag-editor article {
       grid-template-columns: 1fr 80px auto;
     }
@@ -1087,6 +1559,9 @@
     .preset-range,
     .preset-list article {
       grid-template-columns: 1fr 1fr;
+    }
+    .mattermost-events > div {
+      grid-template-columns: 1fr;
     }
     .tag-editor article,
     .item-list article {

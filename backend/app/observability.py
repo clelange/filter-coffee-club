@@ -34,6 +34,10 @@ def configure_logging(level: str) -> None:
     handler.setFormatter(JsonFormatter())
     root.handlers = [handler]
     root.setLevel(level.upper())
+    # httpx logs complete request URLs at INFO. Incoming webhook URLs contain the
+    # credential in their path, so transport logging must never inherit INFO.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     root._fcc_configured = True  # type: ignore[attr-defined]
 
 

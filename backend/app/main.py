@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from .api import router
 from .config import Settings
 from .db import build_engine, build_session_factory
 from .demo import capture_demo_protected_ids
+from .mattermost import delivery_worker
 from .migrations import run_migrations
 from .observability import configure_logging, install_request_logging
 from .seeds import seed_database, seed_demo_database
@@ -30,8 +32,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if app_settings.demo_mode:
                 seed_demo_database(db, app_settings.catalog_upload_dir)
                 _app.state.demo_protected_ids = capture_demo_protected_ids(db)
-        yield
-        engine.dispose()
+        mattermost_task = (
+            None
+            if app_settings.demo_mode
+            else asyncio.create_task(delivery_worker(app_settings, session_factory))
+        )
+        try:
+            yield
+        finally:
+            if mattermost_task is not None:
+                mattermost_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await mattermost_task
+            engine.dispose()
 
     app = FastAPI(title="Filter Coffee Club API", version="0.1.0", lifespan=lifespan)
     app.state.settings = app_settings

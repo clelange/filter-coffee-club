@@ -353,7 +353,6 @@ def test_brewing_logo_migration_defaults_existing_installations(tmp_path: Path) 
             )
         )
     engine.dispose()
-
     command.upgrade(config, "f4a1b2c3d4e5")
 
     engine = create_engine(database_url)
@@ -370,4 +369,31 @@ def test_brewing_logo_migration_defaults_existing_installations(tmp_path: Path) 
             if column["name"] == "brewing_logo_path"
         )
         assert brewing_logo["nullable"] is True
+    engine.dispose()
+
+
+def test_mattermost_migration_adds_isolated_settings_and_outbox(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-mattermost.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "f4a1b2c3d4e5")
+    command.upgrade(config, "ab12cd34ef56")
+
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        tables = set(inspect(connection).get_table_names())
+        assert "mattermost_integrations" in tables
+        assert "mattermost_notifications" in tables
+        notification_indexes = {
+            item["name"] for item in inspect(connection).get_indexes("mattermost_notifications")
+        }
+        assert "ix_mattermost_notifications_state" in notification_indexes
+        assert "ix_mattermost_notifications_next_attempt_at" in notification_indexes
+    engine.dispose()
+
+    command.downgrade(config, "f4a1b2c3d4e5")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        tables = set(inspect(connection).get_table_names())
+        assert "mattermost_integrations" not in tables
+        assert "mattermost_notifications" not in tables
     engine.dispose()
