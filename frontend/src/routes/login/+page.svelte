@@ -13,6 +13,8 @@
   let pin = $state('');
   let error = $state('');
   let loading = $state(false);
+  let initializing = $state(true);
+  let initializationError = $state('');
   let blockedUntilByProfile = $state<Record<number, number>>({});
   let now = $state(Date.now());
   let retrySeconds = $derived(
@@ -30,12 +32,29 @@
     return requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/';
   }
 
-  onMount(async () => {
-    [profiles, settings] = await Promise.all([
-      api<ProfileIdentity[]>('/auth/profiles'),
-      api<AppSettings>('/settings')
-    ]);
-    profileId = Number($page.url.searchParams.get('profile')) || profiles[0]?.id || 0;
+  async function loadLoginData() {
+    initializing = true;
+    initializationError = '';
+    try {
+      [profiles, settings] = await Promise.all([
+        api<ProfileIdentity[]>('/auth/profiles'),
+        api<AppSettings>('/settings')
+      ]);
+      const requestedProfileId = Number($page.url.searchParams.get('profile')) || 0;
+      profileId =
+        profiles.find((profile) => profile.id === requestedProfileId)?.id || profiles[0]?.id || 0;
+    } catch (caught) {
+      initializationError =
+        caught instanceof Error
+          ? caught.message
+          : 'The sign-in profiles could not be loaded. Check the connection and try again.';
+    } finally {
+      initializing = false;
+    }
+  }
+
+  onMount(() => {
+    void loadLoginData();
   });
 
   onMount(() => {
@@ -102,11 +121,19 @@
         >
       </div>
     {/if}
+    {#if initializationError}
+      <div class="initialization-error" role="alert">
+        <strong>Sign-in is temporarily unavailable.</strong>
+        <span>{initializationError}</span>
+        <button class="secondary" type="button" onclick={loadLoginData}>Try again</button>
+      </div>
+    {/if}
     <label>
       Profile
       <select
         bind:value={profileId}
         required
+        disabled={initializing || Boolean(initializationError)}
         onchange={() => {
           pin = '';
           error = '';
@@ -122,17 +149,22 @@
         <strong>Shared touch display</strong>
         <span>You will be signed out when this activity is complete.</span>
       </div>
-      <PinPad label="PIN" bind:value={pin} disabled={loading || blocked} />
+      <PinPad
+        label="PIN"
+        bind:value={pin}
+        disabled={loading || initializing || Boolean(initializationError) || blocked}
+      />
     {:else}
       <label>
         PIN
         <input
+          type="password"
           bind:value={pin}
           inputmode="numeric"
           autocomplete="current-password"
           pattern="[0-9][0-9][0-9][0-9]"
           maxlength="4"
-          disabled={loading || blocked}
+          disabled={loading || initializing || Boolean(initializationError) || blocked}
           required
         />
       </label>
@@ -144,8 +176,14 @@
     {:else if error}
       <p class="error" role="alert">{error}</p>
     {/if}
-    <button class="primary" disabled={loading || blocked || !profileId || pin.length !== 4}
-      >{loading ? 'Signing in…' : 'Sign in'}</button
+    <button
+      class="primary"
+      disabled={loading ||
+        initializing ||
+        Boolean(initializationError) ||
+        blocked ||
+        !profileId ||
+        pin.length !== 4}>{loading ? 'Signing in…' : 'Sign in'}</button
     >
   </form>
 </div>
@@ -183,6 +221,17 @@
     min-height: 42px;
     padding: 8px 15px;
   }
+  .initialization-error {
+    display: grid;
+    gap: 7px;
+    padding: 14px;
+    border-radius: 13px;
+    background: #ffe4e2;
+    color: #73201b;
+  }
+  .initialization-error button {
+    justify-self: start;
+  }
   .kiosk-note span {
     color: var(--muted);
     font-weight: 500;
@@ -190,6 +239,53 @@
   @media (max-width: 760px) {
     .login-layout {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (min-width: 761px) and (max-height: 650px) {
+    .login-layout {
+      grid-template-columns: minmax(230px, 0.6fr) minmax(560px, 1.4fr);
+      gap: 24px;
+      align-items: start;
+      min-height: 0;
+    }
+    .login-layout > section h1 {
+      font-size: clamp(2.8rem, 6vw, 4.2rem);
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form {
+      grid-template-columns: minmax(210px, 1fr) minmax(260px, 330px);
+      gap: 8px 16px;
+      padding: 16px;
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .demo-login {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 3px 8px;
+      padding: 10px;
+      font-size: 0.82rem;
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .demo-login button {
+      grid-column: 2;
+      grid-row: 1 / span 3;
+      align-self: center;
+      min-height: 44px;
+      padding: 8px 12px;
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .kiosk-note {
+      gap: 2px;
+      padding: 8px 10px;
+      font-size: 0.82rem;
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .demo-login,
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .initialization-error,
+    :global(html[data-device-mode='kiosk']) .login-layout > form > label,
+    :global(html[data-device-mode='kiosk']) .login-layout > form > .kiosk-note,
+    :global(html[data-device-mode='kiosk']) .login-layout > form > p,
+    :global(html[data-device-mode='kiosk']) .login-layout > form > button {
+      grid-column: 1;
+    }
+    :global(html[data-device-mode='kiosk']) .login-layout > form > :global(.pin-pad) {
+      grid-column: 2;
+      grid-row: 1 / span 7;
+      align-self: center;
     }
   }
 </style>

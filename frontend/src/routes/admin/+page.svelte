@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import GrinderFields from '$lib/GrinderFields.svelte';
   import { emptyGrinderForm, grinderPayload } from '$lib/catalog';
+  import { contrastRatio } from '$lib/coffee-colors';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
@@ -100,16 +101,7 @@
   const mattermostConfigurationLocked = $derived(
     isMattermostConfigurationLocked(settings, mattermost)
   );
-
-  $effect(() => {
-    const requestedTab = page.url.searchParams.get('tab');
-    activeTab = adminTabFromUrl(page.url);
-    if (requestedTab && (!isAdminTab(requestedTab) || requestedTab === 'people')) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('tab');
-      replaceState(url, page.state);
-    }
-  });
+  const paletteWarnings = $derived(settings ? paletteContrastWarnings(settings) : []);
 
   $effect(() => {
     const requestedTab = page.url.searchParams.get('tab');
@@ -148,6 +140,21 @@
     if (!mattermost) return;
     savedMattermostDestination = mattermostDestinationKey(mattermost);
     savedMattermostServer = mattermost.server_url;
+  }
+
+  function paletteContrastWarnings(value: AppSettings): string[] {
+    const checks: [string, string, string][] = [
+      ['Ink on the background', value.color_ink, value.color_cream],
+      ['Ink on surfaces', value.color_ink, value.color_surface],
+      ['Coffee buttons with white text', value.color_coffee, '#FFFFFF'],
+      ['Links on the background', value.color_cyan, value.color_cream],
+      ['Links on surfaces', value.color_cyan, value.color_surface],
+      ['Accent notices with dark text', value.color_amber, '#21180B']
+    ];
+    return checks.flatMap(([label, foreground, background]) => {
+      const ratio = contrastRatio(foreground, background);
+      return ratio < 4.5 ? [`${label}: ${ratio.toFixed(2)}:1 (needs at least 4.5:1).`] : [];
+    });
   }
 
   function isClickUnit(unit: string) {
@@ -452,7 +459,7 @@
   }
   async function saveSettings(event: SubmitEvent) {
     event.preventDefault();
-    if (!settings) return;
+    if (!settings || paletteWarnings.length) return;
     await runSettingsAction(
       () => api<AppSettings>('/settings', { method: 'PUT', body: jsonBody(settings) }),
       'Settings saved.'
@@ -801,6 +808,7 @@
             >New member display name<input bind:value={personForm.display_name} required /></label
           ><label
             >Four-digit PIN<input
+              type="password"
               bind:value={personForm.pin}
               inputmode="numeric"
               autocomplete="new-password"
@@ -824,7 +832,7 @@
           <div class="item-list">
             {#each people as person}<article class="profile-row">
                 <input
-                  aria-label="Display name"
+                  aria-label={`Display name for ${person.display_name}`}
                   bind:value={person.display_name}
                   disabled={isSeededDemoProfile(person)}
                 /><select
@@ -834,6 +842,7 @@
                   ><option value="member">Member</option><option value="admin">Administrator</option
                   ></select
                 ><input
+                  type="password"
                   aria-label={`New PIN for ${person.display_name}`}
                   bind:value={pinResets[person.id]}
                   inputmode="numeric"
@@ -1266,8 +1275,18 @@
                   /></label
                 >{/each}
             </div>
+            {#if paletteWarnings.length}
+              <div class="palette-warnings" role="status" aria-live="polite">
+                <strong>Adjust the palette before saving.</strong>
+                <ul>
+                  {#each paletteWarnings as warning}<li>{warning}</li>{/each}
+                </ul>
+              </div>
+            {/if}
           </div>
-          <button class="primary" disabled={settings.demo_mode}>Save settings</button>
+          <button class="primary" disabled={settings.demo_mode || paletteWarnings.length > 0}
+            >Save settings</button
+          >
         </form>
 
         {#if mattermost}
@@ -1862,6 +1881,17 @@
   }
   .colors input {
     padding: 4px;
+  }
+  .palette-warnings {
+    margin-top: 12px;
+    padding: 13px 15px;
+    border-radius: 12px;
+    background: #ffe4e2;
+    color: #73201b;
+  }
+  .palette-warnings ul {
+    margin: 8px 0 0;
+    padding-left: 20px;
   }
   code {
     display: block;

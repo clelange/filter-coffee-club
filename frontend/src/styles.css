@@ -14,11 +14,15 @@
   --surface: #fffdfc;
   --ink: #241c19;
   --coffee: #6b3f2a;
-  --cyan: #007f9e;
+  --cyan: #00728f;
   --amber: #d88700;
   --muted: color-mix(in srgb, var(--ink) 63%, var(--cream));
   --line: color-mix(in srgb, var(--coffee) 18%, var(--cream));
   --shadow: 0 16px 45px rgb(36 28 25 / 9%);
+  --control-height: 50px;
+  --radius-control: 12px;
+  --radius-panel: 24px;
+  --space-control: 12px 14px;
 }
 
 * {
@@ -62,6 +66,23 @@ a {
 
 a {
   color: var(--cyan);
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 800;
+  transform: translateY(-150%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 button:focus-visible,
@@ -191,6 +212,11 @@ main.loading {
   place-items: center;
 }
 
+.bootstrap-error {
+  max-width: 720px;
+  margin: 6vh auto 0;
+}
+
 footer {
   display: flex;
   flex-wrap: wrap;
@@ -275,7 +301,7 @@ button.danger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 50px;
+  min-height: var(--control-height);
   padding: 13px 22px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -330,7 +356,7 @@ button:disabled,
 .panel,
 .loading-card {
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   box-shadow: var(--shadow);
 }
@@ -413,10 +439,10 @@ input,
 select,
 textarea {
   width: 100%;
-  min-height: 50px;
-  padding: 12px 14px;
+  min-height: var(--control-height);
+  padding: var(--space-control);
   border: 1px solid color-mix(in srgb, var(--coffee) 28%, var(--cream));
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--ink);
 }
@@ -440,7 +466,7 @@ input[type='range'] {
 .error,
 .success {
   padding: 13px 15px;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   font-weight: 700;
 }
 
@@ -492,6 +518,138 @@ tr:last-child td {
   border-radius: 18px;
   color: var(--muted);
   text-align: center;
+}
+
+/* Shared catalog-detail layout. Keep coffee and equipment pages aligned here. */
+.detail-page {
+  --catalog-gap-sm: 8px;
+  --catalog-gap-md: 16px;
+  --catalog-gap-lg: clamp(30px, 6vw, 58px);
+  display: grid;
+  gap: var(--catalog-gap-lg);
+  min-width: 0;
+}
+
+.detail-page h1,
+.detail-page h2,
+.detail-page p {
+  margin: 0;
+}
+
+.detail-page .back-link {
+  width: fit-content;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.detail-page .detail-hero {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+  gap: clamp(22px, 5vw, 52px);
+  align-items: center;
+}
+
+.detail-page .detail-photo {
+  min-width: 0;
+}
+
+.detail-page .detail-identity,
+.detail-page .section-heading,
+.detail-page .metadata-section,
+.detail-page .edit-panel,
+.detail-page .photo-edit {
+  display: grid;
+}
+
+.detail-page .detail-identity,
+.detail-page .metadata-section,
+.detail-page .edit-panel {
+  gap: var(--catalog-gap-md);
+}
+
+.detail-page .identity-topline,
+.detail-page .detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detail-page .detail-actions {
+  flex-wrap: wrap;
+}
+
+.detail-page .detail-identity h1 {
+  max-width: 17ch;
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+}
+
+.detail-page .more-actions {
+  width: fit-content;
+  min-width: min(100%, 260px);
+}
+
+.detail-page .section-heading {
+  gap: var(--catalog-gap-sm);
+}
+
+.detail-page .section-heading h2 {
+  font-size: clamp(1.8rem, 4vw, 2.7rem);
+}
+
+.detail-page .metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--line);
+}
+
+.detail-page .metadata-grid div {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface);
+}
+
+.detail-page .metadata-grid .wide {
+  grid-column: span 2;
+}
+
+.detail-page dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.detail-page dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.detail-page .photo-edit {
+  gap: 12px;
+}
+
+.detail-page .photo-edit button {
+  width: fit-content;
+}
+
+.detail-page .empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  padding: clamp(28px, 7vw, 70px);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
 }
 
 .metric {
@@ -596,6 +754,18 @@ details > :not(summary) {
   }
 }
 
+@media (max-width: 760px) {
+  .detail-page .detail-hero {
+    grid-template-columns: 1fr;
+  }
+  .detail-page .detail-photo {
+    max-width: 520px;
+  }
+  .detail-page .metadata-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (min-width: 900px) and (max-height: 650px) {
   main {
     padding: 16px 0;
@@ -624,6 +794,15 @@ details > :not(summary) {
   .card,
   .panel {
     border-radius: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .detail-page .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+  .detail-page .metadata-grid .wide {
+    grid-column: auto;
   }
 }
 

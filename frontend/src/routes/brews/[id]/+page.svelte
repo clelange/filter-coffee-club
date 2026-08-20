@@ -49,6 +49,8 @@
   let statusAction: 'cancel' | 'void' | null = $state(null);
   let changingStatus = $state(false);
   let operatorDialog = $state(false);
+  let actionDialog = $state<HTMLElement>();
+  let actionPreviouslyFocused: HTMLElement | null = null;
   let operators: ProfileIdentity[] = $state([]);
   let selectedOperatorId = $state(0);
   let changingOperator = $state(false);
@@ -72,6 +74,20 @@
       dialog
         .querySelector<HTMLElement>(
           'input[aria-label="Minutes"], button[aria-label^="Set Minutes;"]'
+        )
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  $effect(() => {
+    const dialog = actionDialog;
+    if ((!operatorDialog && !statusAction) || !dialog) return;
+    const frame = requestAnimationFrame(() => {
+      if ((!operatorDialog && !statusAction) || dialog.contains(document.activeElement)) return;
+      dialog
+        .querySelector<HTMLElement>(
+          'select:not(:disabled), button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href]'
         )
         ?.focus();
     });
@@ -236,6 +252,73 @@
     }
   }
 
+  function rememberActionDialogFocus() {
+    actionPreviouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  async function restoreActionDialogFocus() {
+    const previous = actionPreviouslyFocused;
+    actionPreviouslyFocused = null;
+    await tick();
+    if (previous?.isConnected) previous.focus();
+    else document.getElementById('main-content')?.focus();
+  }
+
+  function openStatusDialog(action: 'cancel' | 'void') {
+    error = '';
+    rememberActionDialogFocus();
+    statusAction = action;
+  }
+
+  async function closeStatusDialog() {
+    statusAction = null;
+    await restoreActionDialogFocus();
+  }
+
+  async function closeOperatorDialog() {
+    operatorDialog = false;
+    await restoreActionDialogFocus();
+  }
+
+  function handleActionDialogKeydown(event: KeyboardEvent) {
+    const dialog = actionDialog;
+    if ((!operatorDialog && !statusAction) || !dialog) return;
+    const busy = operatorDialog ? changingOperator : changingStatus;
+    if (event.key === 'Escape' && !busy) {
+      event.preventDefault();
+      if (operatorDialog) void closeOperatorDialog();
+      else void closeStatusDialog();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = [
+      ...dialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]'
+      )
+    ];
+    const first = controls[0];
+    const last = controls.at(-1);
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!first || !last) return;
+    if (!dialog.contains(activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function handleDialogKeydown(event: KeyboardEvent) {
+    handleFinishDialogKeydown(event);
+    if (!event.defaultPrevented) handleActionDialogKeydown(event);
+  }
+
   async function refreshAfterFinalizeConflict(brewId: number) {
     const latest = await api<Brew>(`/brews/${brewId}`);
     brew = latest;
@@ -387,11 +470,13 @@
   async function openOperatorDialog() {
     if (!brew) return;
     error = '';
+    rememberActionDialogFocus();
     try {
       if (!operators.length) operators = await api<ProfileIdentity[]>('/auth/profiles');
       selectedOperatorId = brew.operator_id;
       operatorDialog = true;
     } catch (caught) {
+      actionPreviouslyFocused = null;
       error = caught instanceof Error ? caught.message : 'Could not load the operator list.';
     }
   }
@@ -405,7 +490,7 @@
         method: 'PUT',
         body: jsonBody({ operator_id: selectedOperatorId, revision: brew.revision })
       });
-      operatorDialog = false;
+      await closeOperatorDialog();
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not change the operator.';
     } finally {
@@ -423,7 +508,7 @@
         method: 'POST',
         body: jsonBody({ revision: brew.revision })
       });
-      statusAction = null;
+      await closeStatusDialog();
       await refreshBrewStatusAfterMutation().catch(() => undefined);
       await wakeLock?.release();
       if (action === 'cancel') {
@@ -438,14 +523,14 @@
   }
 </script>
 
-<svelte:window onkeydown={handleFinishDialogKeydown} />
+<svelte:window onkeydown={handleDialogKeydown} />
 
 <svelte:head
   ><title>{brew ? `${brew.coffee_name} · Brew` : 'Brew'} · Filter Coffee Club</title></svelte:head
 >
 
 {#if error && !brew}
-  <p class="error">{error}</p>
+  <p class="error" role="alert">{error}</p>
 {:else if !brew}
   <div class="empty">Finding the brew…</div>
 {:else if brew.status === 'draft'}
@@ -504,7 +589,7 @@
       </div>
     {/if}
     {#if brew.technique_note}<p class="technique">{brew.technique_note}</p>{/if}
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="actions brew-actions">
       {#if $sessionStore && !hasJoined()}
         <button class="primary" onclick={joinBrew} disabled={joining}
@@ -513,7 +598,7 @@
       {/if}
       {#if canManageDraft()}
         {#if canControlDraft()}
-          <button class="danger" onclick={() => (statusAction = 'cancel')}>Cancel brew</button>
+          <button class="danger" onclick={() => openStatusDialog('cancel')}>Cancel brew</button>
           <button class="secondary" onclick={openOperatorDialog}>Change primary operator</button>
         {/if}
         <a class="button secondary" href={`/brews/new?edit=${brew.id}`}>Edit recipe</a>
@@ -641,7 +726,7 @@
           <a class="button secondary" href={`/brews/new?correct=${brew.id}`}>Correct brew</a>
         {/if}
         {#if $sessionStore?.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
-          <button class="danger" onclick={() => (statusAction = 'void')}>Void brew</button>
+          <button class="danger" onclick={() => openStatusDialog('void')}>Void brew</button>
         {/if}
       </div>
       <p class="hint">
@@ -701,18 +786,25 @@
 {/if}
 
 {#if operatorDialog && brew}
-  <div class="modal-backdrop" role="presentation">
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    onclick={(event) =>
+      event.currentTarget === event.target && !changingOperator && void closeOperatorDialog()}
+  >
     <div
       class="modal panel"
       role="dialog"
       aria-modal="true"
       aria-labelledby="operator-title"
+      aria-describedby="operator-description"
       tabindex="-1"
+      bind:this={actionDialog}
     >
       <div class="modal-heading">
         <p class="eyebrow">Primary operator</p>
         <h2 id="operator-title">Change primary operator</h2>
-        <p class="muted">
+        <p class="muted" id="operator-description">
           The selected profile becomes the primary operator. Existing collaborators remain credited
           and can continue editing or finishing the brew.
         </p>
@@ -734,10 +826,8 @@
         >
           {changingOperator ? 'Changing…' : 'Change primary operator'}
         </button>
-        <button
-          class="secondary"
-          onclick={() => (operatorDialog = false)}
-          disabled={changingOperator}>Keep current operator</button
+        <button class="secondary" onclick={closeOperatorDialog} disabled={changingOperator}
+          >Keep current operator</button
         >
       </div>
     </div>
@@ -745,20 +835,27 @@
 {/if}
 
 {#if statusAction && brew}
-  <div class="modal-backdrop" role="presentation">
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    onclick={(event) =>
+      event.currentTarget === event.target && !changingStatus && void closeStatusDialog()}
+  >
     <div
       class="modal panel"
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-title"
+      aria-describedby="status-description"
       tabindex="-1"
+      bind:this={actionDialog}
     >
       <div class="modal-heading">
         <p class="eyebrow">Keep the record</p>
         <h2 id="status-title">
           {statusAction === 'cancel' ? 'Cancel this draft?' : 'Void this completed brew?'}
         </h2>
-        <p class="muted">
+        <p class="muted" id="status-description">
           {statusAction === 'cancel'
             ? 'The brew will remain in the log as cancelled and cannot be completed or rated.'
             : 'The brew and its ratings will remain stored, but its rating link will close and it will be excluded from analytics.'}
@@ -773,7 +870,7 @@
               ? 'Cancel draft'
               : 'Void completed brew'}
         </button>
-        <button class="secondary" onclick={() => (statusAction = null)} disabled={changingStatus}
+        <button class="secondary" onclick={closeStatusDialog} disabled={changingStatus}
           >Keep brew</button
         >
       </div>

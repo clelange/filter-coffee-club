@@ -131,6 +131,7 @@
         <label>
           Current PIN
           <input
+            type="password"
             bind:value={currentPin}
             inputmode="numeric"
             autocomplete="current-password"
@@ -142,6 +143,7 @@
         <label>
           New PIN
           <input
+            type="password"
             bind:value={newPin}
             inputmode="numeric"
             autocomplete="new-password"
@@ -153,6 +155,7 @@
         <label>
           Repeat new PIN
           <input
+            type="password"
             bind:value={confirmPin}
             inputmode="numeric"
             autocomplete="new-password"

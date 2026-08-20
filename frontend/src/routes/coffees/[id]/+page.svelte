@@ -61,8 +61,9 @@
     return Boolean($sessionStore && $deviceModeStore !== 'kiosk' && coffee && !coffee.archived);
   }
 
-  beforeNavigate(({ cancel }) => {
-    if (dirty && !confirm('Discard your unsaved coffee changes?')) cancel();
+  beforeNavigate(({ cancel, willUnload }) => {
+    if (!dirty) return;
+    if (willUnload || !window.confirm('Discard your unsaved coffee changes?')) cancel();
   });
 
   onMount(async () => {
@@ -74,12 +75,6 @@
         'The bag was created, but its photo could not be uploaded. Choose the photo again to retry.';
     }
   });
-
-  function guardUnload(event: BeforeUnloadEvent) {
-    if (!dirty) return;
-    event.preventDefault();
-    event.returnValue = '';
-  }
 
   async function load() {
     loading = true;
@@ -293,7 +288,6 @@
   }
 </script>
 
-<svelte:window onbeforeunload={guardUnload} />
 <svelte:head
   ><title>{coffee ? `${coffee.name} · Coffees` : 'Coffee details'} · Filter Coffee Club</title
   ></svelte:head
@@ -543,54 +537,8 @@
 />
 
 <style>
-  .detail-page {
-    --catalog-gap-xs: 4px;
-    --catalog-gap-sm: 8px;
-    --catalog-gap-md: 16px;
-    --catalog-gap-lg: clamp(30px, 6vw, 58px);
-    display: grid;
-    gap: var(--catalog-gap-lg);
-    min-width: 0;
-  }
-  .detail-page :global(h1),
-  .detail-page :global(h2),
-  .detail-page :global(p) {
-    margin: 0;
-  }
-  .back-link {
-    width: fit-content;
-    font-weight: 800;
-    text-decoration: none;
-  }
-  .detail-hero {
-    display: grid;
-    grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
-    gap: clamp(22px, 5vw, 52px);
-    align-items: center;
-  }
-  .detail-photo {
-    min-width: 0;
-  }
-  .detail-identity,
-  .section-heading,
-  .metadata-section,
-  .edit-panel,
-  .photo-edit,
-  .analysis-signin {
-    display: grid;
-  }
-  .detail-identity {
-    gap: var(--catalog-gap-md);
-  }
-  .identity-topline {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
   .detail-identity h1 {
     max-width: 16ch;
-    margin: 0;
-    font-size: clamp(2.5rem, 7vw, 5.5rem);
   }
   .package-notes {
     max-width: 55ch;
@@ -600,101 +548,13 @@
     font-style: italic;
     line-height: 1.55;
   }
-  .detail-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .more-actions {
-    width: fit-content;
-    min-width: min(100%, 260px);
-  }
-  .section-heading {
-    gap: var(--catalog-gap-sm);
-  }
-  .section-heading h2 {
-    font-size: clamp(1.8rem, 4vw, 2.7rem);
-  }
-  .metadata-section,
-  .edit-panel {
-    gap: var(--catalog-gap-md);
-  }
-  .metadata-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1px;
-    margin: 0;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: var(--line);
-  }
-  .metadata-grid div {
-    display: grid;
-    align-content: start;
-    gap: 5px;
-    min-width: 0;
-    padding: 16px;
-    background: var(--surface);
-  }
-  .metadata-grid .wide {
-    grid-column: span 2;
-  }
-  dt {
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 800;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-  }
-  dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-    line-height: 1.45;
-  }
-  .photo-edit {
-    gap: 12px;
-  }
   .analysis-signin {
+    display: grid;
     justify-items: start;
     gap: 12px;
   }
   .analysis-signin h2 {
     margin: 0;
     font-size: clamp(1.6rem, 4vw, 2.4rem);
-  }
-  .photo-edit button {
-    width: fit-content;
-  }
-  .empty-state {
-    display: grid;
-    justify-items: start;
-    gap: 16px;
-    padding: clamp(28px, 7vw, 70px);
-    border: 1px solid var(--line);
-    border-radius: 22px;
-    background: var(--surface);
-  }
-  .empty-state h1 {
-    margin: 0;
-  }
-  @media (max-width: 760px) {
-    .detail-hero {
-      grid-template-columns: 1fr;
-    }
-    .detail-photo {
-      max-width: 520px;
-    }
-    .metadata-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  @media (max-width: 480px) {
-    .metadata-grid {
-      grid-template-columns: 1fr;
-    }
-    .metadata-grid .wide {
-      grid-column: auto;
-    }
   }
 </style>

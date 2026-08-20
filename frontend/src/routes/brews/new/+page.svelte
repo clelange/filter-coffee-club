@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
   import {
@@ -74,6 +74,7 @@
   let error = $state('');
   let saving = $state(false);
   let ready = $state(false);
+  let baseline = $state('');
   let newCoffee = $state({
     roaster: '',
     name: '',
@@ -154,6 +155,24 @@
       form.grinder_setting === null
     )
   );
+  const editorDirty = $derived(ready && baseline !== '' && editorSnapshot() !== baseline);
+
+  function editorSnapshot(): string {
+    return JSON.stringify({
+      form,
+      correctionMinutes,
+      correctionSeconds,
+      correctionOperatorId,
+      showCoffeeForm,
+      newCoffee
+    });
+  }
+
+  beforeNavigate(({ cancel, willUnload }) => {
+    if (!editorDirty || saving) return;
+    if (willUnload || !window.confirm('Discard your unsaved recipe changes and leave this page?'))
+      cancel();
+  });
 
   function updateRecipe(action: RecipeCalculationAction) {
     recipeState = applyRecipeCalculation(
@@ -265,6 +284,7 @@
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load the recipe form.';
     } finally {
+      baseline = editorSnapshot();
       ready = true;
     }
   });

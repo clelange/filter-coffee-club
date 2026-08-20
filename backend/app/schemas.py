@@ -728,6 +728,42 @@ class AppSettingsUpdate(BaseModel):
             raise ValueError("Colors must be six-digit hexadecimal values") from exc
         return value.upper()
 
+    @model_validator(mode="after")
+    def validate_palette_contrast(self) -> AppSettingsUpdate:
+        checks = (
+            ("Ink on the background", self.color_ink, self.color_cream),
+            ("Ink on surfaces", self.color_ink, self.color_surface),
+            ("Coffee buttons with white text", self.color_coffee, "#FFFFFF"),
+            ("Links on the background", self.color_cyan, self.color_cream),
+            ("Links on surfaces", self.color_cyan, self.color_surface),
+            ("Accent notices with dark text", self.color_amber, "#21180B"),
+        )
+        failures = [
+            f"{label} ({_contrast_ratio(foreground, background):.2f}:1)"
+            for label, foreground, background in checks
+            if _contrast_ratio(foreground, background) < 4.5
+        ]
+        if failures:
+            raise ValueError(
+                "Palette colors must provide at least 4.5:1 contrast: " + "; ".join(failures)
+            )
+        return self
+
+
+def _contrast_ratio(first: str, second: str) -> float:
+    def luminance(color: str) -> float:
+        channels = []
+        for offset in (1, 3, 5):
+            value = int(color[offset : offset + 2], 16) / 255
+            channels.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+
+    first_luminance = luminance(first)
+    second_luminance = luminance(second)
+    light = max(first_luminance, second_luminance)
+    dark = min(first_luminance, second_luminance)
+    return (light + 0.05) / (dark + 0.05)
+
 
 class MattermostChannelOption(BaseModel):
     team_id: str

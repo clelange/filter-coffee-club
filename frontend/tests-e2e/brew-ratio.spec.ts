@@ -12,7 +12,7 @@ const settings = {
   color_surface: '#fffdfc',
   color_ink: '#241c19',
   color_coffee: '#6b3f2a',
-  color_cyan: '#007f9e',
+  color_cyan: '#00728f',
   color_amber: '#d88700',
   max_active_brews: 2,
   public_url_needs_configuration: false,
@@ -312,6 +312,47 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 async function chooseReferenceGrinder(page: Page) {
   await page.getByRole('combobox', { name: 'Choose a grinder' }).selectOption(String(grinder.id));
 }
+
+test('recipe edits require confirmation before navigating away', async ({ page }) => {
+  await mockCommonApi(page, () => null);
+  await page.goto('/brews/new?kiosk=0');
+  await page.getByRole('spinbutton', { name: 'Temperature' }).fill('93');
+
+  const dismissedDialog = page.waitForEvent('dialog');
+  const blockedNavigation = page.getByRole('link', { name: 'Coffees' }).click();
+  const firstDialog = await dismissedDialog;
+  expect(firstDialog.message()).toContain('Discard your unsaved recipe changes');
+  await firstDialog.dismiss();
+  await blockedNavigation;
+  await expect(page).toHaveURL(/\/brews\/new/);
+
+  const acceptedDialog = page.waitForEvent('dialog');
+  const allowedNavigation = page.getByRole('link', { name: 'Coffees' }).click();
+  await (await acceptedDialog).accept();
+  await allowedNavigation;
+  await expect(page).toHaveURL(/\/coffees$/);
+
+  await page.goto('/brews/new?kiosk=0');
+  await page.getByRole('spinbutton', { name: 'Temperature' }).fill('93');
+  await page.evaluate(() => {
+    sessionStorage.setItem('recipe-confirm-calls', '0');
+    window.confirm = () => {
+      const calls = Number(sessionStorage.getItem('recipe-confirm-calls') ?? '0');
+      sessionStorage.setItem('recipe-confirm-calls', String(calls + 1));
+      return true;
+    };
+  });
+  const unloadDialogs: string[] = [];
+  const acceptUnload = async (dialog: import('@playwright/test').Dialog) => {
+    unloadDialogs.push(dialog.type());
+    await dialog.accept();
+  };
+  page.on('dialog', acceptUnload);
+  await page.reload();
+  page.off('dialog', acceptUnload);
+  expect(await page.evaluate(() => sessionStorage.getItem('recipe-confirm-calls'))).toBe('0');
+  expect(unloadDialogs).toEqual(['beforeunload']);
+});
 
 test('correlated batch values stay synchronized and unusual creation requires confirmation', async ({
   page

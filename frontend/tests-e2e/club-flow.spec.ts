@@ -52,7 +52,7 @@ const publicAppSettings: AppSettings = {
   color_surface: '#fffdfc',
   color_ink: '#241c19',
   color_coffee: '#6b3f2a',
-  color_cyan: '#007f9e',
+  color_cyan: '#00728f',
   color_amber: '#d88700',
   max_active_brews: 2,
   public_url_needs_configuration: false,
@@ -132,6 +132,19 @@ async function setKioskNumber(page: Page, label: string, value: string) {
     await dialog.getByRole('button', { name: character, exact: true }).click();
   }
   await dialog.getByRole('button', { name: 'Apply' }).click();
+}
+
+async function completeRequiredRatingScales(page: Page) {
+  const responses: [string, string][] = [
+    ['Overall liking', '8'],
+    ['Acidity', '3'],
+    ['Bitterness', '2'],
+    ['Sweetness', '4'],
+    ['Body', '3']
+  ];
+  for (const [name, value] of responses) {
+    await page.getByRole('slider', { name, exact: true }).fill(value);
+  }
 }
 
 async function loginAda(page: Page, deviceMode: 'personal' | 'kiosk' = 'personal') {
@@ -396,14 +409,14 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     'href',
     /\/profiles\/\d+/
   );
-  await expect(bobAdminRow.getByLabel('Display name')).toBeVisible();
+  await expect(bobAdminRow.getByLabel('Display name for Bob')).toBeVisible();
   await expect(bobAdminRow.getByLabel('Role for Bob')).toBeVisible();
   await expect(bobAdminRow.getByLabel('New PIN for Bob')).toBeVisible();
   await expect(bobAdminRow.getByLabel('Require PIN change for Bob')).toBeVisible();
   await expect(bobAdminRow.getByRole('button', { name: 'Save' })).toBeEnabled();
   await expect(bobAdminRow.getByRole('button', { name: 'Deactivate' })).toBeEnabled();
   const longDisplayName = 'B'.repeat(80);
-  await page.getByLabel('Display name', { exact: true }).last().fill(longDisplayName);
+  await page.getByLabel('Display name for Bob', { exact: true }).fill(longDisplayName);
   for (const viewport of [
     { width: 1280, height: 720 },
     { width: 1024, height: 600 },
@@ -432,7 +445,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       .toEqual({ pageFits: true, controlsFit: true });
   }
   await page.setViewportSize({ width: 1024, height: 600 });
-  await page.getByLabel('Display name', { exact: true }).last().fill('Bob');
+  await page.getByLabel(`Display name for ${longDisplayName}`, { exact: true }).fill('Bob');
 
   await page.goto('/profiles');
   await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible();
@@ -843,11 +856,15 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.evaluate(() => sessionStorage.setItem('wake-lock-fail', '1'));
   await page.reload();
   await expect(page.getByRole('button', { name: 'Finish brew' })).toBeVisible();
-  await page.getByRole('button', { name: 'Change primary operator' }).click();
+  const operatorDialogTrigger = page.getByRole('button', { name: 'Change primary operator' });
+  await operatorDialogTrigger.click();
   const kioskOperatorDialog = page.getByRole('dialog', { name: 'Change primary operator' });
   await expect(kioskOperatorDialog).toBeVisible();
-  await expect(kioskOperatorDialog.getByLabel('New operator')).toHaveValue('1');
+  const operatorSelect = kioskOperatorDialog.getByLabel('New operator');
+  await expect(operatorSelect).toHaveValue('1');
+  await expect(operatorSelect).toBeFocused();
   await kioskOperatorDialog.getByRole('button', { name: 'Keep current operator' }).click();
+  await expect(operatorDialogTrigger).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -967,6 +984,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
       )
     )
     .toBe(true);
+  await expect(phone.getByRole('button', { name: 'Submit rating' })).toBeDisabled();
+  const unchangedMidpoint = phone.getByRole('slider', { name: 'Overall liking', exact: true });
+  await unchangedMidpoint.focus();
+  await unchangedMidpoint.press('Space');
+  await expect(phone.locator('output[for="rating-liking"]')).toHaveText('5 / 9');
+  await expect(phone.getByRole('button', { name: 'Submit rating' })).toBeDisabled();
+  await completeRequiredRatingScales(phone);
   await phone.getByRole('button', { name: 'Submit rating' }).click();
   await expect(phone.getByRole('heading', { name: 'Thanks, Bob.' })).toBeVisible();
   const phoneRadar = phone.getByRole('img', { name: /Broad flavour profile/ });
@@ -1226,6 +1250,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await enterKioskPin(page, '1234');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'How did it land?' })).toBeVisible();
+  await completeRequiredRatingScales(page);
   await page.getByRole('button', { name: 'Submit rating' }).click();
   await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
   await expect(page.getByRole('img', { name: /Broad flavour profile/ })).toHaveAttribute(
@@ -1694,6 +1719,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(voidDialog).toBeVisible();
   await voidDialog.getByRole('button', { name: 'Void completed brew' }).click();
   await expect(page.getByRole('heading', { name: 'This brew is voided.' })).toBeVisible();
+  await expect(page.getByRole('main')).toBeFocused();
 
   await page.evaluate(() => sessionStorage.removeItem('wake-lock-fail'));
   await page.goto(`/login?kiosk=0&next=${encodeURIComponent('/brews/new')}`);
@@ -1720,6 +1746,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     page.getByRole('main').getByRole('link', { name: 'Bob', exact: true })
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Change primary operator' })).toHaveCount(0);
+  await expect(page.getByRole('main')).toBeFocused();
   await page.getByRole('button', { name: 'Finish brew' }).click();
   await page.getByRole('button', { name: 'Finalize and invite tasters' }).click();
   const reassignedInvitationPath = new URL(page.url()).pathname;
@@ -1789,6 +1816,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(cancelDialog).toBeVisible();
   await cancelDialog.getByRole('button', { name: 'Cancel draft' }).click();
   await expect(page.getByRole('heading', { name: 'This brew is cancelled.' })).toBeVisible();
+  await expect(page.getByRole('main')).toBeFocused();
   await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
   await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
 
@@ -2232,7 +2260,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
   await page.getByRole('button', { name: 'Add member' }).click();
   await expect(page.getByText('Member added.')).toBeVisible();
   const displayedPeople = await page
-    .getByLabel('Display name', { exact: true })
+    .getByRole('textbox', { name: /^Display name for / })
     .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
   expect(displayedPeople).toEqual(['Aaron', 'Ada']);
   expect(peopleReads).toBe(1);
@@ -2501,12 +2529,14 @@ test('the rail waits for bootstrap and omits start during a mandatory PIN change
   });
 
   await page.goto('/?kiosk=0');
-  await expect(page.getByText('No brews yet. The first measurement is waiting.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The club could not start.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   await expect(page.getByTestId('brew-activity-rail')).toHaveCount(0);
   expect(activityRequests).toBe(0);
 
   bootstrapFails = false;
-  await page.goto('/account/pin?kiosk=0');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page).toHaveURL(/\/account\/pin/);
   await expect(page.getByRole('heading', { name: 'Choose your own PIN.' })).toBeVisible();
   await expect(page.getByTestId('active-brew-chip')).toContainText('Bootstrap Brew');
   await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);

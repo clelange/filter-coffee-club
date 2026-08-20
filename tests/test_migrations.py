@@ -592,3 +592,50 @@ def test_grinder_definition_migration_preserves_legacy_ranges_and_brews(
             text("SELECT grinder_id, grinder_setting FROM brews WHERE id = 1")
         ).one() == (2, 96.0)
     engine.dispose()
+
+
+def test_palette_contrast_migration_downgrade_preserves_custom_color(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-palette-contrast.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "c3d5e7f9a102")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO app_settings (
+                    id, app_name, subtitle,
+                    color_cream, color_surface, color_ink,
+                    color_coffee, color_cyan, color_amber
+                ) VALUES
+                    (
+                        1, 'Legacy default', 'Old bundled cyan',
+                        '#F6F1E8', '#FFFDFC', '#241C19',
+                        '#6B3F2A', '#007F9E', '#D88700'
+                    ),
+                    (
+                        2, 'Custom palette', 'Already selected accessible cyan',
+                        '#F6F1E8', '#FFFDFC', '#241C19',
+                        '#6B3F2A', '#00728F', '#D88700'
+                    )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, color_cyan FROM app_settings ORDER BY id")
+        ).all() == [(1, "#00728F"), (2, "#00728F")]
+    engine.dispose()
+
+    command.downgrade(config, "c3d5e7f9a102")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, color_cyan FROM app_settings ORDER BY id")
+        ).all() == [(1, "#00728F"), (2, "#00728F")]
+    engine.dispose()
