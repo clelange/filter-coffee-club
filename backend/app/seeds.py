@@ -90,6 +90,7 @@ def seed_database(db: Session) -> None:
     )
     if grinder is None:
         grinder = Grinder(
+            definition_key="comandante_c40",
             manufacturer="Comandante",
             model="C40",
             setting_unit="clicks",
@@ -103,6 +104,8 @@ def seed_database(db: Session) -> None:
         )
         db.add(grinder)
         db.flush()
+    elif grinder.definition_key != "comandante_c40":
+        grinder.definition_key = "comandante_c40"
 
     for index, (name, ratio, temp_min, temp_max, click_min, click_max) in enumerate(PRESETS):
         preset = db.scalar(select(RecipePreset).where(RecipePreset.name == name))
@@ -113,6 +116,8 @@ def seed_database(db: Session) -> None:
                 temperature_min_c=temp_min,
                 temperature_max_c=temp_max,
                 sort_order=index,
+                reference_setting_min=click_min,
+                reference_setting_max=click_max,
             )
             db.add(preset)
             db.flush()
@@ -124,6 +129,9 @@ def seed_database(db: Session) -> None:
                     setting_max=click_max,
                 )
             )
+        elif preset.reference_setting_min is None or preset.reference_setting_max is None:
+            preset.reference_setting_min = click_min
+            preset.reference_setting_max = click_max
 
     for parent_index, (parent_name, children) in enumerate(FLAVORS.items()):
         parent = db.scalar(

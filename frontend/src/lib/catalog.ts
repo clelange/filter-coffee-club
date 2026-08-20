@@ -8,7 +8,9 @@ import type {
   DripperFormData,
   FilterFormData,
   Grinder,
-  GrinderFormData
+  GrinderDefinition,
+  GrinderFormData,
+  Preset
 } from './types';
 
 export function emptyCoffeeForm(): CoffeeFormData {
@@ -53,32 +55,82 @@ export function coffeePayload(form: CoffeeFormData): Record<string, string | nul
   );
 }
 
-export function emptyGrinderForm(): GrinderFormData {
+export function emptyGrinderForm(presets: Preset[] = []): GrinderFormData {
   return {
+    definition_key: '',
     manufacturer: '',
     model: '',
     setting_unit: 'clicks',
     setting_step: 1,
     soft_min: 0,
     soft_max: 50,
-    guidance: ''
+    guidance: '',
+    preset_ranges: presets
+      .filter((preset) => preset.active)
+      .map((preset) => ({ preset_id: preset.id, setting_min: null, setting_max: null }))
   };
 }
 
 export function grinderToForm(item: Grinder): GrinderFormData {
   return {
+    definition_key: item.definition_key,
     manufacturer: item.manufacturer,
     model: item.model,
     setting_unit: item.setting_unit,
     setting_step: item.setting_step,
     soft_min: item.soft_min,
     soft_max: item.soft_max,
-    guidance: item.guidance ?? ''
+    guidance: item.guidance ?? '',
+    preset_ranges: []
   };
 }
 
 export function grinderPayload(form: GrinderFormData) {
-  return { ...form, guidance: form.guidance.trim() || null };
+  if (form.definition_key && form.definition_key !== 'custom') {
+    return { definition_key: form.definition_key };
+  }
+  return {
+    definition_key: 'custom',
+    manufacturer: form.manufacturer,
+    model: form.model,
+    setting_unit: form.setting_unit,
+    setting_step: form.setting_step,
+    soft_min: form.soft_min ?? null,
+    soft_max: form.soft_max ?? null,
+    guidance: form.guidance.trim() || null,
+    preset_ranges: form.preset_ranges.map((range) => ({
+      preset_id: range.preset_id,
+      setting_min: range.setting_min ?? null,
+      setting_max: range.setting_max ?? null
+    }))
+  };
+}
+
+export function grinderUpdatePayload(form: GrinderFormData) {
+  return {
+    manufacturer: form.manufacturer,
+    model: form.model,
+    setting_unit: form.setting_unit,
+    setting_step: form.setting_step,
+    soft_min: form.soft_min ?? null,
+    soft_max: form.soft_max ?? null,
+    guidance: form.guidance.trim() || null
+  };
+}
+
+export function formatGrinderSetting(
+  value: number,
+  grinder: Pick<Grinder, 'setting_unit'>,
+  definition?: Pick<GrinderDefinition, 'clicks_per_rotation'> | null
+): string {
+  const total = `${value} ${grinder.setting_unit}`;
+  const clicksPerRotation = definition?.clicks_per_rotation;
+  if (!clicksPerRotation) return total;
+  const turns = Math.floor(value / clicksPerRotation);
+  const clicks = value % clicksPerRotation;
+  if (turns === 0) return total;
+  const turnLabel = `${turns} ${turns === 1 ? 'turn' : 'turns'}`;
+  return `${total} · ${turnLabel}${clicks ? ` + ${clicks}` : ''}`;
 }
 
 export function emptyDripperForm(): DripperFormData {

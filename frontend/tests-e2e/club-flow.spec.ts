@@ -230,8 +230,27 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page).toHaveURL(/\/admin\?tab=equipment$/);
   await expect(equipmentTab).toHaveAttribute('aria-selected', 'true');
   await expect(equipmentTab).toBeFocused();
-  await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
-  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('heading', { name: 'Add grinder', exact: true })).toBeVisible();
+  const grinderModel = page.getByRole('combobox', { name: 'Grinder model' });
+  await expect(grinderModel.getByRole('option', { name: 'Comandante C40' })).toBeAttached();
+  await expect(grinderModel.getByRole('option', { name: 'KINGrinder K6' })).toBeAttached();
+  await expect(grinderModel.getByRole('option', { name: 'Custom' })).toBeAttached();
+  await grinderModel.selectOption('kingrinder_k6');
+  await expect(page.getByText(/C40 × 3.2/)).toBeVisible();
+  await grinderModel.selectOption('custom');
+  await expect(page.getByLabel('Setting unit')).toBeVisible();
+  const firstOptionalRange = page.locator('.custom-ranges .preset-range').first();
+  const optionalMinimum = firstOptionalRange.getByRole('spinbutton', { name: 'Minimum' });
+  const optionalMaximum = firstOptionalRange.getByRole('spinbutton', { name: 'Maximum' });
+  await optionalMinimum.fill('20');
+  await expect(optionalMaximum).toHaveAttribute('required', '');
+  await optionalMaximum.fill('30');
+  await optionalMinimum.fill('');
+  await expect(optionalMinimum).toHaveAttribute('required', '');
+  await optionalMaximum.fill('');
+  await expect(optionalMinimum).not.toHaveAttribute('required', '');
+  await expect(optionalMaximum).not.toHaveAttribute('required', '');
+  await peopleTab.click();
   await expect(page).toHaveURL(/\/admin$/);
   await expect(peopleTab).toHaveAttribute('aria-selected', 'true');
 
@@ -315,8 +334,8 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   const presetCreator = page.locator('.preset-creator');
   await presetCreator.getByLabel('Name').fill('Club balanced');
   await presetCreator.getByLabel('Ratio').fill('16.5');
-  await presetCreator.getByLabel('Minimum setting').fill('24');
-  await presetCreator.getByLabel('Maximum setting').fill('28');
+  await presetCreator.getByLabel('Comandante C40 reference minimum clicks').fill('24');
+  await presetCreator.getByLabel('Comandante C40 reference maximum clicks').fill('28');
   await presetCreator.getByRole('button', { name: 'Add preset' }).click();
   await expect(page.getByText('Preset added.')).toBeVisible();
   await expect(page.getByLabel('Preset name').last()).toHaveValue('Club balanced');
@@ -353,7 +372,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(adminSectionSelect).toBeVisible();
   await adminSectionSelect.selectOption('equipment');
   await expect(page).toHaveURL(/\/admin\?tab=equipment$/);
-  await expect(page.getByRole('heading', { name: 'Grinder', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Add grinder', exact: true })).toBeVisible();
   await adminSectionSelect.selectOption('people');
   await expect(page).toHaveURL(/\/admin$/);
   await expect
@@ -1643,11 +1662,13 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await personalGrinderCard.getByRole('link', { name: 'View details for C40' }).click();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByLabel('Photo (optional)', { exact: true })).toBeVisible();
-  await page.getByLabel('Guidance').fill('Temporary unsaved guidance');
+  await expect(
+    page.getByText(/predefined grinder’s identity and adjustment specifications/)
+  ).toBeVisible();
+  await expect(page.getByLabel('Guidance')).toHaveCount(0);
+  await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(colombiaPhoto);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByText('Temporary unsaved guidance')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByLabel('Guidance').fill('Use a slightly coarser setting for larger brews.');
   await page.getByLabel('Photo (optional)', { exact: true }).setInputFiles(colombiaPhoto);
   await page.getByRole('button', { name: 'Edit framing' }).click();
   const equipmentFramingDialog = page.getByRole('dialog', { name: 'Adjust framing' });
@@ -1655,7 +1676,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await equipmentFramingDialog.getByRole('button', { name: 'Apply framing' }).click();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'About this grinder.' })).toBeVisible();
-  await expect(page.getByText('Use a slightly coarser setting for larger brews.')).toBeVisible();
+  await expect(page.getByText('Predefined', { exact: true })).toBeVisible();
   await expect(
     page.getByTestId('detail-photo').getByRole('img', { name: 'Comandante C40' })
   ).toHaveClass(/framed/);
@@ -1680,6 +1701,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('PIN').fill('1357');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/brews\/new$/);
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
   const reassignmentPath = new URL(page.url()).pathname;
@@ -1760,6 +1782,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await page.getByLabel('PIN').fill('4321');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/brews\/new$/);
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await page.getByRole('button', { name: 'Cancel brew' }).click();
   const cancelDialog = page.getByRole('dialog', { name: 'Cancel this draft?' });
@@ -1770,6 +1793,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByTestId('start-brew-chip')).toContainText('+ New brew');
 
   await page.goto('/brews/new');
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(page).toHaveURL(/\/brews\/\d+$/);
   await expect(
@@ -1815,6 +1839,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   });
 
   await bobPhone.goto('/brews/new');
+  await bobPhone.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await bobPhone.getByRole('button', { name: 'Save and open brew mode' }).click();
   await expect(bobPhone).toHaveURL(/\/brews\/\d+$/);
   await expect(bobPhone.getByTestId('active-brew-chip')).toHaveCount(2);
@@ -1889,7 +1914,7 @@ test('members can finish and restore coffee while kiosk details stay read-only',
   await page.getByRole('button', { name: 'Mark bag empty' }).click();
   const finishDialog = page.getByRole('alertdialog', { name: 'Mark this bag empty?' });
   await finishDialog.getByRole('button', { name: 'Mark bag empty' }).click();
-  await expect(page.getByText('Finished', { exact: true })).toBeVisible();
+  await expect(page.getByText('Finished', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Brew this' })).toHaveCount(0);
 
   await page.goto('/coffees');
@@ -1924,6 +1949,7 @@ test('brew finalization can finish the selected coffee bag', async ({ page }) =>
 
   await page.goto(`/coffees/${coffee.id}`);
   await page.getByRole('link', { name: 'Brew this' }).click();
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await page.getByRole('button', { name: 'Save and open brew mode' }).click();
   await page.getByRole('button', { name: 'Finish brew' }).click();
   const lastBrewCheckbox = page.getByRole('checkbox', {
@@ -2052,6 +2078,7 @@ async function mockMattermostAdmin(page: Page, mattermostSettings: MattermostSet
   for (const path of ['people', 'grinders', 'drippers', 'filters']) {
     await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
   }
+  await page.route('**/api/v1/grinder-definitions', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
 
@@ -2155,6 +2182,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
   for (const path of ['grinders', 'drippers', 'filters']) {
     await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
   }
+  await page.route('**/api/v1/grinder-definitions', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/presets?active_only=false', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/flavor-tags?active_only=false', (route) => fulfillJson(route, []));
   await page.route('**/api/v1/settings/mattermost/verify', (route) =>

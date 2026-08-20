@@ -11,9 +11,9 @@
   import {
     applyRecipeCalculation,
     isClickGrinder,
+    presetGrinderSetting,
     presetDeviations as getPresetDeviations,
     recipeAmountError,
-    snapGrinderSetting,
     type RecipeCalculationAction,
     type RecipeCalculationState
   } from '$lib/brew-recipe';
@@ -23,6 +23,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
+  import { formatGrinderSetting } from '$lib/catalog';
   import type {
     ActiveBrews,
     Brew,
@@ -32,13 +33,17 @@
     Coffee,
     Dripper,
     Grinder,
+    GrinderDefinition,
     Preset,
     ProfileIdentity
   } from '$lib/types';
 
+  type BrewDraft = Omit<BrewInput, 'grinder_setting'> & { grinder_setting: number | null };
+
   let coffees: Coffee[] = $state([]);
   let coffeeColorPeers: Coffee[] = $state([]);
   let grinders: Grinder[] = $state([]);
+  let grinderDefinitions: GrinderDefinition[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
   let presets: Preset[] = $state([]);
@@ -78,7 +83,7 @@
     roast_level: '',
     chart_color: ''
   });
-  let form: BrewInput = $state({
+  let form: BrewDraft = $state({
     coffee_id: 0,
     grinder_id: 0,
     dripper_id: null,
@@ -88,7 +93,7 @@
     water_g: 128,
     target_ratio: 16,
     temperature_c: 94,
-    grinder_setting: 30,
+    grinder_setting: null,
     servings: 1,
     target_flow_g_s: 4.5,
     bloom_water_g: null,
@@ -108,6 +113,9 @@
   const ratio = $derived(calculateBrewRatio(form.water_g, form.dose_g));
   const unusualRatio = $derived(brewRatioIsUnusual(form.water_g, form.dose_g));
   const grinder = $derived(grinders.find((item) => item.id === Number(form.grinder_id)));
+  const grinderDefinition = $derived(
+    grinderDefinitions.find((item) => item.key === grinder?.definition_key)
+  );
   const selectedCoffee = $derived(coffees.find((item) => item.id === Number(form.coffee_id)));
   const selectedPreset = $derived(
     presets.find((item) => item.id === Number(form.source_preset_id))
@@ -121,11 +129,14 @@
   const clickGrinder = $derived(isClickGrinder(grinder));
   const settingWarning = $derived(
     grinder &&
+      form.grinder_setting !== null &&
       ((grinder.soft_min !== null && form.grinder_setting < grinder.soft_min) ||
         (grinder.soft_max !== null && form.grinder_setting > grinder.soft_max))
   );
   const grinderSettingInvalid = $derived(
-    Boolean(clickGrinder && !Number.isInteger(form.grinder_setting))
+    Boolean(
+      form.grinder_setting !== null && clickGrinder && !Number.isInteger(form.grinder_setting)
+    )
   );
   const bloomWaterInvalid = $derived(
     form.bloom_water_g !== null && form.bloom_water_g > form.water_g
@@ -135,7 +146,13 @@
     getPresetDeviations(form, selectedPreset, Number(form.grinder_id))
   );
   const recipeInvalid = $derived(
-    Boolean(amountError || bloomWaterInvalid || grinderSettingInvalid)
+    Boolean(
+      amountError ||
+      bloomWaterInvalid ||
+      grinderSettingInvalid ||
+      !form.grinder_id ||
+      form.grinder_setting === null
+    )
   );
 
   function updateRecipe(action: RecipeCalculationAction) {
@@ -173,18 +190,27 @@
           return;
         }
       }
-      const [coffeeItems, grinderItems, dripperItems, filterItems, presetItems, operatorItems] =
-        await Promise.all([
-          api<Coffee[]>('/coffees?include_finished=true'),
-          api<Grinder[]>('/grinders'),
-          api<Dripper[]>('/drippers'),
-          api<BrewFilter[]>('/filters'),
-          api<Preset[]>('/presets?active_only=false'),
-          correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
-        ]);
+      const [
+        coffeeItems,
+        grinderItems,
+        definitionItems,
+        dripperItems,
+        filterItems,
+        presetItems,
+        operatorItems
+      ] = await Promise.all([
+        api<Coffee[]>('/coffees?include_finished=true'),
+        api<Grinder[]>('/grinders'),
+        api<GrinderDefinition[]>('/grinder-definitions'),
+        api<Dripper[]>('/drippers'),
+        api<BrewFilter[]>('/filters'),
+        api<Preset[]>('/presets?active_only=false'),
+        correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
+      ]);
       coffeeColorPeers = coffeeItems;
       coffees = coffeeItems.filter((coffee) => coffee.available);
       grinders = grinderItems;
+      grinderDefinitions = definitionItems;
       drippers = dripperItems;
       filters = filterItems;
       presets = presetItems;
@@ -195,7 +221,7 @@
       if (requestedCoffeeId && form.coffee_id !== requestedCoffeeId) {
         error = 'That coffee is no longer available for brewing. Choose an available bag.';
       }
-      form.grinder_id = grinders[0]?.id ?? 0;
+      form.grinder_id = grinders.length === 1 ? grinders[0].id : 0;
       if (editId || repeatId || correctionId) {
         const source = await api<Brew>(`/brews/${editId || repeatId || correctionId}`);
         if (
@@ -205,6 +231,10 @@
         ) {
           await goto(`/brews/${correctionId}`);
           return;
+        }
+        if (!grinderItems.some((item) => item.id === source.grinder_id)) {
+          const sourceGrinder = await api<Grinder>(`/grinders/${source.grinder_id}`);
+          grinders = [...grinders, sourceGrinder];
         }
         copyBrew(source);
         let sourceCoffee = coffeeItems.find((coffee) => coffee.id === source.coffee_id);
@@ -314,15 +344,15 @@
   }
 
   function applyPreset(preset: Preset) {
-    if (!preset.active) return;
+    if (!preset.active || !grinder) return;
     form.source_preset_id = preset.id;
     form.temperature_c = Math.round((preset.temperature_min_c + preset.temperature_max_c) / 2);
-    const range = preset.grinder_ranges.find((item) => item.grinder_id === Number(form.grinder_id));
-    if (range && grinder) {
-      const midpoint = (range.setting_min + range.setting_max) / 2;
-      form.grinder_setting = snapGrinderSetting(midpoint, grinder);
+    const presetSetting = presetGrinderSetting(preset, grinder);
+    if (presetSetting !== null) {
+      form.grinder_setting = presetSetting;
       grinderSettingNeedsReview = false;
     } else {
+      form.grinder_setting = null;
       grinderSettingNeedsReview = true;
     }
     updateRecipe({ type: 'ratio', value: preset.ratio });
@@ -354,18 +384,26 @@
 
   function changeGrinder() {
     const nextGrinder = grinders.find((item) => item.id === Number(form.grinder_id));
-    const range = selectedPreset?.grinder_ranges.find(
-      (item) => item.grinder_id === Number(form.grinder_id)
-    );
-    if (nextGrinder && range) {
-      form.grinder_setting = snapGrinderSetting(
-        (range.setting_min + range.setting_max) / 2,
-        nextGrinder
-      );
+    const presetSetting =
+      nextGrinder && selectedPreset ? presetGrinderSetting(selectedPreset, nextGrinder) : null;
+    form.grinder_setting = null;
+    if (presetSetting !== null) {
+      form.grinder_setting = presetSetting;
       grinderSettingNeedsReview = false;
     } else {
       grinderSettingNeedsReview = true;
     }
+  }
+
+  function rangeForPreset(preset: Preset) {
+    return preset.grinder_ranges.find((range) => range.grinder_id === Number(form.grinder_id));
+  }
+
+  function presetGrindLabel(preset: Preset): string {
+    if (!grinder) return 'Choose a grinder to see its range';
+    const range = rangeForPreset(preset);
+    if (!range) return `No guidance for ${grinder.manufacturer} ${grinder.model}`;
+    return `${range.setting_min}–${range.setting_max} ${grinder.setting_unit}`;
   }
 
   function confirmGrinderSetting() {
@@ -439,7 +477,8 @@
   }
 
   async function saveBrew(confirmUnusualRatio: boolean) {
-    if (saving) return;
+    if (saving || form.grinder_setting === null) return;
+    const brewForm: BrewInput = { ...form, grinder_setting: form.grinder_setting };
     ratioConfirmationOpen = false;
     saving = true;
     error = '';
@@ -461,14 +500,14 @@
         body: jsonBody(
           correctionId
             ? {
-                ...form,
+                ...brewForm,
                 operator_id:
                   correctionOperatorId !== originalOperatorId ? correctionOperatorId : undefined,
                 total_brew_time_s: correctionMinutes * 60 + correctionSeconds
               }
             : editId
-              ? { ...form, revision: sourceRevision }
-              : form
+              ? { ...brewForm, revision: sourceRevision }
+              : brewForm
         )
       });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
@@ -643,6 +682,27 @@
         </div>
       {/if}
 
+      <div class="grinder-choice">
+        <label>
+          Choose a grinder
+          <select bind:value={form.grinder_id} onchange={changeGrinder} required>
+            {#if grinders.length !== 1}
+              <option value={0} disabled>Choose a grinder</option>
+            {/if}
+            {#each grinders as item}
+              <option value={item.id}
+                >{item.manufacturer}
+                {item.model}{item.archived ? ' · archived (recorded)' : ''}</option
+              >
+            {/each}
+          </select>
+        </label>
+        <p class="muted">
+          Preset ranges update for the selected grinder. For click grinders, saved settings remain
+          total clicks.
+        </p>
+      </div>
+
       <fieldset>
         <legend>FCC starting point</legend>
         <div class="preset-grid">
@@ -651,11 +711,14 @@
               class:chosen={form.source_preset_id === preset.id}
               class="preset"
               type="button"
-              disabled={!preset.active}
+              disabled={!preset.active || !form.grinder_id}
               onclick={() => applyPreset(preset)}
             >
               <strong>{preset.name}</strong><span
                 >1:{preset.ratio} · {preset.temperature_min_c}–{preset.temperature_max_c}°C</span
+              >
+              <span class:no-guidance={Boolean(grinder && !rangeForPreset(preset))}
+                >{presetGrindLabel(preset)}</span
               >
               {#if !preset.active}<span class="preset-state">Inactive starting point</span>{/if}
               {#if form.source_preset_id === preset.id}
@@ -747,32 +810,39 @@
           unit="g/s"
           nullable
         />
-        <label
-          >Grinder<select bind:value={form.grinder_id} onchange={changeGrinder}
-            >{#each grinders as item}<option value={item.id}
-                >{item.manufacturer} {item.model}</option
-              >{/each}</select
-          ></label
-        >
         <div>
-          <NumberStepper
-            label="Grinder setting"
-            bind:value={form.grinder_setting}
-            onchange={confirmGrinderSetting}
-            min={0}
-            max={1000}
-            step={clickGrinder ? 1 : (grinder?.setting_step ?? 1)}
-            unit={grinder?.setting_unit ?? 'setting'}
-            inputmode={clickGrinder ? 'numeric' : 'decimal'}
-          />{#if grinderSettingNeedsReview}<span class="warning" role="status"
-              >{selectedPreset
-                ? 'Retained from the previous grinder because this preset has no recommendation; review before saving.'
-                : 'Retained from the previous grinder; review before saving.'}</span
-            >{/if}{#if grinderSettingInvalid}<span class="error" role="alert"
-              >Click-based grinder settings must be whole numbers.</span
-            >{:else if settingWarning}<span class="warning"
-              >Outside this grinder’s usual range; it will still be saved.</span
-            >{/if}
+          {#if grinder}
+            <NumberStepper
+              label="Grinder setting"
+              bind:value={form.grinder_setting}
+              onchange={confirmGrinderSetting}
+              min={0}
+              max={1000}
+              step={clickGrinder ? 1 : grinder.setting_step}
+              unit={grinder.setting_unit}
+              inputmode={clickGrinder ? 'numeric' : 'decimal'}
+              nullable
+            />
+            {#if form.grinder_setting !== null && grinderDefinition?.clicks_per_rotation}
+              <span class="setting-helper"
+                >{formatGrinderSetting(form.grinder_setting, grinder, grinderDefinition)}</span
+              >
+            {/if}
+            {#if grinderSettingNeedsReview}<span class="warning" role="status"
+                >{selectedPreset
+                  ? 'This preset has no guidance for the selected grinder. Enter a setting manually.'
+                  : 'Enter a grinder setting manually.'}</span
+              >{/if}{#if grinderSettingInvalid}<span class="error" role="alert"
+                >Click-based grinder settings must be whole numbers.</span
+              >{:else if settingWarning}<span class="warning"
+                >Outside this grinder’s usual range; it will still be saved.</span
+              >{/if}
+          {:else}
+            <div class="setting-placeholder">
+              <strong>Grinder setting</strong>
+              <span>Choose a grinder first.</span>
+            </div>
+          {/if}
         </div>
         <label
           >Dripper<select bind:value={form.dripper_id}
@@ -909,8 +979,12 @@
           <strong>{form.dose_g} → {form.water_g}</strong><span>grams coffee → water</span>
         </div>
         <p class="muted">
-          1:{ratio} · {form.temperature_c} °C · {form.grinder_setting}
-          {grinder?.setting_unit}
+          1:{ratio} · {form.temperature_c} °C ·
+          {form.grinder_setting === null
+            ? 'grind not set'
+            : grinder
+              ? formatGrinderSetting(form.grinder_setting, grinder, grinderDefinition)
+              : form.grinder_setting}
         </p>
         {#if selectedPreset}
           <div class="preset-conformance" role="status">
@@ -1019,6 +1093,18 @@
     border-radius: 16px;
     background: color-mix(in srgb, var(--amber) 10%, var(--surface));
   }
+  .grinder-choice {
+    display: grid;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid color-mix(in srgb, var(--cyan) 40%, var(--line));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+  }
+  .grinder-choice p {
+    margin: 0;
+    font-size: 0.8rem;
+  }
   .preset-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1057,6 +1143,9 @@
     font-weight: 750;
   }
   .preset .preset-state.customized {
+    color: #8a4a00;
+  }
+  .preset .no-guidance {
     color: #8a4a00;
   }
   .calculator {
@@ -1098,6 +1187,21 @@
   .warning {
     color: #8a4a00;
     font-size: 0.78rem;
+  }
+  .setting-helper {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .setting-placeholder {
+    display: grid;
+    gap: 8px;
+    min-height: 78px;
+    padding: 12px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    color: var(--muted);
   }
   .ratio-warning {
     margin-top: -8px;

@@ -136,6 +136,7 @@ export interface CoffeeFormData {
 
 export interface Grinder {
   id: number;
+  definition_key: GrinderDefinitionKey;
   photo_path: string | null;
   photo_framing: PhotoFraming | null;
   manufacturer: string;
@@ -148,7 +149,30 @@ export interface Grinder {
   archived: boolean;
 }
 
+export type GrinderDefinitionKey = 'comandante_c40' | 'kingrinder_k6' | 'custom';
+
+export interface GrinderDefinition {
+  key: GrinderDefinitionKey;
+  label: string;
+  manufacturer: string | null;
+  model: string | null;
+  setting_unit: string;
+  setting_step: number;
+  soft_min: number | null;
+  soft_max: number | null;
+  guidance: string | null;
+  reference_multiplier: number | null;
+  clicks_per_rotation: number | null;
+}
+
+export interface GrinderPresetRangeForm {
+  preset_id: number;
+  setting_min: number | null;
+  setting_max: number | null;
+}
+
 export interface GrinderFormData {
+  definition_key: GrinderDefinitionKey | '';
   manufacturer: string;
   model: string;
   setting_unit: string;
@@ -156,6 +180,7 @@ export interface GrinderFormData {
   soft_min: number | null;
   soft_max: number | null;
   guidance: string;
+  preset_ranges: GrinderPresetRangeForm[];
 }
 
 export interface Dripper {
@@ -192,6 +217,12 @@ export interface PresetRange {
   grinder_id: number;
   setting_min: number;
   setting_max: number;
+  source: 'reference' | 'derived' | 'custom';
+}
+
+export interface ReferenceGrinderRange {
+  setting_min: number;
+  setting_max: number;
 }
 
 export interface PresetInput {
@@ -201,11 +232,13 @@ export interface PresetInput {
   temperature_max_c: number;
   active: boolean;
   sort_order: number;
-  grinder_ranges: PresetRange[];
+  reference_grinder_range: ReferenceGrinderRange | null;
+  custom_grinder_ranges: Omit<PresetRange, 'source'>[];
 }
 
-export interface Preset extends PresetInput {
+export interface Preset extends Omit<PresetInput, 'custom_grinder_ranges'> {
   id: number;
+  grinder_ranges: PresetRange[];
 }
 
 export interface BrewInput {

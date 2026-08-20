@@ -131,6 +131,7 @@ class Grinder(PhotoFramingMixin, TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    definition_key: Mapped[str] = mapped_column(String(64), default="custom")
     manufacturer: Mapped[str] = mapped_column(String(120))
     model: Mapped[str] = mapped_column(String(120))
     setting_unit: Mapped[str] = mapped_column(String(40), default="clicks")
@@ -179,6 +180,8 @@ class RecipePreset(TimestampMixin, Base):
     temperature_max_c: Mapped[float] = mapped_column(Float)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    reference_setting_min: Mapped[float | None] = mapped_column(Float)
+    reference_setting_max: Mapped[float | None] = mapped_column(Float)
 
     grinder_ranges: Mapped[list[PresetGrinderRange]] = relationship(
         back_populates="preset", cascade="all, delete-orphan"
