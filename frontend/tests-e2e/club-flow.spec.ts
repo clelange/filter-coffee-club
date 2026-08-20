@@ -2260,7 +2260,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
   await page.getByRole('button', { name: 'Add member' }).click();
   await expect(page.getByText('Member added.')).toBeVisible();
   const displayedPeople = await page
-    .getByLabel('Display name', { exact: true })
+    .getByRole('textbox', { name: /^Display name for / })
     .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
   expect(displayedPeople).toEqual(['Aaron', 'Ada']);
   expect(peopleReads).toBe(1);
