@@ -8,6 +8,7 @@
   import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
     AppSettings,
+    BrewFilter,
     Dripper,
     FlavorTag,
     Grinder,
@@ -43,7 +44,7 @@
   let grinders: Grinder[] = $state([]);
   let grinderDefinitions: GrinderDefinition[] = $state([]);
   let drippers: Dripper[] = $state([]);
-  let filters: { id: number; name: string; notes: string | null }[] = $state([]);
+  let filters: BrewFilter[] = $state([]);
   let presets: Preset[] = $state([]);
   let tags: FlavorTag[] = $state([]);
   let settings: AppSettings | null = $state(null);
@@ -183,7 +184,7 @@
         api<Grinder[]>('/grinders'),
         api<GrinderDefinition[]>('/grinder-definitions'),
         api<Dripper[]>('/drippers'),
-        api<{ id: number; name: string; notes: string | null }[]>('/filters'),
+        api<BrewFilter[]>('/filters'),
         api<Preset[]>('/presets?active_only=false'),
         api<FlavorTag[]>('/flavor-tags?active_only=false'),
         api<AppSettings>('/settings'),
@@ -193,18 +194,74 @@
     appSettingsStore.set(settings);
     rememberMattermostDestination();
   }
-  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
+  function compareText(left: string, right: string): number {
+    return left.localeCompare(right);
+  }
+
+  function comparePeople(left: Profile, right: Profile): number {
+    return compareText(left.display_name, right.display_name);
+  }
+
+  function compareGrinders(left: Grinder, right: Grinder): number {
+    return compareText(left.model, right.model);
+  }
+
+  function compareDrippers(left: Dripper, right: Dripper): number {
+    return compareText(left.model, right.model);
+  }
+
+  function compareFilters(left: BrewFilter, right: BrewFilter): number {
+    return compareText(left.name, right.name);
+  }
+
+  function comparePresets(left: Preset, right: Preset): number {
+    return left.sort_order - right.sort_order;
+  }
+
+  function compareTags(left: FlavorTag, right: FlavorTag): number {
+    const parentOrder = (left.parent_id ?? -1) - (right.parent_id ?? -1);
+    return parentOrder || left.sort_order - right.sort_order || compareText(left.name, right.name);
+  }
+
+  function upsertById<T extends { id: number }>(
+    items: T[],
+    updated: T,
+    compare: (left: T, right: T) => number
+  ): T[] {
+    const next = items.some((item) => item.id === updated.id)
+      ? items.map((item) => (item.id === updated.id ? updated : item))
+      : [...items, updated];
+    return next.sort(compare);
+  }
+
+  async function refreshPresets(): Promise<void> {
+    presets = await api<Preset[]>('/presets?active_only=false');
+  }
+
+  async function run<T>(
+    action: () => Promise<T>,
+    success: string,
+    apply: (updated: T) => void,
+    refresh?: () => Promise<void>
+  ): Promise<boolean> {
     error = '';
     message = '';
     try {
-      await action();
+      const updated = await action();
+      apply(updated);
       message = success;
-      await load();
-      return true;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'The change could not be saved.';
       return false;
     }
+    if (refresh) {
+      try {
+        await refresh();
+      } catch {
+        error = 'The change was saved, but related data could not be refreshed.';
+      }
+    }
+    return true;
   }
   async function runSettingsAction(
     action: () => Promise<AppSettings>,
@@ -225,80 +282,105 @@
   }
   async function addPerson(event: SubmitEvent) {
     event.preventDefault();
-    await run(
-      () => api('/people', { method: 'POST', body: jsonBody(personForm) }),
-      'Member added.'
-    );
-    personForm = { display_name: '', pin: '', role: 'member' };
+    if (
+      await run(
+        () => api<Profile>('/people', { method: 'POST', body: jsonBody(personForm) }),
+        'Member added.',
+        (updated) => (people = upsertById(people, updated, comparePeople))
+      )
+    ) {
+      personForm = { display_name: '', pin: '', role: 'member' };
+    }
   }
   async function togglePerson(person: Profile) {
     await run(
       () =>
-        api(`/people/${person.id}`, { method: 'PUT', body: jsonBody({ active: !person.active }) }),
-      `${person.display_name} updated.`
+        api<Profile>(`/people/${person.id}`, {
+          method: 'PUT',
+          body: jsonBody({ active: !person.active })
+        }),
+      `${person.display_name} updated.`,
+      (updated) => (people = upsertById(people, updated, comparePeople))
     );
   }
   async function savePerson(person: Profile) {
     const pin = pinResets[person.id] || undefined;
-    await run(
-      () =>
-        api(`/people/${person.id}`, {
-          method: 'PUT',
-          body: jsonBody({
-            display_name: person.display_name,
-            role: person.role,
-            pin_change_required: person.pin_change_required,
-            ...(pin ? { pin } : {})
-          })
-        }),
-      `${person.display_name} updated.`
-    );
-    pinResets[person.id] = '';
+    if (
+      await run(
+        () =>
+          api<Profile>(`/people/${person.id}`, {
+            method: 'PUT',
+            body: jsonBody({
+              display_name: person.display_name,
+              role: person.role,
+              pin_change_required: person.pin_change_required,
+              ...(pin ? { pin } : {})
+            })
+          }),
+        `${person.display_name} updated.`,
+        (updated) => (people = upsertById(people, updated, comparePeople))
+      )
+    ) {
+      pinResets[person.id] = '';
+    }
   }
   async function addGrinder(event: SubmitEvent) {
     event.preventDefault();
-    await run(
-      () =>
-        api('/grinders', {
-          method: 'POST',
-          body: jsonBody(grinderPayload(grinderForm))
-        }),
-      'Grinder added.'
-    );
-    grinderForm = emptyGrinderForm(presets);
+    if (
+      await run(
+        () =>
+          api<Grinder>('/grinders', {
+            method: 'POST',
+            body: jsonBody(grinderPayload(grinderForm))
+          }),
+        'Grinder added.',
+        (updated) => (grinders = upsertById(grinders, updated, compareGrinders)),
+        refreshPresets
+      )
+    ) {
+      grinderForm = emptyGrinderForm(presets);
+    }
   }
   async function addDripper(event: SubmitEvent) {
     event.preventDefault();
-    await run(
-      () =>
-        api('/drippers', {
-          method: 'POST',
-          body: jsonBody({
-            ...dripperForm,
-            manufacturer: dripperForm.manufacturer || null,
-            notes: dripperForm.notes || null
-          })
-        }),
-      'Dripper added.'
-    );
-    dripperForm = { manufacturer: '', model: '', notes: '' };
+    if (
+      await run(
+        () =>
+          api<Dripper>('/drippers', {
+            method: 'POST',
+            body: jsonBody({
+              ...dripperForm,
+              manufacturer: dripperForm.manufacturer || null,
+              notes: dripperForm.notes || null
+            })
+          }),
+        'Dripper added.',
+        (updated) => (drippers = upsertById(drippers, updated, compareDrippers))
+      )
+    ) {
+      dripperForm = { manufacturer: '', model: '', notes: '' };
+    }
   }
   async function addFilter(event: SubmitEvent) {
     event.preventDefault();
-    await run(
-      () =>
-        api('/filters', {
-          method: 'POST',
-          body: jsonBody({ ...filterForm, notes: filterForm.notes || null })
-        }),
-      'Filter added.'
-    );
-    filterForm = { name: '', notes: '' };
+    if (
+      await run(
+        () =>
+          api<BrewFilter>('/filters', {
+            method: 'POST',
+            body: jsonBody({ ...filterForm, notes: filterForm.notes || null })
+          }),
+        'Filter added.',
+        (updated) => (filters = upsertById(filters, updated, compareFilters))
+      )
+    ) {
+      filterForm = { name: '', notes: '' };
+    }
   }
   async function savePreset(preset: Preset) {
     await run(
       () =>
-        api(`/presets/${preset.id}`, {
+        api<Preset>(`/presets/${preset.id}`, {
           method: 'PUT',
           body: jsonBody({
             name: preset.name,
@@ -313,31 +395,37 @@
               .map(({ source: _source, ...range }) => range)
           })
         }),
-      'Preset saved.'
+      'Preset saved.',
+      (updated) => (presets = upsertById(presets, updated, comparePresets))
     );
   }
   async function addPreset(event: SubmitEvent) {
     event.preventDefault();
     if (
       await run(
-        () => api('/presets', { method: 'POST', body: jsonBody(presetForm) }),
-        'Preset added.'
+        () => api<Preset>('/presets', { method: 'POST', body: jsonBody(presetForm) }),
+        'Preset added.',
+        (updated) => (presets = upsertById(presets, updated, comparePresets))
       )
     )
       resetPresetForm();
   }
   async function addTag(event: SubmitEvent) {
     event.preventDefault();
-    await run(
-      () => api('/flavor-tags', { method: 'POST', body: jsonBody(tagForm) }),
-      'Flavor tag added.'
-    );
-    tagForm = { name: '', parent_id: null, active: true, sort_order: 0 };
+    if (
+      await run(
+        () => api<FlavorTag>('/flavor-tags', { method: 'POST', body: jsonBody(tagForm) }),
+        'Flavor tag added.',
+        (updated) => (tags = upsertById(tags, updated, compareTags))
+      )
+    ) {
+      tagForm = { name: '', parent_id: null, active: true, sort_order: 0 };
+    }
   }
   async function saveTag(tag: FlavorTag) {
     await run(
       () =>
-        api(`/flavor-tags/${tag.id}`, {
+        api<FlavorTag>(`/flavor-tags/${tag.id}`, {
           method: 'PUT',
           body: jsonBody({
             name: tag.name,
@@ -346,13 +434,20 @@
             sort_order: tag.sort_order
           })
         }),
-      'Flavor tag updated.'
+      'Flavor tag updated.',
+      (updated) => (tags = upsertById(tags, updated, compareTags))
     );
   }
   async function archiveEquipment(kind: 'grinders' | 'drippers' | 'filters', id: number) {
     await run(
-      () => api(`/${kind}/${id}/archive`, { method: 'POST', body: jsonBody({}) }),
-      'Equipment archived.'
+      () => api<Grinder | Dripper | BrewFilter>(`/${kind}/${id}/archive`, { method: 'POST' }),
+      'Equipment archived.',
+      () => {
+        if (kind === 'grinders') grinders = grinders.filter((item) => item.id !== id);
+        if (kind === 'drippers') drippers = drippers.filter((item) => item.id !== id);
+        if (kind === 'filters') filters = filters.filter((item) => item.id !== id);
+      },
+      kind === 'grinders' ? refreshPresets : undefined
     );
   }
   async function saveSettings(event: SubmitEvent) {

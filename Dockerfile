@@ -6,6 +6,14 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm exec svelte-kit sync && pnpm build
 
+FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
+
+FROM python:3.12-slim AS backend-builder
+WORKDIR /app
+COPY --from=uv /uv /bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-cache
+
 FROM python:3.12-slim AS runtime
 ARG FCC_APP_VERSION
 ENV PYTHONUNBUFFERED=1 \
@@ -13,9 +21,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
     FCC_DATA_DIR=/data \
     FCC_FRONTEND_DIR=/app/frontend/build \
+    PATH=/app/.venv/bin:$PATH \
     FCC_APP_VERSION=${FCC_APP_VERSION}
 WORKDIR /app
-COPY pyproject.toml README.md alembic.ini ./
+COPY --from=backend-builder /app/.venv /app/.venv
+COPY pyproject.toml uv.lock ./
+COPY README.md alembic.ini ./
 COPY backend/ backend/
 COPY migrations/ migrations/
 COPY scripts/start.sh scripts/start.sh
@@ -23,7 +34,6 @@ COPY --from=frontend-builder /src/frontend/build frontend/build
 RUN apt-get update \
     && apt-get install --no-install-recommends -y sqlite3 \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir . \
     && groupadd --system fcc \
     && useradd --system --gid fcc --home-dir /app fcc \
     && mkdir -p /data \

@@ -64,6 +64,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (response.status === 204) return undefined as T;
   const body = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && sessionSnapshot && path !== '/auth/login') setSession(null);
     const detail = errorDetail(body, response.statusText);
     throw new ApiError(response.status, detail.message, detail.code, retryAfterSeconds(response));
   }
@@ -71,7 +72,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 }
 
 export async function ensureSession(force = false): Promise<Session | null> {
-  if (sessionChecked && !force) return sessionSnapshot;
+  if (sessionChecked && !force) {
+    if (sessionSnapshot && Date.parse(sessionSnapshot.expires_at) <= Date.now()) {
+      setSession(null);
+    }
+    return sessionSnapshot;
+  }
   try {
     const session = await api<Session>('/auth/me');
     sessionStore.set(session);
@@ -89,7 +95,15 @@ export function setSession(session: Session | null): void {
 }
 
 export async function logout(): Promise<void> {
-  if (sessionSnapshot) await api<void>('/auth/logout', { method: 'POST' });
+  try {
+    if (sessionSnapshot) await api<void>('/auth/logout', { method: 'POST' });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      setSession(null);
+      return;
+    }
+    throw error;
+  }
   setSession(null);
 }
 
