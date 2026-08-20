@@ -316,7 +316,7 @@ class AppSettings(Base):
     color_surface: Mapped[str] = mapped_column(String(7), default="#FFFDFC")
     color_ink: Mapped[str] = mapped_column(String(7), default="#241C19")
     color_coffee: Mapped[str] = mapped_column(String(7), default="#6B3F2A")
-    color_cyan: Mapped[str] = mapped_column(String(7), default="#007F9E")
+    color_cyan: Mapped[str] = mapped_column(String(7), default="#00728F")
     color_amber: Mapped[str] = mapped_column(String(7), default="#D88700")
     max_active_brews: Mapped[int] = mapped_column(Integer, default=2)
     active_brew_count: Mapped[int] = mapped_column(Integer, default=0)

@@ -7,6 +7,23 @@
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '$lib/types';
 
+  type RatingScaleKey = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
+  type RatingDraft = Record<RatingScaleKey, number | null> & { flavor_tag_ids: number[] };
+
+  const intensityScales = [
+    { key: 'acidity', label: 'Acidity' },
+    { key: 'bitterness', label: 'Bitterness' },
+    { key: 'sweetness', label: 'Sweetness' },
+    { key: 'body', label: 'Body' }
+  ] as const;
+  const requiredScaleKeys: RatingScaleKey[] = [
+    'liking',
+    'acidity',
+    'bitterness',
+    'sweetness',
+    'body'
+  ];
+
   let brew: Brew | null = $state(null);
   let session: Session | null = $state(null);
   let tags: FlavorTag[] = $state([]);
@@ -18,17 +35,18 @@
   let countdown = $state(10);
   let timer: ReturnType<typeof setInterval> | null = null;
   let openFlavorGroupIds: number[] = $state([]);
-  let rating: RatingInput = $state({
-    liking: 7,
-    acidity: 2,
-    bitterness: 2,
-    sweetness: 3,
-    body: 3,
+  let rating: RatingDraft = $state({
+    liking: null,
+    acidity: null,
+    bitterness: null,
+    sweetness: null,
+    body: null,
     flavor_tag_ids: []
   });
 
   const token = $derived($page.params.token);
   const activeTagIds = $derived(new Set(tags.map((tag) => tag.id)));
+  const ratingComplete = $derived(requiredScaleKeys.every((key) => rating[key] !== null));
   const parents = $derived(
     tags
       .filter((tag) => tag.parent_id === null)
@@ -94,15 +112,38 @@
       : [...openFlavorGroupIds, parentId];
   }
 
+  function setRatingScale(key: RatingScaleKey, event: Event) {
+    rating[key] = (event.currentTarget as HTMLInputElement).valueAsNumber;
+  }
+
+  function selectDisplayedRatingScale(key: RatingScaleKey, event: Event) {
+    if (rating[key] !== null) return;
+    setRatingScale(key, event);
+  }
+
+  function handleRatingScaleKeydown(key: RatingScaleKey, event: KeyboardEvent) {
+    if (rating[key] !== null || (event.key !== ' ' && event.key !== 'Enter')) return;
+    event.preventDefault();
+    setRatingScale(key, event);
+  }
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!brew) return;
+    if (!brew || !ratingComplete) return;
     saving = true;
     error = '';
+    const input: RatingInput = {
+      liking: rating.liking!,
+      acidity: rating.acidity!,
+      bitterness: rating.bitterness!,
+      sweetness: rating.sweetness!,
+      body: rating.body!,
+      flavor_tag_ids: rating.flavor_tag_ids
+    };
     try {
       summary = await api<RatingSummary>(`/brews/${brew.id}/ratings`, {
         method: 'POST',
-        body: jsonBody(rating)
+        body: jsonBody(input)
       });
       if (session?.device_mode === 'kiosk') {
         countdown = 10;
@@ -142,7 +183,7 @@
     <a class="button secondary" href="/">Return home</a>
   </section>
 {:else if error && !brew}
-  <p class="error">{error}</p>
+  <p class="error" role="alert">{error}</p>
 {:else if brew && summary?.can_view && summary.own_rating}
   <section class="results-layout">
     <div>
@@ -197,14 +238,18 @@
       <div class="liking-scale">
         <div class="scale-title">
           <label class="scale-name" for="rating-liking">Overall liking</label><output
-            for="rating-liking">{rating.liking} / 9</output
+            for="rating-liking"
+            >{rating.liking === null ? 'Not set · 5 shown' : `${rating.liking} / 9`}</output
           >
         </div>
         <input
           id="rating-liking"
-          aria-describedby="rating-liking-hint"
+          aria-describedby="rating-liking-hint rating-required-hint"
           type="range"
-          bind:value={rating.liking}
+          value={rating.liking ?? 5}
+          onpointerdown={(event) => selectDisplayedRatingScale('liking', event)}
+          onkeydown={(event) => handleRatingScaleKeydown('liking', event)}
+          oninput={(event) => setRatingScale('liking', event)}
           min="1"
           max="9"
           step="1"
@@ -214,18 +259,22 @@
         </div>
       </div>
       <div class="intensity-grid">
-        {#each [{ key: 'acidity', label: 'Acidity' }, { key: 'bitterness', label: 'Bitterness' }, { key: 'sweetness', label: 'Sweetness' }, { key: 'body', label: 'Body' }] as item}
+        {#each intensityScales as item}
           <div class="intensity-control">
             <div class="intensity-title">
               <label for={`rating-${item.key}`}>{item.label}</label><output
-                for={`rating-${item.key}`}>{rating[item.key as keyof RatingInput]}</output
+                for={`rating-${item.key}`}
+                >{rating[item.key] === null ? 'Not set · 2 shown' : rating[item.key]}</output
               >
             </div>
             <input
               id={`rating-${item.key}`}
-              aria-describedby={`rating-${item.key}-hint`}
+              aria-describedby={`rating-${item.key}-hint rating-required-hint`}
               type="range"
-              bind:value={rating[item.key as 'acidity']}
+              value={rating[item.key] ?? 2}
+              onpointerdown={(event) => selectDisplayedRatingScale(item.key, event)}
+              onkeydown={(event) => handleRatingScaleKeydown(item.key, event)}
+              oninput={(event) => setRatingScale(item.key, event)}
               min="0"
               max="5"
               step="1"
@@ -269,8 +318,15 @@
             </section>{/each}
         </div>
       </fieldset>
-      {#if error}<p class="error">{error}</p>{/if}
-      <button class="primary" disabled={saving}>{saving ? 'Saving…' : 'Submit rating'}</button>
+      <p id="rating-required-hint" class="required-scales" role="status">
+        {ratingComplete
+          ? 'All required scales are set.'
+          : 'Set every scale. Move it, tap it, or press Space to keep the value shown.'}
+      </p>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <button class="primary" disabled={saving || !ratingComplete}
+        >{saving ? 'Saving…' : 'Submit rating'}</button
+      >
     </form>
   </div>
 {/if}
@@ -313,6 +369,12 @@
     font-size: 0.82rem;
     font-weight: 500;
     line-height: 1.4;
+  }
+  .required-scales {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 700;
   }
   .intensity-grid {
     display: grid;

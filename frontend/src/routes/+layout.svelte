@@ -30,7 +30,7 @@
     color_surface: '#FFFDFC',
     color_ink: '#241C19',
     color_coffee: '#6B3F2A',
-    color_cyan: '#007F9E',
+    color_cyan: '#00728F',
     color_amber: '#D88700',
     max_active_brews: 2,
     public_url_needs_configuration: false,
@@ -43,6 +43,7 @@
   let ready = $state(false);
   let settingsLoaded = $state(false);
   let appBootstrapped = $state(false);
+  let bootstrapError = $state('');
   let navOpen = $state(false);
   let navToggle: HTMLButtonElement;
   let navPanel: HTMLElement;
@@ -87,7 +88,10 @@
     return pathname === '/account/pin' || pathname === '/login' || pathname === '/setup';
   }
 
-  onMount(async () => {
+  async function bootstrapApp() {
+    ready = false;
+    appBootstrapped = false;
+    bootstrapError = '';
     try {
       const device = initializeDeviceMode($page.url);
       const loadedSettings = await api<AppSettings>('/settings');
@@ -114,9 +118,18 @@
         }
       }
       appBootstrapped = true;
+    } catch (caught) {
+      bootstrapError =
+        caught instanceof Error
+          ? caught.message
+          : 'The club could not be started. Check the connection and try again.';
     } finally {
       ready = true;
     }
+  }
+
+  onMount(() => {
+    void bootstrapApp();
   });
 
   async function signOut() {
@@ -158,6 +171,8 @@
   <meta name="theme-color" content={settings.color_cream} />
   {#if settings.demo_mode}<meta name="robots" content="noindex, nofollow, noarchive" />{/if}
 </svelte:head>
+
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 <header class="site-header">
   <div class="header-main">
@@ -270,9 +285,18 @@
   <div class="demo-banner" role="note">{settings.demo_notice}</div>
 {/if}
 
-<main class:loading={!ready}>
+<main id="main-content" tabindex="-1" class:loading={!ready}>
   {#if ready}
-    {@render children()}
+    {#if bootstrapError}
+      <section class="panel bootstrap-error" role="alert" aria-labelledby="bootstrap-error-title">
+        <p class="eyebrow">Connection problem</p>
+        <h1 id="bootstrap-error-title">The club could not start.</h1>
+        <p class="lede">{bootstrapError}</p>
+        <button class="primary" type="button" onclick={bootstrapApp}>Try again</button>
+      </section>
+    {:else}
+      {@render children()}
+    {/if}
   {:else}
     <div class="loading-card" aria-live="polite">Warming up the club…</div>
   {/if}

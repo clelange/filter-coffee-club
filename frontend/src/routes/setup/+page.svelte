@@ -73,6 +73,7 @@
       <label>
         Four-digit PIN
         <input
+          type="password"
           bind:value={pin}
           inputmode="numeric"
           autocomplete="new-password"
@@ -84,6 +85,7 @@
       <label>
         Repeat PIN
         <input
+          type="password"
           bind:value={confirmPin}
           inputmode="numeric"
           autocomplete="new-password"

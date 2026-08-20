@@ -2013,6 +2013,19 @@ def settings_payload(settings: dict, max_active_brews: int) -> dict:
     }
 
 
+def test_settings_reject_low_contrast_palette(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        settings = client.get("/api/v1/settings").json()
+        payload = settings_payload(settings, max_active_brews=settings["max_active_brews"])
+        payload["color_cyan"] = "#B8B8B8"
+
+        response = client.put("/api/v1/settings", headers=headers, json=payload)
+
+        assert response.status_code == 422
+        assert "at least 4.5:1 contrast" in response.text
+
+
 def test_parallel_brew_capacity_is_atomic_and_admin_configurable(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)

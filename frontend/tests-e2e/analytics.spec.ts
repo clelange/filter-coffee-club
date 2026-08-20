@@ -13,7 +13,7 @@ const settings = {
   color_surface: '#fffdfc',
   color_ink: '#241c19',
   color_coffee: '#6b3f2a',
-  color_cyan: '#007f9e',
+  color_cyan: '#00728f',
   color_amber: '#d88700',
   max_active_brews: 2,
   public_url_needs_configuration: false,

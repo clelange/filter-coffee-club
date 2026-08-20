@@ -100,7 +100,7 @@
   <section class="panel">
     <p class="eyebrow">Tasting profile</p>
     <h1>There is nothing to show here.</h1>
-    <p class="error">{error}</p>
+    <p class="error" role="alert">{error}</p>
     <a class="button secondary" href="/">Return home</a>
   </section>
 {:else if data}

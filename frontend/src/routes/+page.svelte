@@ -172,7 +172,7 @@
   {#if loading}
     <div class="empty">Loading brew log…</div>
   {:else if error}
-    <p class="error">{error}</p>
+    <p class="error" role="alert">{error}</p>
   {:else if brews.length === 0}
     <div class="empty">No brews yet. The first measurement is waiting.</div>
   {:else}

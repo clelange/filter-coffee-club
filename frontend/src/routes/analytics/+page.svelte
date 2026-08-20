@@ -141,7 +141,9 @@
   causation.
 </p>
 
-{#if error}<p class="error section">{error}</p>{:else if !data}<div class="empty section">
+{#if error}<p class="error section" role="alert">{error}</p>{:else if !data}<div
+    class="empty section"
+  >
     Calculating the current orbit…
   </div>{:else}
   <section class="metric-grid section">
