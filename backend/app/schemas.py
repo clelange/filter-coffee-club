@@ -741,9 +741,7 @@ def _contrast_ratio(first: str, second: str) -> float:
         channels = []
         for offset in (1, 3, 5):
             value = int(color[offset : offset + 2], 16) / 255
-            channels.append(
-                value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
-            )
+            channels.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
         return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
 
     first_luminance = luminance(first)
