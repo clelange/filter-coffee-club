@@ -23,12 +23,16 @@
     CatalogUsageResponse,
     Dripper,
     Grinder,
+    GrinderDefinition,
+    Preset,
     PhotoFraming
   } from '$lib/types';
 
   type EquipmentKind = 'grinder' | 'dripper' | 'filter';
 
   let grinders: Grinder[] = $state([]);
+  let grinderDefinitions: GrinderDefinition[] = $state([]);
+  let presets: Preset[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: BrewFilter[] = $state([]);
   let usage: CatalogUsageResponse['items'] = $state([]);
@@ -54,16 +58,22 @@
     loading = true;
     error = '';
     try {
-      const [grinderItems, dripperItems, filterItems, usageResponse] = await Promise.all([
-        api<Grinder[]>('/grinders'),
-        api<Dripper[]>('/drippers'),
-        api<BrewFilter[]>('/filters'),
-        api<CatalogUsageResponse>('/catalog/usage')
-      ]);
+      const [grinderItems, definitionItems, dripperItems, filterItems, presetItems, usageResponse] =
+        await Promise.all([
+          api<Grinder[]>('/grinders'),
+          api<GrinderDefinition[]>('/grinder-definitions'),
+          api<Dripper[]>('/drippers'),
+          api<BrewFilter[]>('/filters'),
+          api<Preset[]>('/presets'),
+          api<CatalogUsageResponse>('/catalog/usage')
+        ]);
       grinders = grinderItems;
+      grinderDefinitions = definitionItems;
       drippers = dripperItems;
       filters = filterItems;
+      presets = presetItems;
       usage = usageResponse.items;
+      if (!grinderForm.definition_key) grinderForm = emptyGrinderForm(presets);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load equipment.';
     } finally {
@@ -132,7 +142,7 @@
         'Grinder added.'
       )
     )
-      grinderForm = emptyGrinderForm();
+      grinderForm = emptyGrinderForm(presets);
   }
 
   async function addDripper(event: SubmitEvent) {
@@ -204,7 +214,7 @@
             <p class="eyebrow">New catalog item</p>
             <h2>Add a grinder.</h2>
           </div>
-          <GrinderFields bind:form={grinderForm} />
+          <GrinderFields bind:form={grinderForm} definitions={grinderDefinitions} {presets} />
           {#if !$appSettingsStore?.demo_mode}<PhotoPicker
               bind:file={photoFile}
               bind:framing={photoFraming}

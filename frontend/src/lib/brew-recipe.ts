@@ -99,7 +99,7 @@ export function recipeAmountError(dose: number, water: number): string {
 export function presetDeviations(
   recipe: Pick<RecipeCalculationState, 'target_ratio'> & {
     temperature_c: number;
-    grinder_setting: number;
+    grinder_setting: number | null;
   },
   preset: Preset | undefined,
   grinderId: number
@@ -118,6 +118,7 @@ export function presetDeviations(
   const range = preset.grinder_ranges.find((item) => item.grinder_id === grinderId);
   if (
     range &&
+    recipe.grinder_setting !== null &&
     (recipe.grinder_setting < range.setting_min || recipe.grinder_setting > range.setting_max)
   ) {
     deviations.push('grind');
@@ -139,4 +140,10 @@ export function snapGrinderSetting(value: number, grinder: Grinder): number {
   const step = isClickGrinder(grinder) ? 1 : grinder.setting_step;
   const snapped = Math.round(value / step) * step;
   return Number(snapped.toFixed(decimalPlaces(step)));
+}
+
+export function presetGrinderSetting(preset: Preset, grinder: Grinder): number | null {
+  const range = preset.grinder_ranges.find((item) => item.grinder_id === grinder.id);
+  if (!range) return null;
+  return snapGrinderSetting((range.setting_min + range.setting_max) / 2, grinder);
 }

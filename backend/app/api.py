@@ -54,6 +54,11 @@ from .demo import (
     is_protected_demo_profile,
     prune_demo_sessions,
 )
+from .grinders import (
+    GRINDER_DEFINITIONS,
+    grinder_definition,
+    translate_reference_setting,
+)
 from .mattermost import (
     MattermostClient,
     MattermostError,
@@ -117,7 +122,10 @@ from .schemas import (
     FlavorAxisSummary,
     FlavorTagInput,
     FlavorTagResponse,
+    GrinderCreate,
+    GrinderDefinitionResponse,
     GrinderInput,
+    GrinderRangeResponse,
     GrinderResponse,
     LoginInput,
     MattermostRetryResponse,
@@ -396,10 +404,17 @@ def reserve_available_coffee(db: Session, coffee_id: int) -> Coffee:
 
 
 def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
-    for grinder_range in payload.grinder_ranges:
+    for grinder_range in payload.custom_grinder_ranges:
         grinder = db.get(Grinder, grinder_range.grinder_id)
         if grinder is None:
             raise HTTPException(status_code=422, detail="Grinder not found")
+        if grinder.definition_key != "custom":
+            raise HTTPException(
+                status_code=422,
+                detail="Predefined grinder ranges are derived from the Comandante C40 reference",
+            )
+        if grinder.archived:
+            raise HTTPException(status_code=422, detail="Archived grinders cannot receive ranges")
         if uses_integer_clicks(grinder) and not (
             float(grinder_range.setting_min).is_integer()
             and float(grinder_range.setting_max).is_integer()
@@ -408,6 +423,67 @@ def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
                 status_code=422,
                 detail="Preset click ranges must use whole numbers",
             )
+
+
+def preset_payload(preset: RecipePreset, grinders: list[Grinder]) -> PresetResponse:
+    manual_ranges = {item.grinder_id: item for item in preset.grinder_ranges}
+    effective_ranges: list[GrinderRangeResponse] = []
+    for grinder in grinders:
+        definition = grinder_definition(grinder.definition_key)
+        if definition.reference_multiplier is not None:
+            if preset.reference_setting_min is None or preset.reference_setting_max is None:
+                continue
+            setting_min = translate_reference_setting(
+                preset.reference_setting_min, grinder.definition_key
+            )
+            setting_max = translate_reference_setting(
+                preset.reference_setting_max, grinder.definition_key
+            )
+            assert setting_min is not None and setting_max is not None
+            effective_ranges.append(
+                GrinderRangeResponse(
+                    grinder_id=grinder.id,
+                    setting_min=setting_min,
+                    setting_max=setting_max,
+                    source=(
+                        "reference" if grinder.definition_key == "comandante_c40" else "derived"
+                    ),
+                )
+            )
+            continue
+        manual = manual_ranges.get(grinder.id)
+        if manual is not None:
+            effective_ranges.append(
+                GrinderRangeResponse(
+                    grinder_id=grinder.id,
+                    setting_min=manual.setting_min,
+                    setting_max=manual.setting_max,
+                    source="custom",
+                )
+            )
+    reference_range = (
+        {
+            "setting_min": preset.reference_setting_min,
+            "setting_max": preset.reference_setting_max,
+        }
+        if preset.reference_setting_min is not None and preset.reference_setting_max is not None
+        else None
+    )
+    return PresetResponse(
+        id=preset.id,
+        name=preset.name,
+        ratio=preset.ratio,
+        temperature_min_c=preset.temperature_min_c,
+        temperature_max_c=preset.temperature_max_c,
+        active=preset.active,
+        sort_order=preset.sort_order,
+        reference_grinder_range=reference_range,
+        grinder_ranges=effective_ranges,
+    )
+
+
+def active_grinders(db: Session) -> list[Grinder]:
+    return list(db.scalars(select(Grinder).where(Grinder.archived.is_(False))))
 
 
 def effective_public_url(request: Request, db: Session) -> str:
@@ -1288,16 +1364,59 @@ def list_grinders(db: Session = Depends(session_dependency)) -> list[Grinder]:
     )
 
 
+@router.get("/grinder-definitions", response_model=list[GrinderDefinitionResponse])
+def list_grinder_definitions() -> list[GrinderDefinitionResponse]:
+    return [GrinderDefinitionResponse(**item.__dict__) for item in GRINDER_DEFINITIONS]
+
+
 @router.post("/grinders", response_model=GrinderResponse)
 def create_grinder(
-    payload: GrinderInput,
+    payload: GrinderCreate,
     request: Request,
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_csrf),
 ) -> Grinder:
     enforce_demo_capacity(request, db, Grinder)
-    item = Grinder(**payload.model_dump())
+    definition = grinder_definition(payload.definition_key)
+    if payload.definition_key == "custom":
+        for preset_range in payload.preset_ranges:
+            if db.get(RecipePreset, preset_range.preset_id) is None:
+                raise HTTPException(status_code=422, detail="Preset not found")
+        item = Grinder(
+            definition_key="custom",
+            manufacturer=payload.manufacturer,
+            model=payload.model,
+            setting_unit=payload.setting_unit,
+            setting_step=payload.setting_step,
+            soft_min=payload.soft_min,
+            soft_max=payload.soft_max,
+            guidance=payload.guidance,
+        )
+    else:
+        assert definition.manufacturer is not None and definition.model is not None
+        item = Grinder(
+            definition_key=definition.key,
+            manufacturer=definition.manufacturer,
+            model=definition.model,
+            setting_unit=definition.setting_unit,
+            setting_step=definition.setting_step,
+            soft_min=definition.soft_min,
+            soft_max=definition.soft_max,
+            guidance=definition.guidance,
+        )
     db.add(item)
+    db.flush()
+    if payload.definition_key == "custom":
+        db.add_all(
+            PresetGrinderRange(
+                preset_id=preset_range.preset_id,
+                grinder_id=item.id,
+                setting_min=preset_range.setting_min,
+                setting_max=preset_range.setting_max,
+            )
+            for preset_range in payload.preset_ranges
+            if preset_range.setting_min is not None and preset_range.setting_max is not None
+        )
     db.commit()
     db.refresh(item)
     return item
@@ -1327,6 +1446,8 @@ def update_grinder(
     item = db.get(Grinder, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Grinder not found")
+    if item.definition_key != "custom":
+        raise HTTPException(status_code=422, detail="Predefined grinder details cannot be edited")
     for key, value in payload.model_dump().items():
         setattr(item, key, value)
     db.commit()
@@ -1792,7 +1913,7 @@ def catalog_insights(
 @router.get("/presets", response_model=list[PresetResponse])
 def list_presets(
     active_only: bool = True, db: Session = Depends(session_dependency)
-) -> list[RecipePreset]:
+) -> list[PresetResponse]:
     query = (
         select(RecipePreset)
         .options(selectinload(RecipePreset.grinder_ranges))
@@ -1800,7 +1921,8 @@ def list_presets(
     )
     if active_only:
         query = query.where(RecipePreset.active.is_(True))
-    return list(db.scalars(query))
+    grinders = active_grinders(db)
+    return [preset_payload(item, grinders) for item in db.scalars(query)]
 
 
 @router.put("/presets/{preset_id}", response_model=PresetResponse)
@@ -1810,7 +1932,7 @@ def update_preset(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
-) -> RecipePreset:
+) -> PresetResponse:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
     enforce_demo_seed_protection(request, RecipePreset, preset_id)
@@ -1818,17 +1940,36 @@ def update_preset(
     if item is None:
         raise HTTPException(status_code=404, detail="Preset not found")
     validate_preset_grinder_ranges(db, payload)
-    for key, value in payload.model_dump(exclude={"grinder_ranges"}).items():
+    for key, value in payload.model_dump(
+        exclude={"reference_grinder_range", "custom_grinder_ranges"}
+    ).items():
         setattr(item, key, value)
-    item.grinder_ranges.clear()
-    for grinder_range in payload.grinder_ranges:
+    reference_range = payload.reference_grinder_range
+    item.reference_setting_min = reference_range.setting_min if reference_range else None
+    item.reference_setting_max = reference_range.setting_max if reference_range else None
+    custom_grinder_ids = set(
+        db.scalars(
+            select(Grinder.id).where(
+                Grinder.definition_key == "custom", Grinder.archived.is_(False)
+            )
+        )
+    )
+    item.grinder_ranges[:] = [
+        grinder_range
+        for grinder_range in item.grinder_ranges
+        if grinder_range.grinder_id not in custom_grinder_ids
+    ]
+    db.flush()
+    for grinder_range in payload.custom_grinder_ranges:
         item.grinder_ranges.append(PresetGrinderRange(**grinder_range.model_dump()))
     db.commit()
-    return db.scalar(
+    refreshed = db.scalar(
         select(RecipePreset)
         .options(selectinload(RecipePreset.grinder_ranges))
         .where(RecipePreset.id == preset_id)
     )
+    assert refreshed is not None
+    return preset_payload(refreshed, active_grinders(db))
 
 
 @router.post("/presets", response_model=PresetResponse)
@@ -1837,22 +1978,30 @@ def create_preset(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
-) -> RecipePreset:
+) -> PresetResponse:
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
     enforce_demo_capacity(request, db, RecipePreset)
     validate_preset_grinder_ranges(db, payload)
-    item = RecipePreset(**payload.model_dump(exclude={"grinder_ranges"}))
+    reference_range = payload.reference_grinder_range
+    item = RecipePreset(
+        **payload.model_dump(exclude={"reference_grinder_range", "custom_grinder_ranges"}),
+        reference_setting_min=reference_range.setting_min if reference_range else None,
+        reference_setting_max=reference_range.setting_max if reference_range else None,
+    )
     item.grinder_ranges = [
-        PresetGrinderRange(**grinder_range.model_dump()) for grinder_range in payload.grinder_ranges
+        PresetGrinderRange(**grinder_range.model_dump())
+        for grinder_range in payload.custom_grinder_ranges
     ]
     db.add(item)
     db.commit()
-    return db.scalar(
+    refreshed = db.scalar(
         select(RecipePreset)
         .options(selectinload(RecipePreset.grinder_ranges))
         .where(RecipePreset.id == item.id)
     )
+    assert refreshed is not None
+    return preset_payload(refreshed, active_grinders(db))
 
 
 @router.get("/flavor-tags", response_model=list[FlavorTagResponse])

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { goto, replaceState } from '$app/navigation';
   import { page } from '$app/state';
+  import GrinderFields from '$lib/GrinderFields.svelte';
+  import { emptyGrinderForm, grinderPayload } from '$lib/catalog';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import type {
@@ -9,6 +11,8 @@
     Dripper,
     FlavorTag,
     Grinder,
+    GrinderDefinition,
+    GrinderFormData,
     MattermostChannelOption,
     MattermostSettings,
     MattermostVerifyResult,
@@ -37,6 +41,7 @@
 
   let people: Profile[] = $state([]);
   let grinders: Grinder[] = $state([]);
+  let grinderDefinitions: GrinderDefinition[] = $state([]);
   let drippers: Dripper[] = $state([]);
   let filters: { id: number; name: string; notes: string | null }[] = $state([]);
   let presets: Preset[] = $state([]);
@@ -54,15 +59,7 @@
   let error = $state('');
   let personForm = $state({ display_name: '', pin: '', role: 'member' });
   let pinResets: Record<number, string> = $state({});
-  let grinderForm = $state({
-    manufacturer: '',
-    model: '',
-    setting_unit: 'clicks',
-    setting_step: 1,
-    soft_min: 0,
-    soft_max: 50,
-    guidance: ''
-  });
+  let grinderForm: GrinderFormData = $state(emptyGrinderForm());
   let dripperForm = $state({ manufacturer: '', model: '', notes: '' });
   let filterForm = $state({ name: '', notes: '' });
   let tagForm = $state({ name: '', parent_id: null as number | null, active: true, sort_order: 0 });
@@ -73,7 +70,8 @@
     temperature_max_c: 96,
     active: true,
     sort_order: 0,
-    grinder_ranges: []
+    reference_grinder_range: { setting_min: 28, setting_max: 34 },
+    custom_grinder_ranges: []
   });
   const activeTabLabel = $derived(
     adminSections.find((section) => section.id === activeTab)?.label ?? 'Admin section'
@@ -179,16 +177,19 @@
   });
 
   async function load() {
-    [people, grinders, drippers, filters, presets, tags, settings, mattermost] = await Promise.all([
-      api<Profile[]>('/people'),
-      api<Grinder[]>('/grinders'),
-      api<Dripper[]>('/drippers'),
-      api<{ id: number; name: string; notes: string | null }[]>('/filters'),
-      api<Preset[]>('/presets?active_only=false'),
-      api<FlavorTag[]>('/flavor-tags?active_only=false'),
-      api<AppSettings>('/settings'),
-      api<MattermostSettings>('/settings/mattermost')
-    ]);
+    [people, grinders, grinderDefinitions, drippers, filters, presets, tags, settings, mattermost] =
+      await Promise.all([
+        api<Profile[]>('/people'),
+        api<Grinder[]>('/grinders'),
+        api<GrinderDefinition[]>('/grinder-definitions'),
+        api<Dripper[]>('/drippers'),
+        api<{ id: number; name: string; notes: string | null }[]>('/filters'),
+        api<Preset[]>('/presets?active_only=false'),
+        api<FlavorTag[]>('/flavor-tags?active_only=false'),
+        api<AppSettings>('/settings'),
+        api<MattermostSettings>('/settings/mattermost')
+      ]);
+    if (!grinderForm.definition_key) grinderForm = emptyGrinderForm(presets);
     appSettingsStore.set(settings);
     rememberMattermostDestination();
   }
@@ -260,19 +261,11 @@
       () =>
         api('/grinders', {
           method: 'POST',
-          body: jsonBody({ ...grinderForm, guidance: grinderForm.guidance || null })
+          body: jsonBody(grinderPayload(grinderForm))
         }),
       'Grinder added.'
     );
-    grinderForm = {
-      manufacturer: '',
-      model: '',
-      setting_unit: 'clicks',
-      setting_step: 1,
-      soft_min: 0,
-      soft_max: 50,
-      guidance: ''
-    };
+    grinderForm = emptyGrinderForm(presets);
   }
   async function addDripper(event: SubmitEvent) {
     event.preventDefault();
@@ -314,7 +307,10 @@
             temperature_max_c: preset.temperature_max_c,
             active: preset.active,
             sort_order: preset.sort_order,
-            grinder_ranges: preset.grinder_ranges
+            reference_grinder_range: preset.reference_grinder_range,
+            custom_grinder_ranges: preset.grinder_ranges
+              .filter((range) => range.source === 'custom')
+              .map(({ source: _source, ...range }) => range)
           })
         }),
       'Preset saved.'
@@ -558,13 +554,16 @@
   function rangeInputMode(grinderId: number) {
     return isClickUnit(grinderForRange(grinderId)?.setting_unit ?? '') ? 'numeric' : 'decimal';
   }
+  function customGrinders() {
+    return grinders.filter((grinder) => grinder.definition_key === 'custom');
+  }
   function addPresetRange() {
-    const grinder = grinders.find(
-      (item) => !presetForm.grinder_ranges.some((range) => range.grinder_id === item.id)
+    const grinder = customGrinders().find(
+      (item) => !presetForm.custom_grinder_ranges.some((range) => range.grinder_id === item.id)
     );
     if (!grinder) return;
-    presetForm.grinder_ranges = [
-      ...presetForm.grinder_ranges,
+    presetForm.custom_grinder_ranges = [
+      ...presetForm.custom_grinder_ranges,
       {
         grinder_id: grinder.id,
         setting_min: grinder.soft_min ?? 0,
@@ -573,9 +572,32 @@
     ];
   }
   function removePresetRange(index: number) {
-    presetForm.grinder_ranges = presetForm.grinder_ranges.filter(
+    presetForm.custom_grinder_ranges = presetForm.custom_grinder_ranges.filter(
       (_, itemIndex) => itemIndex !== index
     );
+  }
+  function addExistingPresetRange(preset: Preset) {
+    const grinder = customGrinders().find(
+      (item) => !preset.grinder_ranges.some((range) => range.grinder_id === item.id)
+    );
+    if (!grinder) return;
+    preset.grinder_ranges = [
+      ...preset.grinder_ranges,
+      {
+        grinder_id: grinder.id,
+        setting_min: grinder.soft_min ?? 0,
+        setting_max: grinder.soft_max ?? 50,
+        source: 'custom'
+      }
+    ];
+  }
+  function removeExistingPresetRange(preset: Preset, grinderId: number) {
+    preset.grinder_ranges = preset.grinder_ranges.filter(
+      (range) => range.grinder_id !== grinderId || range.source !== 'custom'
+    );
+  }
+  function addReferenceRange(preset: Preset) {
+    preset.reference_grinder_range = { setting_min: 28, setting_max: 34 };
   }
   function resetPresetForm() {
     presetForm = {
@@ -585,9 +607,9 @@
       temperature_max_c: 96,
       active: true,
       sort_order: Math.max(-1, ...presets.map((preset) => preset.sort_order)) + 1,
-      grinder_ranges: []
+      reference_grinder_range: { setting_min: 28, setting_max: 34 },
+      custom_grinder_ranges: []
     };
-    addPresetRange();
   }
 
   function selectTab(tab: AdminTab) {
@@ -753,38 +775,9 @@
     {:else if activeTab === 'equipment'}
       <div class="equipment-grid">
         <form class="panel" onsubmit={addGrinder}>
-          <h2>Grinder</h2>
-          <label>Manufacturer<input bind:value={grinderForm.manufacturer} required /></label><label
-            >Model<input bind:value={grinderForm.model} required /></label
-          >
-          <div class="field-grid">
-            <label>Unit<input bind:value={grinderForm.setting_unit} required /></label><label
-              >Step<input
-                type="number"
-                bind:value={grinderForm.setting_step}
-                min={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            ><label
-              >Soft min<input
-                type="number"
-                bind:value={grinderForm.soft_min}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            ><label
-              >Soft max<input
-                type="number"
-                bind:value={grinderForm.soft_max}
-                step={isClickUnit(grinderForm.setting_unit) ? 1 : 0.01}
-                inputmode={isClickUnit(grinderForm.setting_unit) ? 'numeric' : 'decimal'}
-              /></label
-            >
-          </div>
-          <label>Guidance<textarea bind:value={grinderForm.guidance}></textarea></label><button
-            class="primary">Add grinder</button
-          >
+          <h2>Add grinder</h2>
+          <GrinderFields bind:form={grinderForm} definitions={grinderDefinitions} {presets} />
+          <button class="primary">Add grinder</button>
         </form>
         <form class="panel" onsubmit={addDripper}>
           <h2>Dripper</h2>
@@ -870,21 +863,56 @@
           </div>
           <div class="preset-ranges">
             <div class="section-heading">
-              <h3>Grinder ranges</h3>
+              <div>
+                <h3>Grind guidance</h3>
+                <p class="muted">
+                  Enter the canonical Comandante C40 range. Known grinders such as the KINGrinder K6
+                  are derived automatically; Custom grinders use manual ranges.
+                </p>
+              </div>
+            </div>
+            {#if presetForm.reference_grinder_range}
+              <div class="preset-range reference-range">
+                <strong>Comandante C40 reference clicks</strong>
+                <label
+                  >Minimum<input
+                    aria-label="Comandante C40 reference minimum clicks"
+                    type="number"
+                    bind:value={presetForm.reference_grinder_range.setting_min}
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    required
+                  /></label
+                ><label
+                  >Maximum<input
+                    aria-label="Comandante C40 reference maximum clicks"
+                    type="number"
+                    bind:value={presetForm.reference_grinder_range.setting_max}
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    required
+                  /></label
+                >
+              </div>
+            {/if}
+            <div class="section-heading">
+              <h3>Custom grinder ranges</h3>
               <button
                 class="secondary"
                 type="button"
                 onclick={addPresetRange}
-                disabled={presetForm.grinder_ranges.length >= grinders.length}
-                >+ Grinder range</button
+                disabled={presetForm.custom_grinder_ranges.length >= customGrinders().length}
+                >+ Custom range</button
               >
             </div>
-            {#each presetForm.grinder_ranges as range, index}<div class="preset-range">
+            {#each presetForm.custom_grinder_ranges as range, index}<div class="preset-range">
                 <label
                   >Grinder<select bind:value={range.grinder_id}
-                    >{#each grinders as grinder}<option
+                    >{#each customGrinders() as grinder}<option
                         value={grinder.id}
-                        disabled={presetForm.grinder_ranges.some(
+                        disabled={presetForm.custom_grinder_ranges.some(
                           (item, itemIndex) => itemIndex !== index && item.grinder_id === grinder.id
                         )}>{grinder.manufacturer} {grinder.model}</option
                       >{/each}</select
@@ -914,27 +942,105 @@
         </form>
         <section class="panel">
           <h2>FCC starting points</h2>
+          <p class="muted">
+            Comandante C40 is the reference. Predefined grinder previews are read-only and update
+            whenever that reference changes.
+          </p>
           <div class="preset-list">
             {#each presets as preset}<article>
                 <input bind:value={preset.name} aria-label="Preset name" /><label
                   >Ratio<input type="number" bind:value={preset.ratio} step="0.1" /></label
                 ><label>Min °C<input type="number" bind:value={preset.temperature_min_c} /></label
-                ><label>Max °C<input type="number" bind:value={preset.temperature_max_c} /></label
-                >{#each preset.grinder_ranges as range}<label
-                    >Min clicks<input
-                      type="number"
-                      bind:value={range.setting_min}
-                      step="1"
-                    /></label
-                  ><label
-                    >Max clicks<input
-                      type="number"
-                      bind:value={range.setting_max}
-                      step="1"
-                    /></label
-                  >{/each}<label>Order<input type="number" bind:value={preset.sort_order} /></label
-                ><label class="check"
-                  ><input type="checkbox" bind:checked={preset.active} /> Active</label
+                ><label>Max °C<input type="number" bind:value={preset.temperature_max_c} /></label>
+                <div class="existing-preset-ranges">
+                  {#if preset.reference_grinder_range}
+                    <div class="preset-range reference-range">
+                      <strong>Comandante C40 reference clicks</strong>
+                      <label
+                        >Minimum<input
+                          aria-label={`Comandante C40 reference minimum clicks for ${preset.name}`}
+                          type="number"
+                          bind:value={preset.reference_grinder_range.setting_min}
+                          min="0"
+                          step="1"
+                          inputmode="numeric"
+                          required
+                        /></label
+                      ><label
+                        >Maximum<input
+                          aria-label={`Comandante C40 reference maximum clicks for ${preset.name}`}
+                          type="number"
+                          bind:value={preset.reference_grinder_range.setting_max}
+                          min="0"
+                          step="1"
+                          inputmode="numeric"
+                          required
+                        /></label
+                      >
+                    </div>
+                  {:else}
+                    <div class="missing-guidance" role="note">
+                      <span>No C40 reference: predefined grinders have no brew guidance.</span>
+                      <button
+                        class="secondary"
+                        type="button"
+                        onclick={() => addReferenceRange(preset)}>Add reference range</button
+                      >
+                    </div>
+                  {/if}
+                  {#each preset.grinder_ranges.filter((range) => range.source === 'derived') as range}
+                    <div class="derived-range">
+                      <span>
+                        {grinderForRange(range.grinder_id)?.manufacturer}
+                        {grinderForRange(range.grinder_id)?.model}
+                      </span>
+                      <strong>{range.setting_min}–{range.setting_max} clicks</strong>
+                      <small>Derived automatically</small>
+                    </div>
+                  {/each}
+                  {#each preset.grinder_ranges.filter((range) => range.source === 'custom') as range}
+                    <div class="preset-range">
+                      <strong>
+                        {grinderForRange(range.grinder_id)?.manufacturer}
+                        {grinderForRange(range.grinder_id)?.model}
+                      </strong>
+                      <label
+                        >Minimum<input
+                          type="number"
+                          bind:value={range.setting_min}
+                          step={rangeStep(range.grinder_id)}
+                          inputmode={rangeInputMode(range.grinder_id)}
+                          required
+                        /></label
+                      ><label
+                        >Maximum<input
+                          type="number"
+                          bind:value={range.setting_max}
+                          step={rangeStep(range.grinder_id)}
+                          inputmode={rangeInputMode(range.grinder_id)}
+                          required
+                        /></label
+                      ><button
+                        class="secondary"
+                        type="button"
+                        onclick={() => removeExistingPresetRange(preset, range.grinder_id)}
+                        >Remove</button
+                      >
+                    </div>
+                  {/each}
+                  {#if customGrinders().some((grinder) => !preset.grinder_ranges.some((range) => range.grinder_id === grinder.id))}
+                    <div class="missing-guidance" role="note">
+                      <span>One or more Custom grinders have no guidance for this preset.</span>
+                      <button
+                        class="secondary"
+                        type="button"
+                        onclick={() => addExistingPresetRange(preset)}>+ Custom range</button
+                      >
+                    </div>
+                  {/if}
+                </div>
+                <label>Order<input type="number" bind:value={preset.sort_order} /></label><label
+                  class="check"><input type="checkbox" bind:checked={preset.active} /> Active</label
                 ><button class="secondary" onclick={() => savePreset(preset)}>Save</button>
               </article>{/each}
           </div>
@@ -1464,7 +1570,7 @@
   }
   .preset-list article {
     display: grid;
-    grid-template-columns: minmax(180px, 2fr) repeat(6, 82px) 90px auto;
+    grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(82px, 0.7fr)) 82px 90px auto;
     gap: 8px;
     align-items: end;
     padding: 10px;
@@ -1500,6 +1606,13 @@
   .preset-ranges h3 {
     margin: 0;
   }
+  .preset-ranges .section-heading > div {
+    display: grid;
+    gap: 4px;
+  }
+  .preset-ranges .section-heading p {
+    margin: 0;
+  }
   .preset-range {
     display: grid;
     grid-template-columns: minmax(180px, 1.5fr) 1fr 1fr auto;
@@ -1508,6 +1621,35 @@
     padding: 12px;
     border: 1px solid var(--line);
     border-radius: 13px;
+  }
+  .preset-range strong {
+    align-self: center;
+  }
+  .existing-preset-ranges {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: 8px;
+  }
+  .derived-range,
+  .missing-guidance {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.5fr) 1fr 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+  }
+  .derived-range {
+    background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
+  }
+  .derived-range small,
+  .missing-guidance {
+    color: var(--muted);
+  }
+  .missing-guidance {
+    grid-template-columns: 1fr auto;
+    border-color: color-mix(in srgb, var(--amber) 50%, var(--line));
   }
   .tag-editor {
     display: grid;
@@ -1676,8 +1818,12 @@
     }
     .preset-create-fields,
     .preset-range,
+    .derived-range,
     .preset-list article {
       grid-template-columns: 1fr 1fr;
+    }
+    .missing-guidance {
+      grid-template-columns: 1fr;
     }
     .mattermost-events > div {
       grid-template-columns: 1fr;

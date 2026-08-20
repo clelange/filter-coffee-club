@@ -408,3 +408,187 @@ def test_mattermost_migration_adds_isolated_settings_and_outbox(tmp_path: Path) 
         assert "mattermost_integrations" not in tables
         assert "mattermost_notifications" not in tables
     engine.dispose()
+
+
+def test_grinder_definition_migration_preserves_legacy_ranges_and_brews(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-grinder-definitions.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "ab12cd34ef56")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO profiles (
+                    id, display_name, pin_hash, role, active, pin_change_required,
+                    failed_login_attempts, created_at, updated_at
+                ) VALUES (
+                    1, 'Ada', 'legacy-hash', 'admin', 1, 0,
+                    0, '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO grinders (
+                    id, manufacturer, model, setting_unit, setting_step,
+                    soft_min, soft_max, guidance, archived, created_at, updated_at
+                ) VALUES
+                    (1, 'cOmAnDaNtE', 'C40 MK4', 'clicks', 1, 0, 50, NULL, 0,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00'),
+                    (2, 'KINGRINDER', 'k6', 'clicks', 1, 15, 150, NULL, 0,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00'),
+                    (3, 'Timemore', 'Chestnut Nano 3', 'clicks', 1, 0, 50, NULL, 0,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO recipe_presets (
+                    id, name, ratio, temperature_min_c, temperature_max_c,
+                    active, sort_order, created_at, updated_at
+                ) VALUES
+                    (1, 'Legacy balanced', 16, 92, 96, 1, 0,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00'),
+                    (2, 'Legacy without C40', 17, 90, 94, 1, 1,
+                     '2026-08-01 08:00:00', '2026-08-01 08:00:00')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO preset_grinder_ranges (
+                    id, preset_id, grinder_id, setting_min, setting_max
+                ) VALUES
+                    (1, 1, 1, 28, 34),
+                    (2, 1, 2, 90, 109),
+                    (3, 1, 3, 4, 7),
+                    (4, 2, 3, 8, 11)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO coffees (
+                    id, roaster, name, chart_color, archived, created_by_id,
+                    created_at, updated_at
+                ) VALUES (
+                    1, 'Legacy', 'Coffee', '#0072B2', 0, 1,
+                    '2026-08-01 08:00:00', '2026-08-01 08:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO brews (
+                    id, coffee_id, operator_id, grinder_id, source_preset_id,
+                    dose_g, water_g, target_ratio, temperature_c, grinder_setting,
+                    servings, status, revision, created_at, updated_at
+                ) VALUES (
+                    1, 1, 1, 2, 1,
+                    15, 240, 16, 94, 96,
+                    1, 'completed', 1, '2026-08-01 09:00:00', '2026-08-01 09:00:00'
+                )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, definition_key FROM grinders ORDER BY id")
+        ).all() == [
+            (1, "comandante_c40"),
+            (2, "kingrinder_k6"),
+            (3, "custom"),
+        ]
+        assert connection.execute(
+            text(
+                "SELECT id, reference_setting_min, reference_setting_max "
+                "FROM recipe_presets ORDER BY id"
+            )
+        ).all() == [(1, 28.0, 34.0), (2, None, None)]
+        assert connection.execute(
+            text(
+                "SELECT preset_id, grinder_id, setting_min, setting_max "
+                "FROM preset_grinder_ranges ORDER BY id"
+            )
+        ).all() == [
+            (1, 1, 28.0, 34.0),
+            (1, 2, 90.0, 109.0),
+            (1, 3, 4.0, 7.0),
+            (2, 3, 8.0, 11.0),
+        ]
+        assert connection.execute(
+            text("SELECT grinder_id, grinder_setting, source_preset_id FROM brews WHERE id = 1")
+        ).one() == (2, 96.0, 1)
+    engine.dispose()
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE recipe_presets
+                SET reference_setting_min = 29, reference_setting_max = 33
+                WHERE id = 1
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO recipe_presets (
+                    id, name, ratio, temperature_min_c, temperature_max_c,
+                    active, sort_order, reference_setting_min, reference_setting_max,
+                    created_at, updated_at
+                ) VALUES (
+                    3, 'Created after upgrade', 15.5, 91, 95,
+                    1, 2, 24, 28,
+                    '2026-08-01 10:00:00', '2026-08-01 10:00:00'
+                )
+                """
+            )
+        )
+    engine.dispose()
+
+    command.downgrade(config, "ab12cd34ef56")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        grinder_columns = {item["name"] for item in inspect(connection).get_columns("grinders")}
+        preset_columns = {
+            item["name"] for item in inspect(connection).get_columns("recipe_presets")
+        }
+        assert "definition_key" not in grinder_columns
+        assert "reference_setting_min" not in preset_columns
+        assert "reference_setting_max" not in preset_columns
+        assert connection.execute(
+            text(
+                "SELECT preset_id, grinder_id, setting_min, setting_max "
+                "FROM preset_grinder_ranges ORDER BY preset_id, grinder_id"
+            )
+        ).all() == [
+            (1, 1, 29.0, 33.0),
+            (1, 2, 93.0, 106.0),
+            (1, 3, 4.0, 7.0),
+            (2, 3, 8.0, 11.0),
+            (3, 1, 24.0, 28.0),
+            (3, 2, 77.0, 90.0),
+        ]
+        assert connection.execute(
+            text("SELECT grinder_id, grinder_setting FROM brews WHERE id = 1")
+        ).one() == (2, 96.0)
+    engine.dispose()

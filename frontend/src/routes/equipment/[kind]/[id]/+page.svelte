@@ -29,7 +29,7 @@
     filterPayload,
     filterToForm,
     formatCatalogNumber,
-    grinderPayload,
+    grinderUpdatePayload,
     grinderToForm
   } from '$lib/catalog';
   import { deviceModeStore, loginPath } from '$lib/device';
@@ -195,16 +195,20 @@
     photoError = '';
     try {
       const framingChanged = JSON.stringify(photoFramingDraft) !== photoFramingBaseline;
-      const body =
-        routeKind === 'grinders'
-          ? grinderPayload(grinderForm)
-          : routeKind === 'drippers'
-            ? dripperPayload(dripperForm)
-            : filterPayload(filterForm);
-      item = await api<EquipmentItem>(`/${routeKind}/${item.id}`, {
-        method: 'PUT',
-        body: jsonBody(body)
-      });
+      const predefinedGrinder =
+        routeKind === 'grinders' && (item as Grinder).definition_key !== 'custom';
+      if (!predefinedGrinder) {
+        const body =
+          routeKind === 'grinders'
+            ? grinderUpdatePayload(grinderForm)
+            : routeKind === 'drippers'
+              ? dripperPayload(dripperForm)
+              : filterPayload(filterForm);
+        item = await api<EquipmentItem>(`/${routeKind}/${item.id}`, {
+          method: 'PUT',
+          body: jsonBody(body)
+        });
+      }
       resetForm();
       try {
         if (photoFile) {
@@ -346,9 +350,20 @@
           <h2>Update {eyebrow().toLowerCase()} details.</h2>
           <p class="muted">Changes stay local until you press Save changes.</p>
         </div>
-        {#if routeKind === 'grinders'}<GrinderFields
-            bind:form={grinderForm}
-          />{:else if routeKind === 'drippers'}<DripperFields
+        {#if routeKind === 'grinders'}
+          {#if (item as Grinder).definition_key === 'custom'}
+            <GrinderFields bind:form={grinderForm} editing />
+          {:else}
+            <div class="predefined-note" role="note">
+              <strong>{title()}</strong>
+              <span>{summary()}</span>
+              <span>
+                This predefined grinder’s identity and adjustment specifications are managed by FCC.
+                You can still update its photo.
+              </span>
+            </div>
+          {/if}
+        {:else if routeKind === 'drippers'}<DripperFields
             bind:form={dripperForm}
           />{:else}<FilterFields bind:form={filterForm} />{/if}
         {#if !$appSettingsStore?.demo_mode}
@@ -389,6 +404,10 @@
         <dl class="metadata-grid">
           {#if routeKind === 'grinders'}
             {@const grinder = item as Grinder}
+            <div>
+              <dt>Definition</dt>
+              <dd>{grinder.definition_key === 'custom' ? 'Custom' : 'Predefined'}</dd>
+            </div>
             <div>
               <dt>Manufacturer</dt>
               <dd>{grinder.manufacturer}</dd>
@@ -530,6 +549,17 @@
   .metadata-section,
   .edit-panel {
     gap: var(--catalog-gap-md);
+  }
+  .predefined-note {
+    display: grid;
+    gap: 6px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+  }
+  .predefined-note span {
+    color: var(--muted);
   }
   .metadata-grid {
     display: grid;

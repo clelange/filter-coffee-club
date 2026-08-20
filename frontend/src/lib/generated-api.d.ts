@@ -316,6 +316,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grinder-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Grinder Definitions */
+        get: operations["list_grinder_definitions_api_v1_grinder_definitions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grinders/{item_id}": {
         parameters: {
             query?: never;
@@ -1932,6 +1949,58 @@ export interface components {
             /** Sort Order */
             sort_order: number;
         };
+        /** GrinderCreate */
+        GrinderCreate: {
+            /**
+             * Definition Key
+             * @enum {string}
+             */
+            definition_key: "comandante_c40" | "kingrinder_k6" | "custom";
+            /** Manufacturer */
+            manufacturer?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Setting Unit */
+            setting_unit?: string | null;
+            /** Setting Step */
+            setting_step?: number | null;
+            /** Soft Min */
+            soft_min?: number | null;
+            /** Soft Max */
+            soft_max?: number | null;
+            /** Guidance */
+            guidance?: string | null;
+            /** Preset Ranges */
+            preset_ranges?: components["schemas"]["GrinderPresetRangeInput"][];
+        };
+        /** GrinderDefinitionResponse */
+        GrinderDefinitionResponse: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "comandante_c40" | "kingrinder_k6" | "custom";
+            /** Label */
+            label: string;
+            /** Manufacturer */
+            manufacturer: string | null;
+            /** Model */
+            model: string | null;
+            /** Setting Unit */
+            setting_unit: string;
+            /** Setting Step */
+            setting_step: number;
+            /** Soft Min */
+            soft_min: number | null;
+            /** Soft Max */
+            soft_max: number | null;
+            /** Guidance */
+            guidance: string | null;
+            /** Reference Multiplier */
+            reference_multiplier: number | null;
+            /** Clicks Per Rotation */
+            clicks_per_rotation: number | null;
+        };
         /** GrinderInput */
         GrinderInput: {
             /** Manufacturer */
@@ -1955,6 +2024,15 @@ export interface components {
             /** Guidance */
             guidance?: string | null;
         };
+        /** GrinderPresetRangeInput */
+        GrinderPresetRangeInput: {
+            /** Preset Id */
+            preset_id: number;
+            /** Setting Min */
+            setting_min?: number | null;
+            /** Setting Max */
+            setting_max?: number | null;
+        };
         /** GrinderRangeInput */
         GrinderRangeInput: {
             /** Grinder Id */
@@ -1972,6 +2050,11 @@ export interface components {
             setting_min: number;
             /** Setting Max */
             setting_max: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "reference" | "derived" | "custom";
         };
         /** GrinderResponse */
         GrinderResponse: {
@@ -1997,6 +2080,11 @@ export interface components {
             guidance?: string | null;
             /** Id */
             id: number;
+            /**
+             * Definition Key
+             * @enum {string}
+             */
+            definition_key: "comandante_c40" | "kingrinder_k6" | "custom";
             /** Photo Path */
             photo_path: string | null;
             photo_framing: components["schemas"]["PhotoFraming"] | null;
@@ -2213,6 +2301,7 @@ export interface components {
             active: boolean;
             /** Sort Order */
             sort_order: number;
+            reference_grinder_range: components["schemas"]["ReferenceGrinderRangeInput"] | null;
             /** Grinder Ranges */
             grinder_ranges: components["schemas"]["GrinderRangeResponse"][];
         };
@@ -2236,8 +2325,9 @@ export interface components {
              * @default 0
              */
             sort_order: number;
-            /** Grinder Ranges */
-            grinder_ranges?: components["schemas"]["GrinderRangeInput"][];
+            reference_grinder_range?: components["schemas"]["ReferenceGrinderRangeInput"] | null;
+            /** Custom Grinder Ranges */
+            custom_grinder_ranges?: components["schemas"]["GrinderRangeInput"][];
         };
         /** ProfileCoffeePreference */
         ProfileCoffeePreference: {
@@ -2472,6 +2562,13 @@ export interface components {
             };
             /** Flavor Axes */
             flavor_axes?: components["schemas"]["FlavorAxisSummary"][];
+        };
+        /** ReferenceGrinderRangeInput */
+        ReferenceGrinderRangeInput: {
+            /** Setting Min */
+            setting_min: number;
+            /** Setting Max */
+            setting_max: number;
         };
         /** SessionResponse */
         SessionResponse: {
@@ -3203,7 +3300,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GrinderInput"];
+                "application/json": components["schemas"]["GrinderCreate"];
             };
         };
         responses: {
@@ -3223,6 +3320,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_grinder_definitions_api_v1_grinder_definitions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrinderDefinitionResponse"][];
                 };
             };
         };

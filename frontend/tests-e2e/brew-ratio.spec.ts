@@ -72,13 +72,14 @@ const coffee = {
 
 const grinder = {
   id: 21,
-  manufacturer: 'Orbit',
-  model: 'One',
+  definition_key: 'comandante_c40' as const,
+  manufacturer: 'Comandante',
+  model: 'C40',
   setting_unit: 'clicks',
   setting_step: 1,
   soft_min: 10,
   soft_max: 40,
-  notes: null,
+  guidance: null,
   photo_path: null,
   photo_framing: null,
   archived: false
@@ -87,19 +88,81 @@ const grinder = {
 const alternateGrinder = {
   ...grinder,
   id: 22,
-  model: 'Two',
-  setting_unit: 'turns',
-  setting_step: 0.5,
-  soft_min: 2,
-  soft_max: 8
+  definition_key: 'kingrinder_k6' as const,
+  manufacturer: 'KINGrinder',
+  model: 'K6',
+  setting_step: 1,
+  soft_min: 15,
+  soft_max: 150
 };
+
+const grinderDefinitions = [
+  {
+    key: 'comandante_c40',
+    label: 'Comandante C40',
+    manufacturer: 'Comandante',
+    model: 'C40',
+    setting_unit: 'clicks',
+    setting_step: 1,
+    soft_min: 0,
+    soft_max: 50,
+    guidance: null,
+    reference_multiplier: 1,
+    clicks_per_rotation: null
+  },
+  {
+    key: 'kingrinder_k6',
+    label: 'KINGrinder K6',
+    manufacturer: 'KINGrinder',
+    model: 'K6',
+    setting_unit: 'clicks',
+    setting_step: 1,
+    soft_min: 15,
+    soft_max: 150,
+    guidance: null,
+    reference_multiplier: 3.2,
+    clicks_per_rotation: 60
+  },
+  {
+    key: 'custom',
+    label: 'Custom',
+    manufacturer: null,
+    model: null,
+    setting_unit: 'clicks',
+    setting_step: 1,
+    soft_min: null,
+    soft_max: null,
+    guidance: null,
+    reference_multiplier: null,
+    clicks_per_rotation: null
+  }
+];
 
 const uncoveredGrinder = {
   ...grinder,
   id: 23,
+  definition_key: 'custom' as const,
+  manufacturer: 'Orbit',
   model: 'Three',
   soft_min: 12,
   soft_max: 36
+};
+
+const turnsGrinder = {
+  ...uncoveredGrinder,
+  id: 24,
+  manufacturer: 'Turnco',
+  model: 'Dial One',
+  setting_unit: 'turns',
+  setting_step: 0.5,
+  soft_min: 1,
+  soft_max: 10
+};
+
+const archivedGrinder = {
+  ...alternateGrinder,
+  id: 25,
+  archived: true
 };
 
 const preset = {
@@ -110,9 +173,11 @@ const preset = {
   temperature_max_c: 96,
   active: true,
   sort_order: 1,
+  reference_grinder_range: { setting_min: 24, setting_max: 28 },
   grinder_ranges: [
-    { grinder_id: grinder.id, setting_min: 24, setting_max: 28 },
-    { grinder_id: alternateGrinder.id, setting_min: 4, setting_max: 6 }
+    { grinder_id: grinder.id, setting_min: 24, setting_max: 28, source: 'reference' },
+    { grinder_id: alternateGrinder.id, setting_min: 77, setting_max: 90, source: 'derived' },
+    { grinder_id: turnsGrinder.id, setting_min: 4, setting_max: 6, source: 'custom' }
   ]
 };
 
@@ -215,11 +280,16 @@ async function mockCommonApi(
       });
     }
     if (path === '/api/v1/coffees') return fulfillJson(route, [coffee]);
+    if (path === '/api/v1/grinder-definitions') return fulfillJson(route, grinderDefinitions);
     if (path === '/api/v1/grinders') {
-      return fulfillJson(route, [grinder, alternateGrinder, uncoveredGrinder]);
+      return fulfillJson(route, [grinder, alternateGrinder, uncoveredGrinder, turnsGrinder]);
+    }
+    if (path === `/api/v1/grinders/${archivedGrinder.id}`) {
+      return fulfillJson(route, archivedGrinder);
     }
     if (path === '/api/v1/drippers' || path === '/api/v1/filters') return fulfillJson(route, []);
     if (path === '/api/v1/presets') return fulfillJson(route, [preset, inactivePreset]);
+    if (path === '/api/v1/auth/profiles') return fulfillJson(route, [session.profile]);
     if (path === '/api/v1/brews' && method === 'GET') return fulfillJson(route, []);
     const current = brewState();
     if (current && path === `/api/v1/brews/${current.id}` && method === 'GET') {
@@ -239,6 +309,10 @@ async function setKioskNumber(page: Page, label: string, value: string) {
   await dialog.getByRole('button', { name: 'Apply' }).click();
 }
 
+async function chooseReferenceGrinder(page: Page) {
+  await page.getByRole('combobox', { name: 'Choose a grinder' }).selectOption(String(grinder.id));
+}
+
 test('correlated batch values stay synchronized and unusual creation requires confirmation', async ({
   page
 }) => {
@@ -255,6 +329,7 @@ test('correlated batch values stay synchronized and unusual creation requires co
   });
 
   await page.goto('/brews/new?kiosk=0');
+  await chooseReferenceGrinder(page);
   await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
   await page.getByText('More pour details').click();
@@ -307,6 +382,7 @@ test('water basis keeps water fixed while ratio and dose changes stay synchroniz
   await mockCommonApi(page, () => null);
 
   await page.goto('/brews/new?kiosk=0');
+  await chooseReferenceGrinder(page);
   await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await page.getByText('More pour details').click();
   const bloomWater = page.getByRole('spinbutton', { name: 'Bloom water' });
@@ -353,6 +429,9 @@ test('preset conformance distinguishes deviations from missing grinder guidance'
 
   await page.goto('/brews/new?kiosk=0');
   const presetButton = page.getByRole('button', { name: /Medium washed \/ balanced/ });
+  await expect(presetButton).toBeDisabled();
+  await chooseReferenceGrinder(page);
+  await expect(presetButton).toContainText('24–28 clicks');
   await presetButton.click();
   await expect(presetButton).toHaveClass(/chosen/);
   await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
@@ -368,31 +447,96 @@ test('preset conformance distinguishes deviations from missing grinder guidance'
   await temperature.blur();
   await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
 
-  const grinderSelect = page.getByRole('combobox', { name: 'Grinder' });
+  const grinderSelect = page.getByRole('combobox', { name: 'Choose a grinder' });
   const grinderSetting = page.getByRole('spinbutton', { name: 'Grinder setting' });
   await grinderSelect.selectOption(String(alternateGrinder.id));
-  await expect(grinderSetting).toHaveValue('5');
+  await expect(grinderSetting).toHaveValue('84');
+  await expect(page.getByText('84 clicks · 1 turn + 24', { exact: true })).toBeVisible();
   await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
 
-  await grinderSetting.fill('7.5');
+  await grinderSetting.fill('');
+  await grinderSetting.blur();
+  await expect(grinderSetting).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
+  await expect(page.getByText(/NaN|undefined/)).toHaveCount(0);
+  await grinderSetting.fill('91.5');
   await grinderSetting.blur();
   await expect(page.getByText('Customized · grind', { exact: true })).toBeVisible();
 
+  await grinderSelect.selectOption(String(turnsGrinder.id));
+  await expect(grinderSetting).toHaveValue('5');
+  await expect(page.locator('aside section').filter({ hasText: 'Live recipe' })).toContainText(
+    '5 turns'
+  );
+
   await grinderSelect.selectOption(String(uncoveredGrinder.id));
-  await expect(grinderSetting).toHaveValue('7.5');
+  await expect(grinderSetting).toHaveValue('');
   await expect(
     page.getByText('Matches guided fields · grinder not covered', { exact: true })
   ).toBeVisible();
-  await expect(page.getByText(/Retained from the previous grinder/)).toBeVisible();
-  await expect(page.getByText(/No guidance for Orbit Three/)).toBeVisible();
-  await expect(page.getByText('Click-based grinder settings must be whole numbers.')).toBeVisible();
+  await expect(page.getByText(/Enter a setting manually/)).toBeVisible();
+  await expect(page.getByText('No guidance for Orbit Three', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
   await grinderSetting.fill('20');
   await grinderSetting.blur();
-  await expect(page.getByText(/Retained from the previous grinder/)).toBeHidden();
+  await expect(page.getByText(/Enter a setting manually/)).toBeHidden();
   await expect(page.getByText('Click-based grinder settings must be whole numbers.')).toBeHidden();
   await expect(presetButton).toHaveClass(/chosen/);
 });
+
+test('K6 presets are submitted as total clicks', async ({ page }) => {
+  let submitted: BrewInput | null = null;
+  let currentBrew: Brew | null = null;
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/brews', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    submitted = route.request().postDataJSON() as BrewInput;
+    currentBrew = brewFromInput(151, submitted);
+    return fulfillJson(route, currentBrew);
+  });
+
+  await page.goto('/brews/new?kiosk=0');
+  await page
+    .getByRole('combobox', { name: 'Choose a grinder' })
+    .selectOption(String(alternateGrinder.id));
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+  await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+
+  await expect(page).toHaveURL(/\/brews\/151$/);
+  expect(submitted).toMatchObject({ grinder_id: alternateGrinder.id, grinder_setting: 84 });
+});
+
+for (const [flow, query, status] of [
+  ['edit', 'edit', 'draft'],
+  ['repeat', 'repeat', 'completed'],
+  ['correction', 'correct', 'completed']
+] as const) {
+  test(`${flow} keeps an archived recorded grinder and setting`, async ({ page }) => {
+    const existing = brewFromInput(
+      350,
+      {
+        ...finishInput,
+        grinder_id: archivedGrinder.id,
+        grinder_setting: 96
+      },
+      status
+    );
+    await mockCommonApi(page, () => existing);
+
+    await page.goto(`/brews/new?${query}=350&kiosk=0`);
+
+    await expect(page.getByRole('combobox', { name: 'Choose a grinder' })).toHaveValue(
+      String(archivedGrinder.id)
+    );
+    await expect(
+      page
+        .getByRole('combobox', { name: 'Choose a grinder' })
+        .locator(`option[value="${archivedGrinder.id}"]`)
+    ).toHaveText('KINGrinder K6 · archived (recorded)');
+    await expect(page.getByRole('spinbutton', { name: 'Grinder setting' })).toHaveValue('96');
+    await expect(page.getByText('96 clicks · 1 turn + 36', { exact: true })).toBeVisible();
+  });
+}
 
 test('an inactive source preset remains visible while editing an existing brew', async ({
   page
@@ -431,6 +575,7 @@ test('kiosk servings rescale both batch totals', async ({ page }) => {
   await mockCommonApi(page, () => null, 'kiosk');
 
   await page.goto('/brews/new?kiosk=1');
+  await chooseReferenceGrinder(page);
   await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
   await setKioskNumber(page, 'Servings', '5');
 

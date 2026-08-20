@@ -45,6 +45,12 @@
     onchange?.(value);
   }
 
+  function handleInput(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    value =
+      input.value === '' || !Number.isFinite(input.valueAsNumber) ? null : input.valueAsNumber;
+  }
+
   async function openPad() {
     draft = value === null ? '' : String(value);
     error = '';
@@ -159,7 +165,8 @@
       <input
         aria-label={label}
         type="number"
-        bind:value
+        value={value ?? ''}
+        oninput={handleInput}
         onchange={() => onchange?.(value)}
         {min}
         {max}

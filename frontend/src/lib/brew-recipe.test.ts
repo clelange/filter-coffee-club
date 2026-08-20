@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyRecipeCalculation,
   presetDeviations,
+  presetGrinderSetting,
   recipeAmountError,
   snapGrinderSetting,
   type RecipeCalculationState
@@ -92,7 +93,8 @@ describe('preset conformance', () => {
     temperature_max_c: 96,
     active: true,
     sort_order: 1,
-    grinder_ranges: [{ grinder_id: 1, setting_min: 24, setting_max: 28 }]
+    reference_grinder_range: { setting_min: 24, setting_max: 28 },
+    grinder_ranges: [{ grinder_id: 1, setting_min: 24, setting_max: 28, source: 'reference' }]
   };
 
   it('reports only fields that deviate from the selected preset', () => {
@@ -111,6 +113,7 @@ describe('preset conformance', () => {
 describe('snapGrinderSetting', () => {
   const grinder: Grinder = {
     id: 1,
+    definition_key: 'custom',
     manufacturer: 'Orbit',
     model: 'One',
     setting_unit: 'turns',
@@ -129,5 +132,21 @@ describe('snapGrinderSetting', () => {
 
   it('always snaps click grinders to whole numbers', () => {
     expect(snapGrinderSetting(5.6, { ...grinder, setting_unit: 'clicks' })).toBe(6);
+  });
+
+  it('selects and snaps the midpoint for the chosen grinder', () => {
+    const midpointPreset: Preset = {
+      id: 2,
+      name: 'Custom range',
+      ratio: 16,
+      temperature_min_c: 92,
+      temperature_max_c: 96,
+      active: true,
+      sort_order: 2,
+      reference_grinder_range: null,
+      grinder_ranges: [{ grinder_id: 1, setting_min: 5, setting_max: 5.5, source: 'custom' }]
+    };
+    expect(presetGrinderSetting(midpointPreset, grinder)).toBe(5.25);
+    expect(presetGrinderSetting(midpointPreset, { ...grinder, id: 2 })).toBeNull();
   });
 });
