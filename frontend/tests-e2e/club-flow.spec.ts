@@ -2172,7 +2172,7 @@ test('a mismatched Mattermost key is diagnosed and only credential removal remai
 
 test('admin settings actions update without reloading unrelated data', async ({ page }) => {
   let settings: AppSettings = { ...publicAppSettings };
-  let peopleRequests = 0;
+  let peopleReads = 0;
   const adminSession: Session = {
     profile: {
       id: 1,
@@ -2204,8 +2204,17 @@ test('admin settings actions update without reloading unrelated data', async ({ 
     })
   );
   await page.route('**/api/v1/people', (route) => {
-    peopleRequests += 1;
-    return fulfillJson(route, []);
+    if (route.request().method() === 'POST') {
+      return fulfillJson(route, {
+        id: 2,
+        display_name: 'Aaron',
+        role: 'member',
+        active: true,
+        pin_change_required: true
+      });
+    }
+    peopleReads += 1;
+    return fulfillJson(route, [adminSession.profile]);
   });
   for (const path of ['grinders', 'drippers', 'filters']) {
     await page.route(`**/api/v1/${path}`, (route) => fulfillJson(route, []));
@@ -2246,12 +2255,22 @@ test('admin settings actions update without reloading unrelated data', async ({ 
   });
 
   await page.goto('/admin?kiosk=0');
+  await page.getByLabel('New member display name').fill('Aaron');
+  await page.getByLabel('Four-digit PIN').fill('5678');
+  await page.getByRole('button', { name: 'Add member' }).click();
+  await expect(page.getByText('Member added.')).toBeVisible();
+  const displayedPeople = await page
+    .getByLabel('Display name', { exact: true })
+    .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+  expect(displayedPeople).toEqual(['Aaron', 'Ada']);
+  expect(peopleReads).toBe(1);
+
   await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(page.getByAltText('Current brew-in-progress logo')).toHaveAttribute(
     'src',
     '/brand/filter-coffee-club-brewing.svg'
   );
-  expect(peopleRequests).toBe(1);
+  expect(peopleReads).toBe(1);
 
   const mattermostForm = page.locator('.mattermost-form');
   await mattermostForm
@@ -2274,12 +2293,12 @@ test('admin settings actions update without reloading unrelated data', async ({ 
     'src',
     '/brand/filter-coffee-club-logo-256.webp'
   );
-  expect(peopleRequests).toBe(1);
+  expect(peopleReads).toBe(1);
 
   await page.getByRole('button', { name: 'Use regular logo while brewing' }).click();
   await expect(page.getByText('The regular logo will be used while brewing.')).toBeVisible();
   await expect(page.getByText('The regular logo is currently reused while brewing.')).toBeVisible();
-  expect(peopleRequests).toBe(1);
+  expect(peopleReads).toBe(1);
 
   await page.getByRole('button', { name: 'Restore default brewing animation' }).click();
   await expect(page.getByText('Default brewing animation restored.')).toBeVisible();
@@ -2287,7 +2306,7 @@ test('admin settings actions update without reloading unrelated data', async ({ 
     'src',
     '/brand/filter-coffee-club-brewing.svg'
   );
-  expect(peopleRequests).toBe(1);
+  expect(peopleReads).toBe(1);
 });
 
 test('admin tab deep links survive the sign-in redirect', async ({ page }) => {

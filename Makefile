@@ -1,4 +1,4 @@
-.PHONY: install hooks format check test build e2e types types-check verify dev
+.PHONY: install hooks format check test build e2e types types-check audit verify dev
 
 install:
 	git lfs pull
@@ -37,6 +37,10 @@ types:
 
 types-check:
 	uv run python scripts/check_generated_api.py
+
+audit:
+	uv run pip-audit --local --skip-editable
+	pnpm --dir frontend audit --audit-level=moderate
 
 verify: check test types-check e2e
 

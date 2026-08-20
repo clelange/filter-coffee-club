@@ -25,12 +25,12 @@ from app.models import (
     MattermostNotification,
     Profile,
 )
-from app.schemas import MattermostChannelOption, MattermostVerifyResponse
+from app.schemas import MattermostChannelOption, MattermostVerifyResponse, ProfileUpdate
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from httpx import Response
 from PIL import Image
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -922,6 +922,111 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
             }
         ]
         assert len(client.get("/api/v1/presets").json()) == 8
+
+
+def test_concurrent_bootstrap_creates_exactly_one_administrator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with build_client(tmp_path) as client:
+        barrier = Barrier(2)
+        original_hash_pin = api_module.hash_pin
+
+        def synchronized_hash_pin(pin: str) -> str:
+            result = original_hash_pin(pin)
+            barrier.wait(timeout=10)
+            return result
+
+        monkeypatch.setattr(api_module, "hash_pin", synchronized_hash_pin)
+
+        def create_administrator(item: tuple[str, str]) -> tuple[int, dict]:
+            name, pin = item
+            response = client.post(
+                "/api/v1/auth/bootstrap",
+                json={"display_name": name, "pin": pin, "device_mode": "personal"},
+            )
+            return response.status_code, response.json()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    create_administrator,
+                    [("Ada", "1234"), ("Grace", "5678")],
+                )
+            )
+
+        assert sorted(status for status, _body in results) == [200, 409]
+        with client.app.state.session_factory() as db:
+            administrators = list(
+                db.scalars(select(Profile).where(Profile.role == "admin", Profile.active.is_(True)))
+            )
+        assert len(administrators) == 1
+
+
+def test_profile_changes_must_preserve_an_active_administrator(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        session, headers = bootstrap(client)
+        administrator_id = session["profile"]["id"]
+
+        for payload in ({"role": "member"}, {"active": False}):
+            response = client.put(
+                f"/api/v1/people/{administrator_id}",
+                headers=headers,
+                json=payload,
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"] == "At least one active administrator must remain"
+
+        second_admin = client.post(
+            "/api/v1/people",
+            headers=headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "admin"},
+        ).json()
+        demoted = client.put(
+            f"/api/v1/people/{administrator_id}",
+            headers=headers,
+            json={"role": "member"},
+        )
+        assert demoted.status_code == 200
+        assert demoted.json()["role"] == "member"
+        assert second_admin["role"] == "admin"
+
+
+def test_concurrent_profile_changes_preserve_an_active_administrator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with build_client(tmp_path) as client:
+        session, headers = bootstrap(client)
+        first_admin_id = session["profile"]["id"]
+        second_admin_id = client.post(
+            "/api/v1/people",
+            headers=headers,
+            json={"display_name": "Grace", "pin": "5678", "role": "admin"},
+        ).json()["id"]
+        barrier = Barrier(2)
+        original_reserve = api_module.reserve_admin_removal
+
+        def synchronized_reserve(db: Session, profile_id: int, payload: ProfileUpdate) -> None:
+            barrier.wait(timeout=10)
+            original_reserve(db, profile_id, payload)
+
+        monkeypatch.setattr(api_module, "reserve_admin_removal", synchronized_reserve)
+
+        def demote(profile_id: int) -> int:
+            return client.put(
+                f"/api/v1/people/{profile_id}", headers=headers, json={"role": "member"}
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            statuses = list(executor.map(demote, [first_admin_id, second_admin_id]))
+
+        assert sorted(statuses) == [200, 409]
+        with client.app.state.session_factory() as db:
+            active_admin_count = db.scalar(
+                select(func.count(Profile.id)).where(
+                    Profile.role == "admin", Profile.active.is_(True)
+                )
+            )
+        assert active_admin_count == 1
 
 
 def test_grinder_definitions_custom_ranges_and_live_conversion(tmp_path: Path) -> None:

@@ -40,6 +40,13 @@ class BootstrapInput(BaseModel):
     pin: str
     device_mode: Literal["kiosk", "personal"] = "personal"
 
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
     @field_validator("pin")
     @classmethod
     def validate_pin(cls, value: str) -> str:
@@ -83,6 +90,13 @@ class ProfileUpdate(BaseModel):
     active: bool | None = None
     pin_change_required: bool | None = None
     pin: str | None = None
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_optional_display_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("pin")
     @classmethod
