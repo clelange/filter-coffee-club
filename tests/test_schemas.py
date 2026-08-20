@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from app.schemas import BrewCorrection, BrewInput, BrewUpdate
+from app.schemas import BootstrapInput, BrewCorrection, BrewInput, BrewUpdate, ProfileUpdate
 from pydantic import ValidationError
 
 
@@ -48,3 +48,13 @@ def test_explicit_target_ratio_is_preserved_separately_from_actual_amounts() -> 
     payload = BrewInput(**brew_payload(dose_g=7.4, water_g=120, target_ratio=16.3))
     assert payload.target_ratio == 16.3
     assert payload.water_g / payload.dose_g != payload.target_ratio
+
+
+def test_profile_names_are_trimmed_and_must_not_be_blank() -> None:
+    assert BootstrapInput(display_name="  Ada  ", pin="1234").display_name == "Ada"
+    assert ProfileUpdate(display_name="  Grace  ").display_name == "Grace"
+
+    with pytest.raises(ValidationError):
+        BootstrapInput(display_name="   ", pin="1234")
+    with pytest.raises(ValidationError):
+        ProfileUpdate(display_name="   ")

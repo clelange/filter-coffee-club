@@ -353,6 +353,62 @@ def get_settings(db: Session) -> AppSettings:
     return settings
 
 
+def reserve_bootstrap(db: Session) -> None:
+    """Serialize the final first-run check with other bootstrap requests."""
+
+    reserved_id = db.scalar(
+        update(AppSettings)
+        .where(AppSettings.id == 1)
+        .values(active_brew_count=AppSettings.active_brew_count)
+        .returning(AppSettings.id)
+        .execution_options(synchronize_session=False)
+    )
+    if reserved_id is None:
+        raise RuntimeError("Application settings are missing during first-run setup")
+    if (db.scalar(select(func.count(Profile.id))) or 0) > 0:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Initial setup is already complete")
+
+
+def reserve_admin_removal(db: Session, profile_id: int, payload: ProfileUpdate) -> None:
+    """Prevent concurrent profile changes from removing the last active administrator."""
+
+    if payload.role != "member" and payload.active is not False:
+        return
+    another_active_admin = (
+        select(Profile.id)
+        .where(
+            Profile.id != profile_id,
+            Profile.role == "admin",
+            Profile.active.is_(True),
+        )
+        .exists()
+    )
+    reserved_id = db.scalar(
+        update(Profile)
+        .where(
+            Profile.id == profile_id,
+            or_(
+                Profile.role != "admin",
+                Profile.active.is_(False),
+                another_active_admin,
+            ),
+        )
+        .values(role=Profile.role)
+        .returning(Profile.id)
+        .execution_options(synchronize_session=False)
+    )
+    if reserved_id is not None:
+        return
+    db.rollback()
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    raise HTTPException(
+        status_code=409,
+        detail="At least one active administrator must remain",
+    )
+
+
 def uses_integer_clicks(grinder: Grinder) -> bool:
     return grinder.setting_unit.strip().lower() in {"click", "clicks"}
 
@@ -835,9 +891,11 @@ def bootstrap(
         raise HTTPException(status_code=403, detail="First-run setup is disabled in demo mode")
     if (db.scalar(select(func.count(Profile.id))) or 0) > 0:
         raise HTTPException(status_code=409, detail="Initial setup is already complete")
+    pin_hash = hash_pin(payload.pin)
+    reserve_bootstrap(db)
     profile = Profile(
         display_name=payload.display_name.strip(),
-        pin_hash=hash_pin(payload.pin),
+        pin_hash=pin_hash,
         role="admin",
         pin_change_required=False,
     )
@@ -1012,7 +1070,7 @@ def create_person(
     db.add(profile)
     try:
         db.commit()
-    except Exception as exc:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Display name is already in use") from exc
     db.refresh(profile)
@@ -1034,6 +1092,7 @@ def update_person(
         raise HTTPException(status_code=404, detail="Profile not found")
     if request.app.state.settings.demo_mode and is_protected_demo_profile(profile):
         raise HTTPException(status_code=403, detail="Seeded demo profiles cannot be changed")
+    reserve_admin_removal(db, profile_id, payload)
     reactivating = payload.active is True and not profile.active
     for key, value in payload.model_dump(exclude_unset=True, exclude={"pin"}).items():
         setattr(profile, key, value)
