@@ -18,6 +18,11 @@
   let pinchDistance = 0;
   let pinchZoom = 1;
   let previousBodyOverflow = '';
+  let previewStyle: string | undefined;
+
+  $: previewStyle = enabled
+    ? photoFramingStyle({ focus_x: focusX, focus_y: focusY, zoom })
+    : undefined;
 
   const clamp = (value: number, minimum: number, maximum: number) =>
     Math.min(maximum, Math.max(minimum, value));
@@ -31,11 +36,6 @@
   onDestroy(() => {
     document.body.style.overflow = previousBodyOverflow;
   });
-
-  function framingStyle(): string | undefined {
-    if (!enabled) return undefined;
-    return photoFramingStyle({ focus_x: focusX, focus_y: focusY, zoom });
-  }
 
   function enableFraming() {
     enabled = true;
@@ -179,14 +179,14 @@
             onwheel={wheel}
             onkeydown={moveWithKeyboard}
           >
-            <img class:framed={enabled} {src} {alt} draggable="false" style={framingStyle()} />
+            <img class:framed={enabled} {src} {alt} draggable="false" style={previewStyle} />
             {#if enabled}<div class="guide" aria-hidden="true"></div>{/if}
           </button>
         </div>
         <div class="detail-preview">
           <span>Detail preview</span>
           <div class="crop-frame detail">
-            <img class:framed={enabled} {src} alt="" draggable="false" style={framingStyle()} />
+            <img class:framed={enabled} {src} alt="" draggable="false" style={previewStyle} />
           </div>
         </div>
       </div>

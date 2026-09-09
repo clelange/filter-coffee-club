@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import type {
   ActiveBrews,
   AppSettings,
@@ -173,7 +174,7 @@ async function loginAda(page: Page, deviceMode: 'personal' | 'kiosk' = 'personal
   throw new Error('The Ada test profile could not be authenticated.');
 }
 
-async function createLifecycleCoffee(page: Page, session: Session, name: string) {
+async function createTestCoffee(page: Page, session: Session, name: string) {
   const response = await page.context().request.post('/api/v1/coffees', {
     headers: { 'X-CSRF-Token': session.csrf_token },
     data: { roaster: 'Lifecycle Roasters', name }
@@ -1935,7 +1936,7 @@ test('members can finish and restore coffee while kiosk details stay read-only',
   page
 }) => {
   const personalSession = await loginAda(page);
-  const coffee = await createLifecycleCoffee(page, personalSession, 'Detail lifecycle bag');
+  const coffee = await createTestCoffee(page, personalSession, 'Detail lifecycle bag');
 
   await page.goto(`/coffees/${coffee.id}`);
   await page.getByText('More actions', { exact: true }).click();
@@ -1973,7 +1974,7 @@ test('members can finish and restore coffee while kiosk details stay read-only',
 
 test('brew finalization can finish the selected coffee bag', async ({ page }) => {
   const session = await loginAda(page);
-  const coffee = await createLifecycleCoffee(page, session, 'Final Cup');
+  const coffee = await createTestCoffee(page, session, 'Final Cup');
 
   await page.goto(`/coffees/${coffee.id}`);
   await page.getByRole('link', { name: 'Brew this' }).click();
@@ -2540,4 +2541,83 @@ test('the rail waits for bootstrap and omits start during a mandatory PIN change
   await expect(page.getByRole('heading', { name: 'Choose your own PIN.' })).toBeVisible();
   await expect(page.getByTestId('active-brew-chip')).toContainText('Bootstrap Brew');
   await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);
+});
+
+test('photo framing previews update live at responsive viewport sizes', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Live framing preview');
+  const upload = await page.context().request.put(`/api/v1/coffees/${coffee.id}/photo`, {
+    headers: { 'X-CSRF-Token': session.csrf_token },
+    multipart: {
+      photo: {
+        name: 'ethiopia.webp',
+        mimeType: 'image/webp',
+        buffer: readFileSync(ethiopiaPhoto)
+      }
+    }
+  });
+  expect(upload.ok()).toBeTruthy();
+
+  await page.goto(`/coffees/${coffee.id}`);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit framing' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Adjust framing' });
+  const previews = dialog.locator('.crop-frame img');
+  await expect(previews).toHaveCount(2);
+
+  for (const framingCase of [
+    { viewport: { width: 1280, height: 800 }, zoom: '1.25', x: '0.2', y: '0.75' },
+    { viewport: { width: 768, height: 1024 }, zoom: '1.5', x: '0.7', y: '0.25' },
+    { viewport: { width: 393, height: 851 }, zoom: '1.8', x: '0.35', y: '0.6' }
+  ]) {
+    await page.setViewportSize(framingCase.viewport);
+    await dialog.getByLabel('Zoom').fill(framingCase.zoom);
+    await dialog.getByLabel('Horizontal position').fill(framingCase.x);
+    await dialog.getByLabel('Vertical position').fill(framingCase.y);
+
+    const xPercent = Number(framingCase.x) * 100;
+    const yPercent = Number(framingCase.y) * 100;
+    const expectedStyle = `object-position: ${xPercent}% ${yPercent}%; transform: scale(${Number(framingCase.zoom)}); transform-origin: ${xPercent}% ${yPercent}%;`;
+    await expect(previews.nth(0)).toHaveAttribute('style', expectedStyle);
+    await expect(previews.nth(1)).toHaveAttribute('style', expectedStyle);
+
+    await expect
+      .poll(() =>
+        dialog.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const actions = [...element.querySelectorAll<HTMLElement>('.editor-actions button')];
+          return {
+            dialogFits:
+              bounds.left >= 0 &&
+              bounds.top >= 0 &&
+              bounds.right <= window.innerWidth &&
+              bounds.bottom <= window.innerHeight,
+            actionsFit: actions.every((action) => {
+              const actionBounds = action.getBoundingClientRect();
+              return actionBounds.left >= 0 && actionBounds.right <= window.innerWidth;
+            }),
+            pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+          };
+        })
+      )
+      .toEqual({ dialogFits: true, actionsFit: true, pageFits: true });
+  }
+
+  await dialog.getByRole('button', { name: 'Use full image' }).click();
+  await expect(dialog.getByLabel('Zoom')).toBeDisabled();
+  for (const preview of await previews.all()) {
+    await expect(preview).not.toHaveAttribute('style');
+    await expect(preview).not.toHaveClass(/framed/);
+  }
+
+  await dialog.getByRole('button', { name: 'Center and fill' }).click();
+  await expect(dialog.getByLabel('Zoom')).toBeEnabled();
+  for (const preview of await previews.all()) {
+    await expect(preview).toHaveAttribute(
+      'style',
+      'object-position: 50% 50%; transform: scale(1); transform-origin: 50% 50%;'
+    );
+    await expect(preview).toHaveClass(/framed/);
+  }
 });
