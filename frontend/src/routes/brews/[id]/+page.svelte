@@ -8,6 +8,7 @@
     unusualBrewRatioDescription
   } from '$lib/brew-ratio';
   import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
+  import BrewerPicker from '$lib/BrewerPicker.svelte';
   import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
@@ -35,6 +36,9 @@
   let ratingInsightsError = $state('');
   let error = $state('');
   let finishing = $state(false);
+  let finishBrewerIds: number[] = $state([]);
+  let finishBrewersLoaded = $state(false);
+  let finishBrewersError = $state('');
   let finalMinutes = $state(3);
   let finalSeconds = $state(0);
   let actualWater = $state(0);
@@ -157,20 +161,25 @@
     }
   }
 
-  async function refreshDraft() {
-    if (
-      !brew ||
-      brew.status !== 'draft' ||
+  function draftRefreshBlocked(): boolean {
+    return (
+      brew?.status !== 'draft' ||
       finishing ||
       finalizing ||
       finalRatioConfirmationOpen ||
       operatorDialog ||
       changingStatus
-    )
-      return;
+    );
+  }
+
+  async function refreshDraft() {
+    if (!brew || draftRefreshBlocked()) return;
     try {
       const latest = await api<Brew>(`/brews/${brew.id}`);
-      if (latest.revision <= brew.revision) return;
+      // A dialog may have opened while this request was in flight. Keep the
+      // displayed recipe, brewer selection, and revision together until review.
+      if (draftRefreshBlocked() || latest.id !== brew.id || latest.revision <= brew.revision)
+        return;
       brew = latest;
       actualWater = latest.water_g;
       if (latest.status !== 'draft') await handleDraftEnded(latest);
@@ -199,11 +208,28 @@
     }
   }
 
-  function openFinishDialog() {
+  async function openFinishDialog() {
+    if (!brew) return;
+    finishBrewerIds = brew.operators.map((profile) => profile.id);
+    finishBrewersLoaded = false;
+    finishBrewersError = '';
     finishIssue = null;
     finishPreviouslyFocused =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     finishing = true;
+    if (canControlDraft()) {
+      try {
+        const available = await api<ProfileIdentity[]>('/auth/profiles');
+        operators = [
+          ...available,
+          ...brew.operators.filter((profile) => !available.some((item) => item.id === profile.id))
+        ];
+        finishBrewersLoaded = true;
+      } catch {
+        finishBrewersError =
+          'The brewer list could not be loaded. You can still finish with the currently recorded brewers.';
+      }
+    }
   }
 
   async function closeFinishDialog() {
@@ -322,6 +348,7 @@
   async function refreshAfterFinalizeConflict(brewId: number) {
     const latest = await api<Brew>(`/brews/${brewId}`);
     brew = latest;
+    finishBrewerIds = latest.operators.map((profile) => profile.id);
     if (latest.status === 'draft') {
       finishIssue = {
         kind: 'review',
@@ -370,7 +397,17 @@
           water_g: actualWater,
           total_brew_time_s: finalMinutes * 60 + finalSeconds,
           revision: brew.revision,
-          mark_coffee_finished: markCoffeeFinished
+          mark_coffee_finished: markCoffeeFinished,
+          operator_ids:
+            canControlDraft() &&
+            finishBrewersLoaded &&
+            [...finishBrewerIds].sort().join(',') !==
+              brew.operators
+                .map((profile) => profile.id)
+                .sort()
+                .join(',')
+              ? finishBrewerIds
+              : undefined
         })
       });
       brew = finalized;
@@ -662,6 +699,15 @@
             Actual water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
           </p>{/if}
         {#if finishIssue}<p class="error finish-error" role="alert">{finishIssue.message}</p>{/if}
+        {#if canControlDraft() && finishBrewersLoaded}
+          <BrewerPicker
+            profiles={operators}
+            bind:selected={finishBrewerIds}
+            primaryId={brew.operator_id}
+            disabled={finalizing}
+          />
+        {/if}
+        {#if finishBrewersError}<p class="hint" role="status">{finishBrewersError}</p>{/if}
         <label class="finish-coffee-check">
           <input type="checkbox" bind:checked={markCoffeeFinished} />
           <span>

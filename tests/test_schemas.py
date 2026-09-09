@@ -29,7 +29,7 @@ def test_brew_input_accepts_bloom_water_up_to_total_water(
     [
         (BrewInput, {}),
         (BrewUpdate, {"revision": 1}),
-        (BrewCorrection, {"total_brew_time_s": 180}),
+        (BrewCorrection, {"total_brew_time_s": 180, "revision": 1}),
     ],
 )
 def test_all_recipe_mutations_reject_bloom_water_above_total(

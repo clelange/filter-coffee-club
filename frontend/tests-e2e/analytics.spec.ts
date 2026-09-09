@@ -165,6 +165,29 @@ async function mockAnalyticsPage(page: Page) {
   );
 }
 
+test('a coffee results link keeps its selection through sign-in', async ({ page }) => {
+  await mockAnalyticsPage(page);
+  await page.route('**/api/v1/auth/me', (route) =>
+    route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Sign in' })
+    })
+  );
+  await page.route('**/api/v1/auth/profiles', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([session.profile])
+    })
+  );
+  await page.goto('/analytics?coffee=11&kiosk=0');
+  await expect(page).toHaveURL(/\/login\?/);
+  const next = new URL(page.url()).searchParams.get('next');
+  expect(new URL(next!, 'http://localhost').pathname).toBe('/analytics');
+  expect(new URL(next!, 'http://localhost').searchParams.get('coffee')).toBe('11');
+});
+
 test('recipe map exposes comparable axes, ratings, and brew details', async ({ page }) => {
   await mockAnalyticsPage(page);
   await page.goto('/analytics?kiosk=0');
@@ -187,14 +210,12 @@ test('recipe map exposes comparable axes, ratings, and brew details', async ({ p
   await expect(coffeeLegend.getByRole('listitem')).toHaveCount(2);
   await expect(coffeeLegend).toContainText('Atlas · Alpha');
   await expect(coffeeLegend).toContainText('Beacon · Beta');
-  await expect(settingsChart.locator('.plot-point[data-brew-id="101"] circle')).toHaveAttribute(
-    'fill',
-    '#0072B2'
-  );
-  await expect(settingsChart.locator('.plot-point[data-brew-id="201"] circle')).toHaveAttribute(
-    'fill',
-    '#D55E00'
-  );
+  await expect(
+    settingsChart.locator('.plot-point[data-brew-id="101"] .point-marker')
+  ).toHaveAttribute('fill', '#0072B2');
+  await expect(
+    settingsChart.locator('.plot-point[data-brew-id="201"] .point-marker')
+  ).toHaveAttribute('fill', '#D55E00');
   const comparisonCoffee = settingsChart.getByRole('combobox', {
     name: 'Coffee',
     exact: true
@@ -322,4 +343,58 @@ test('a touch point opens details first and follows its brew link on the second 
   await point.tap();
   await expect(page).toHaveURL(/\/brews\/102$/);
   await context.close();
+});
+
+test('coffee summaries and reference lines use the pooled server average', async ({ page }) => {
+  await mockAnalyticsPage(page);
+  const summary = {
+    coffee_id: 11,
+    name: 'Atlas · Alpha',
+    bag_label: 'Bag #11',
+    average: 6.43,
+    ratings: 7,
+    brews: 3,
+    tasters: 4,
+    chart_color: '#0072B2',
+    available: true,
+    best_brew: null
+  };
+  await page.route('**/api/v1/analytics', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...analytics,
+        coffee_summaries: [summary],
+        top_coffees: [summary],
+        ranking_min_ratings: 3
+      })
+    })
+  );
+  await page.goto('/analytics?coffee=11&kiosk=0');
+  const overview = page.locator('.coffee-overview');
+  await expect(overview).toContainText('6.43');
+  await expect(overview).toContainText('7 ratings · 3 brews');
+  await expect(overview.getByRole('link', { name: 'Atlas · Alpha' })).toHaveAttribute(
+    'href',
+    '/coffees/11'
+  );
+  const settingsChart = page.locator('.chart-panel').filter({
+    has: page.getByRole('heading', { name: 'Settings versus liking' })
+  });
+  await expect(settingsChart.getByTestId('coffee-average-line')).toBeAttached();
+  await expect(settingsChart).toContainText('Coffee average: 6.43');
+  await expect(page.getByRole('combobox', { name: 'Map coffee', exact: true })).toHaveValue('11');
+  await settingsChart
+    .getByRole('combobox', { name: 'Horizontal axis' })
+    .selectOption('target_flow_g_s');
+  await expect(settingsChart.locator('.plot-point')).toHaveCount(1);
+  await expect(settingsChart).toContainText('Coffee average: 6.43');
+  await settingsChart.getByRole('combobox', { name: 'Coffee', exact: true }).selectOption('all');
+  await expect(settingsChart.getByTestId('coffee-average-line')).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Map coffee', exact: true })).toHaveValue('');
+  await expect(
+    page.getByRole('heading', { name: 'Highest-rated brews', exact: true })
+  ).toBeVisible();
+  await expect(page.locator('.ranking').first()).toContainText('6.43');
 });

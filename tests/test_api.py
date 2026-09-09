@@ -567,7 +567,12 @@ def test_brew_transitions_create_and_cancel_durable_mattermost_events(
         correction = client.put(
             f"/api/v1/brews/{created['id']}/correction",
             headers=headers,
-            json={**brew_input, "temperature_c": 92, "total_brew_time_s": 181},
+            json={
+                "revision": client.get(f"/api/v1/brews/{created['id']}").json()["revision"],
+                **brew_input,
+                "temperature_c": 92,
+                "total_brew_time_s": 181,
+            },
         )
         assert correction.status_code == 200, correction.text
 
@@ -1926,7 +1931,10 @@ def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation
         blocked_correction = client.put(
             f"/api/v1/brews/{created['id']}/correction",
             headers=headers,
-            json=correction_payload,
+            json={
+                **correction_payload,
+                "revision": client.get(f"/api/v1/brews/{created['id']}").json()["revision"],
+            },
         )
         assert blocked_correction.status_code == 422
         unchanged = client.get(f"/api/v1/brews/{created['id']}").json()
@@ -1936,7 +1944,10 @@ def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation
         corrected = client.put(
             f"/api/v1/brews/{created['id']}/correction",
             headers={**headers, "X-Confirm-Unusual-Ratio": "true"},
-            json=correction_payload,
+            json={
+                **correction_payload,
+                "revision": client.get(f"/api/v1/brews/{created['id']}").json()["revision"],
+            },
         ).json()
         assert corrected["water_g"] == 660
         assert corrected["ratio"] == 82.5
@@ -2662,7 +2673,12 @@ def test_correcting_a_solo_operator_replaces_analytics_attribution(tmp_path: Pat
         corrected = client.put(
             f"/api/v1/brews/{brew['id']}/correction",
             headers=headers,
-            json={**brew_input, "operator_id": bob["id"], "total_brew_time_s": 180},
+            json={
+                "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
+                **brew_input,
+                "operator_id": bob["id"],
+                "total_brew_time_s": 180,
+            },
         )
 
         assert corrected.status_code == 200
@@ -4202,6 +4218,7 @@ def test_brew_qr_and_rating_visibility(tmp_path: Path) -> None:
             f"/api/v1/brews/{brew['id']}/correction",
             headers=admin_headers,
             json={
+                "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
                 "coffee_id": coffee["id"],
                 "grinder_id": grinder["id"],
                 "dripper_id": dripper["id"],
@@ -4399,7 +4416,10 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         corrected = client.put(
             f"/api/v1/brews/{brew['id']}/correction",
             headers=linus_headers,
-            json=correction,
+            json={
+                **correction,
+                "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
+            },
         )
         assert corrected.status_code == 200
         assert corrected.json()["operator_id"] == grace["id"]
@@ -4411,7 +4431,10 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
             client.put(
                 f"/api/v1/brews/{brew['id']}/correction",
                 headers=linus_headers,
-                json=correction,
+                json={
+                    **correction,
+                    "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
+                },
             ).status_code
             == 403
         )
@@ -4419,7 +4442,11 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         invalid_correction = client.put(
             f"/api/v1/brews/{brew['id']}/correction",
             headers=grace_headers,
-            json={**correction, "operator_id": inactive_operator["id"]},
+            json={
+                "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
+                **correction,
+                "operator_id": inactive_operator["id"],
+            },
         )
         assert invalid_correction.status_code == 422
         assert (
@@ -4440,7 +4467,10 @@ def test_brew_operator_reassignment_and_operator_corrections(tmp_path: Path) -> 
         admin_correction = client.put(
             f"/api/v1/brews/{brew['id']}/correction",
             headers=admin_headers,
-            json={key: value for key, value in correction.items() if key != "operator_id"},
+            json={
+                **{key: value for key, value in correction.items() if key != "operator_id"},
+                "revision": client.get(f"/api/v1/brews/{brew['id']}").json()["revision"],
+            },
         )
         assert admin_correction.status_code == 200
         assert admin_correction.json()["operator_id"] == grace["id"]
@@ -4527,6 +4557,7 @@ def test_concurrent_operator_transfers_are_atomic(tmp_path: Path, monkeypatch) -
                 f"/api/v1/brews/{completed['id']}/correction",
                 headers=grace_headers,
                 json={
+                    "revision": client.get(f"/api/v1/brews/{completed['id']}").json()["revision"],
                     **brew_input,
                     "operator_id": operator_id,
                     "temperature_c": temperature,
