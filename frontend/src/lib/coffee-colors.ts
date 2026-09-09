@@ -9,15 +9,37 @@ export const COFFEE_COLOR_PALETTE = [
   '#4D4D4D'
 ] as const;
 
-export function nextCoffeeColor(colors: string[]): string {
-  const counts = new Map<string, number>();
-  for (const color of colors) {
-    const normalized = color.toUpperCase();
-    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+function rgb(color: string): number[] {
+  return [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+}
+
+export function nextCoffeeColor(colors: string[], surface = '#FFFDFC'): string {
+  const used = new Set(colors.map((color) => color.toUpperCase()));
+  for (const color of COFFEE_COLOR_PALETTE) {
+    if (!used.has(color) && contrastRatio(color, surface) >= 3) return color;
   }
-  return COFFEE_COLOR_PALETTE.reduce((best, color) =>
-    (counts.get(color) ?? 0) < (counts.get(best) ?? 0) ? color : best
-  );
+  const peers = [...used].map(rgb);
+  let best = relativeLuminance(surface) > 0.179 ? '#000000' : '#FFFFFF';
+  let bestDistance = -1;
+  let candidates = 0;
+  for (let index = 0; index < 2 ** 24 && candidates < 64; index++) {
+    const color = `#${((index * 0x9e3779 + 0x4b6a80) & 0xffffff).toString(16).padStart(6, '0').toUpperCase()}`;
+    if (used.has(color) || contrastRatio(color, surface) < 3) continue;
+    candidates++;
+    const channels = rgb(color);
+    const distance = peers.length
+      ? Math.min(
+          ...peers.map((peer) =>
+            channels.reduce((sum, channel, i) => sum + (channel - peer[i]) ** 2, 0)
+          )
+        )
+      : 0;
+    if (distance > bestDistance) {
+      best = color;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 function relativeLuminance(color: string): number {

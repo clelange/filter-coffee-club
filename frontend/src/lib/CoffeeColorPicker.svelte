@@ -8,7 +8,12 @@
   export let surfaceColor = '#FFFDFC';
 
   $: peers = coffees.filter((coffee) => coffee.id !== currentCoffeeId);
-  $: effectiveColor = value || nextCoffeeColor(peers.map((coffee) => coffee.chart_color));
+  $: effectiveColor =
+    value ||
+    nextCoffeeColor(
+      peers.map((coffee) => coffee.chart_color),
+      surfaceColor
+    );
   $: duplicates = peers.filter(
     (coffee) => coffee.chart_color.toUpperCase() === effectiveColor.toUpperCase()
   );

@@ -185,6 +185,19 @@ def ensure_catalog_photo_writes_allowed(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Photo changes are disabled in demo mode")
 
 
+def automatic_coffee_color(
+    db: Session, coffee_id: int | None = None, excluded: tuple[str, ...] = ()
+) -> str:
+    # Serialize automatic allocation until the surrounding coffee write commits.
+    # Explicit user-selected colours may still be shared between bags.
+    settings = get_settings(db)
+    db.execute(text("UPDATE app_settings SET id = id WHERE id = 1"))
+    query = select(Coffee.chart_color)
+    if coffee_id is not None:
+        query = query.where(Coffee.id != coffee_id)
+    return next_coffee_color(db.scalars(query), excluded=excluded, surface=settings.color_surface)
+
+
 def photo_framing_tuple(framing: PhotoFraming | None) -> tuple[float, float, float] | None:
     if framing is None:
         return None
@@ -1146,8 +1159,7 @@ def create_coffee(
     enforce_demo_capacity(request, db, Coffee)
     coffee = Coffee(
         **payload.model_dump(exclude={"chart_color"}),
-        chart_color=payload.chart_color
-        or next_coffee_color(db.scalars(select(Coffee.chart_color))),
+        chart_color=payload.chart_color or automatic_coffee_color(db),
         created_by_id=login_session.profile_id,
         creation_token=idempotency_key,
         creation_request_hash=request_fingerprint if idempotency_key else None,
@@ -1259,9 +1271,7 @@ def update_coffee(
     for key, value in payload.model_dump(exclude={"chart_color"}).items():
         setattr(coffee, key, value)
     if "chart_color" in payload.model_fields_set:
-        coffee.chart_color = payload.chart_color or next_coffee_color(
-            db.scalars(select(Coffee.chart_color).where(Coffee.id != coffee.id))
-        )
+        coffee.chart_color = payload.chart_color or automatic_coffee_color(db, coffee_id=coffee.id)
     db.commit()
     db.refresh(coffee)
     return coffee
@@ -1404,9 +1414,7 @@ def clone_coffee(
         roast_level=source.roast_level,
         variety=source.variety,
         package_notes=source.package_notes,
-        chart_color=next_coffee_color(
-            db.scalars(select(Coffee.chart_color)), excluded=(source.chart_color,)
-        ),
+        chart_color=automatic_coffee_color(db, excluded=(source.chart_color,)),
         cloned_from_id=source.id,
         created_by_id=login_session.profile_id,
     )
