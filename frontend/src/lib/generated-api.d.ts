@@ -1161,6 +1161,52 @@ export interface components {
             average: number;
             /** Ratings */
             ratings: number;
+            /**
+             * Brews
+             * @default 0
+             */
+            brews: number;
+            /**
+             * Tasters
+             * @default 0
+             */
+            tasters: number;
+            /**
+             * Bag Label
+             * @default
+             */
+            bag_label: string;
+        };
+        /** AnalyticsCoffeeSummary */
+        AnalyticsCoffeeSummary: {
+            /** Coffee Id */
+            coffee_id: number;
+            /** Name */
+            name: string;
+            /** Average */
+            average: number;
+            /** Ratings */
+            ratings: number;
+            /**
+             * Brews
+             * @default 0
+             */
+            brews: number;
+            /**
+             * Tasters
+             * @default 0
+             */
+            tasters: number;
+            /**
+             * Bag Label
+             * @default
+             */
+            bag_label: string;
+            /** Chart Color */
+            chart_color: string;
+            /** Available */
+            available: boolean;
+            best_brew?: components["schemas"]["RatedBrewInsight"] | null;
         };
         /** AnalyticsCounts */
         AnalyticsCounts: {
@@ -1259,6 +1305,13 @@ export interface components {
             operator_counts: components["schemas"]["AnalyticsOperatorCount"][];
             /** Scatter */
             scatter: components["schemas"]["AnalyticsPoint"][];
+            /** Coffee Summaries */
+            coffee_summaries?: components["schemas"]["AnalyticsCoffeeSummary"][];
+            /**
+             * Ranking Min Ratings
+             * @default 3
+             */
+            ranking_min_ratings: number;
         };
         /** AppSettingsResponse */
         AppSettingsResponse: {
@@ -1415,6 +1468,8 @@ export interface components {
         };
         /** BrewCorrection */
         BrewCorrection: {
+            /** Operator Ids */
+            operator_ids?: number[] | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1450,13 +1505,57 @@ export interface components {
             pour_count?: number | null;
             /** Technique Note */
             technique_note?: string | null;
+            /** Revision */
+            revision: number;
             /** Operator Id */
             operator_id?: number | null;
             /** Total Brew Time S */
             total_brew_time_s: number;
         };
+        /** BrewCreate */
+        BrewCreate: {
+            /** Operator Ids */
+            operator_ids?: number[] | null;
+            /** Coffee Id */
+            coffee_id: number;
+            /** Grinder Id */
+            grinder_id: number;
+            /** Dripper Id */
+            dripper_id?: number | null;
+            /** Filter Id */
+            filter_id?: number | null;
+            /** Source Preset Id */
+            source_preset_id?: number | null;
+            /** Dose G */
+            dose_g: number;
+            /** Water G */
+            water_g: number;
+            /** Target Ratio */
+            target_ratio?: number | null;
+            /** Temperature C */
+            temperature_c: number;
+            /** Grinder Setting */
+            grinder_setting: number;
+            /**
+             * Servings
+             * @default 1
+             */
+            servings: number;
+            /** Target Flow G S */
+            target_flow_g_s?: number | null;
+            /** Bloom Water G */
+            bloom_water_g?: number | null;
+            /** Bloom Time S */
+            bloom_time_s?: number | null;
+            /** Pour Count */
+            pour_count?: number | null;
+            /** Technique Note */
+            technique_note?: string | null;
+        };
         /** BrewFinalize */
         BrewFinalize: {
+            /** Operator Ids */
+            operator_ids?: number[] | null;
             /** Water G */
             water_g?: number | null;
             /** Total Brew Time S */
@@ -1468,44 +1567,6 @@ export interface components {
              * @default false
              */
             mark_coffee_finished: boolean;
-        };
-        /** BrewInput */
-        BrewInput: {
-            /** Coffee Id */
-            coffee_id: number;
-            /** Grinder Id */
-            grinder_id: number;
-            /** Dripper Id */
-            dripper_id?: number | null;
-            /** Filter Id */
-            filter_id?: number | null;
-            /** Source Preset Id */
-            source_preset_id?: number | null;
-            /** Dose G */
-            dose_g: number;
-            /** Water G */
-            water_g: number;
-            /** Target Ratio */
-            target_ratio?: number | null;
-            /** Temperature C */
-            temperature_c: number;
-            /** Grinder Setting */
-            grinder_setting: number;
-            /**
-             * Servings
-             * @default 1
-             */
-            servings: number;
-            /** Target Flow G S */
-            target_flow_g_s?: number | null;
-            /** Bloom Water G */
-            bloom_water_g?: number | null;
-            /** Bloom Time S */
-            bloom_time_s?: number | null;
-            /** Pour Count */
-            pour_count?: number | null;
-            /** Technique Note */
-            technique_note?: string | null;
         };
         /** BrewOperatorUpdate */
         BrewOperatorUpdate: {
@@ -1600,6 +1661,8 @@ export interface components {
         };
         /** BrewUpdate */
         BrewUpdate: {
+            /** Operator Ids */
+            operator_ids?: number[] | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1814,6 +1877,17 @@ export interface components {
             rated_brews?: components["schemas"]["RatedBrewInsight"][];
             /** Next Offset */
             next_offset?: number | null;
+            /**
+             * Taster Count
+             * @default 0
+             */
+            taster_count: number;
+            best_brew?: components["schemas"]["RatedBrewInsight"] | null;
+            /**
+             * Ranking Min Ratings
+             * @default 3
+             */
+            ranking_min_ratings: number;
         };
         /** CoffeeResponse */
         CoffeeResponse: {
@@ -4342,7 +4416,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BrewInput"];
+                "application/json": components["schemas"]["BrewCreate"];
             };
         };
         responses: {
@@ -4628,7 +4702,9 @@ export interface operations {
     clone_brew_api_v1_brews__brew_id__clone_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
             path: {
                 brew_id: number;
             };

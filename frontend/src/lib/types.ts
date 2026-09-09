@@ -376,6 +376,9 @@ export interface RatedBrewInsight {
 }
 
 export interface CoffeeRatingInsights {
+  best_brew: RatedBrewInsight | null;
+  taster_count: number;
+  ranking_min_ratings: number;
   coffee_id: number;
   aggregate: RatingAggregate;
   rated_brew_count: number;

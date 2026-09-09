@@ -17,6 +17,8 @@
   let loading = $state(true);
   let error = $state('');
   let comparisonError = $state('');
+  let repeatingBrewId = $state<number | null>(null);
+  const repeatKeys = new Map<number, string>();
   let joiningBrewId = $state<number | null>(null);
   const active = $derived($brewStatusStore);
 
@@ -53,8 +55,13 @@
   }
 
   async function repeat(brew: Brew) {
+    if (repeatingBrewId !== null) return;
+    repeatingBrewId = brew.id;
+    const key = repeatKeys.get(brew.id) ?? crypto.randomUUID();
+    repeatKeys.set(brew.id, key);
     try {
       const clone = await api<Brew>(`/brews/${brew.id}/clone`, {
+        headers: { 'Idempotency-Key': key },
         method: 'POST',
         body: jsonBody({})
       });
@@ -63,6 +70,8 @@
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not start another brew.';
       await refreshBrewStatusAfterMutation().catch(() => undefined);
+    } finally {
+      repeatingBrewId = null;
     }
   }
 
@@ -218,7 +227,11 @@
                   : 'View record'}</a
             >
             {#if $sessionStore && brew.status === 'completed'}
-              <button class="secondary" onclick={() => repeat(brew)}>Repeat</button>
+              <button
+                class="secondary"
+                disabled={repeatingBrewId !== null}
+                onclick={() => repeat(brew)}>Repeat</button
+              >
             {/if}
           </div>
         </article>

@@ -1154,7 +1154,7 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     )
     .toBe(true);
   await phone.goto('/analytics');
-  await expect(phone.getByRole('heading', { name: 'Find the useful signal.' })).toBeVisible();
+  await expect(phone.getByRole('heading', { name: 'Coffee results.' })).toBeVisible();
   await expect(
     phone.locator('.operator-list').getByRole('link', { name: 'Ada', exact: true })
   ).toBeVisible();

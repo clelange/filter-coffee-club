@@ -3,6 +3,7 @@
   import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
 
   type AnalyticsScatterPoint = components['schemas']['AnalyticsPoint'];
+  type CoffeeSummary = components['schemas']['AnalyticsCoffeeSummary'];
   type PlotKey = AnalyticsAxisKey | 'liking';
   interface ScaleSpec {
     minimum: number;
@@ -18,6 +19,9 @@
   export let colorKey: AnalyticsRatingKey | null = null;
   export let colorLabel = '';
   export let colorByCoffee = false;
+  export let coffeeSummaries: CoffeeSummary[] = [];
+  export let coffeeAverage: CoffeeSummary | null = null;
+  export let onselectcoffee: ((id: number) => void) | undefined = undefined;
 
   const width = 680;
   const height = 410;
@@ -153,6 +157,23 @@
     return `#${channels.join('')}`;
   }
 
+  function markerPath(id: number, x: number, y: number, radius: number): string {
+    switch (id % 5) {
+      case 1: {
+        const half = radius * 0.85;
+        return `M${x - half},${y - half}h${half * 2}v${half * 2}h${-half * 2}Z`;
+      }
+      case 2:
+        return `M${x},${y - radius * 1.2}L${x + radius * 1.1},${y + radius * 0.8}L${x - radius * 1.1},${y + radius * 0.8}Z`;
+      case 4: {
+        const arm = radius * 0.4;
+        return `M${x - arm},${y - radius}h${arm * 2}v${radius - arm}h${radius - arm}v${arm * 2}h${-radius + arm}v${radius - arm}h${-arm * 2}v${-radius + arm}h${-radius + arm}v${-arm * 2}h${radius - arm}Z`;
+      }
+      default:
+        return `M${x},${y - radius * 1.2}L${x + radius},${y}L${x},${y + radius * 1.2}L${x - radius},${y}Z`;
+    }
+  }
+
   function detailLabel(point: AnalyticsScatterPoint): string {
     const coordinate = `${xLabel} ${formatNumber(value(point, xKey))}; ${yLabel} ${formatNumber(value(point, yKey))}`;
     if (!colorKey) {
@@ -228,7 +249,28 @@
       y2={height - bottom}
     />
     <line class="axis-line" x1={left} y1={top} x2={left} y2={height - bottom} />
+    {#if coffeeAverage && yKey === 'liking'}
+      <line
+        class="coffee-average"
+        data-testid="coffee-average-line"
+        x1={left}
+        x2={width - right}
+        y1={position(coffeeAverage.average, yScale, height - bottom, top)}
+        y2={position(coffeeAverage.average, yScale, height - bottom, top)}
+      />
+      <text
+        class="average-label"
+        x={left + 8}
+        y={Math.max(top + 12, position(coffeeAverage.average, yScale, height - bottom, top) - 10)}
+        >Coffee average: {coffeeAverage.average}</text
+      >
+    {/if}
     {#each plottedPoints as item (item.point.brew_id)}
+      {@const fill = colorKey
+        ? interpolateColor(item.point.rating_metrics[colorKey].average)
+        : colorByCoffee
+          ? item.point.coffee_color
+          : 'var(--cyan)'}
       <a
         class="plot-point"
         class:selected={activePoint?.brew_id === item.point.brew_id}
@@ -236,23 +278,37 @@
         href={`/brews/${item.point.brew_id}`}
         tabindex="0"
         aria-label={detailLabel(item.point)}
-        on:focus={() => select(item.point)}
-        on:mouseenter={() => select(item.point)}
-        on:pointerdown={(event) => preparePointer(event, item.point)}
-        on:click={(event) => activate(event, item.point)}
+        onfocus={() => select(item.point)}
+        onmouseenter={() => select(item.point)}
+        onpointerdown={(event) => preparePointer(event, item.point)}
+        onclick={(event) => activate(event, item.point)}
       >
-        <circle
-          cx={item.cx}
-          cy={item.cy}
-          r={6 + Math.min(item.point.ratings, 6)}
-          fill={colorKey
-            ? interpolateColor(item.point.rating_metrics[colorKey].average)
-            : colorByCoffee
-              ? item.point.coffee_color
-              : 'var(--cyan)'}
-        >
-          <title>{detailLabel(item.point)}</title>
-        </circle>
+        {#if colorByCoffee && item.point.coffee_id % 5 !== 0}
+          <path
+            class="point-marker"
+            d={markerPath(
+              item.point.coffee_id,
+              item.cx,
+              item.cy,
+              6 + Math.min(item.point.ratings, 6)
+            )}
+            {fill}><title>{detailLabel(item.point)}</title></path
+          >
+        {:else}
+          <circle
+            class="point-marker"
+            cx={item.cx}
+            cy={item.cy}
+            r={6 + Math.min(item.point.ratings, 6)}
+            fill={colorKey
+              ? interpolateColor(item.point.rating_metrics[colorKey].average)
+              : colorByCoffee
+                ? item.point.coffee_color
+                : 'var(--cyan)'}
+          >
+            <title>{detailLabel(item.point)}</title>
+          </circle>
+        {/if}
       </a>
     {/each}
     <text class="axis-title x-title" x={(left + width - right) / 2} y={height - 14}>{xLabel}</text>
@@ -282,7 +338,33 @@
     aria-label="Coffee colors in this recipe comparison"
   >
     {#each coffeeSeries as series (series.id)}
-      <span role="listitem"><i style={`--series-color:${series.color}`}></i>{series.name}</span>
+      {@const summary = coffeeSummaries.find((coffee) => coffee.coffee_id === series.id)}
+      <span role="listitem">
+        <button
+          type="button"
+          class="series-button"
+          aria-label={`Explore ${series.name}, bag ${series.id}`}
+          aria-pressed={coffeeAverage?.coffee_id === series.id}
+          onclick={() => onselectcoffee?.(series.id)}
+        >
+          <svg class="series-marker" viewBox="0 0 24 24" aria-hidden="true">
+            {#if series.id % 5 === 0}<circle
+                cx="12"
+                cy="12"
+                r="8"
+                fill={series.color}
+              />{:else}<path d={markerPath(series.id, 12, 12, 8)} fill={series.color} />{/if}
+          </svg>
+          <span
+            >{series.name} · Bag #{series.id}
+
+            {#if summary}<small
+                >{summary.average} / 9 · {summary.ratings} ratings · {summary.brews} brews · {summary.tasters}
+                tasters</small
+              >{/if}
+          </span>
+        </button>
+      </span>
     {/each}
   </div>
 {/if}
@@ -317,6 +399,49 @@
 </div>
 
 <style>
+  .coffee-average {
+    stroke: var(--ink);
+    stroke-width: 2;
+    stroke-dasharray: 8 5;
+  }
+  .average-label {
+    fill: var(--ink);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 4px;
+    font-weight: 800;
+  }
+  .series-button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    min-height: 44px;
+    padding: 8px 10px;
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+  }
+  .series-button[aria-pressed='true'] {
+    border-color: var(--ink);
+  }
+  .series-button span {
+    display: grid;
+    gap: 3px;
+  }
+  .series-button small {
+    color: var(--muted);
+    font-size: 0.7rem;
+  }
+  svg.series-marker {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    flex: 0 0 auto;
+  }
+
   .plot-scroll {
     width: 100%;
     overflow-x: auto;
@@ -358,20 +483,17 @@
     fill: var(--ink);
     font-weight: 800;
   }
-  .plot-point circle {
-    fill-opacity: 0.82;
+  .plot-point .point-marker {
     stroke: var(--surface);
     stroke-width: 2.5;
     vector-effect: non-scaling-stroke;
     transition:
       stroke 120ms ease,
-      stroke-width 120ms ease,
-      fill-opacity 120ms ease;
+      stroke-width 120ms ease;
   }
-  .plot-point:hover circle,
-  .plot-point:focus circle,
-  .plot-point.selected circle {
-    fill-opacity: 1;
+  .plot-point:hover .point-marker,
+  .plot-point:focus .point-marker,
+  .plot-point.selected .point-marker {
     stroke: var(--ink);
     stroke-width: 3.5;
   }
@@ -416,13 +538,6 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-  }
-  .series-legend i {
-    width: 12px;
-    height: 12px;
-    border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
-    border-radius: 999px;
-    background: var(--series-color);
   }
   .point-details {
     display: flex;

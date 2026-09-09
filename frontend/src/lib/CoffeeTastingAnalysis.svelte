@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BestBrewCard from '$lib/BestBrewCard.svelte';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
@@ -20,7 +21,8 @@
     <p class="muted">
       {insights.aggregate.count} tasting {insights.aggregate.count === 1 ? 'response' : 'responses'}
       across {insights.rated_brew_count} rated
-      {insights.rated_brew_count === 1 ? 'brew' : 'brews'}.
+      {insights.rated_brew_count === 1 ? 'brew' : 'brews'} · {insights.taster_count} tasters. Every rating
+      has equal weight.
     </p>
   </div>
   <div class="aggregate-layout">
@@ -34,6 +36,16 @@
     </div>
   </div>
 </section>
+
+<BestBrewCard
+  coffeeName={`${coffee.roaster} · ${coffee.name} · Bag #${coffee.id}`}
+  result={insights.best_brew}
+  available={coffee.available}
+  minimumRatings={insights.ranking_min_ratings}
+/>
+<a class="button secondary" href={`/analytics?coffee=${coffee.id}`}
+  >Explore this coffee’s settings</a
+>
 
 <section class="comparison-section" aria-labelledby="comparison-heading">
   <div class="section-heading">
@@ -52,10 +64,11 @@
               <p class="eyebrow">Brew #{result.brew.id}</p>
               <h3>{formatCatalogDate(result.brew.completed_at)}</h3>
               <span
-                >by <ProfileLink
-                  profileId={result.brew.operator_id}
-                  displayName={result.brew.operator_name}
-                /> · {result.aggregate.count}
+                >by {#each result.brew.operators as brewer, index}{#if index},
+                  {/if}<ProfileLink
+                    profileId={brewer.id}
+                    displayName={brewer.display_name}
+                  />{/each} · {result.aggregate.count}
                 {result.aggregate.count === 1 ? 'rating' : 'ratings'}</span
               >
             </div>

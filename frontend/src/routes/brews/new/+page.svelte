@@ -17,6 +17,7 @@
     type RecipeCalculationAction,
     type RecipeCalculationState
   } from '$lib/brew-recipe';
+  import BrewerPicker from '$lib/BrewerPicker.svelte';
   import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
   import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
@@ -48,6 +49,11 @@
   let filters: BrewFilter[] = $state([]);
   let presets: Preset[] = $state([]);
   let operators: ProfileIdentity[] = $state([]);
+  let originalBrewerIds = '';
+  let selectedBrewerIds: number[] = $state([]);
+  let canManageBrewers = $state(false);
+  let repeatingBrewId = $state<number | null>(null);
+  const repeatKeys = new Map<number, string>();
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
   let sourceRevision = $state(0);
@@ -163,6 +169,7 @@
       correctionMinutes,
       correctionSeconds,
       correctionOperatorId,
+      selectedBrewerIds,
       showCoffeeForm,
       newCoffee
     });
@@ -192,6 +199,10 @@
       await goto(loginPath($page.url.pathname + $page.url.search));
       return;
     }
+    selectedBrewerIds = [session.profile.id];
+    originalOperatorId = session.profile.id;
+    originalBrewerIds = String(session.profile.id);
+    canManageBrewers = true;
     correctionId = Number($page.url.searchParams.get('correct')) || null;
     editId = Number($page.url.searchParams.get('edit')) || null;
     const repeatId = Number($page.url.searchParams.get('repeat')) || null;
@@ -224,7 +235,7 @@
         api<Dripper[]>('/drippers'),
         api<BrewFilter[]>('/filters'),
         api<Preset[]>('/presets?active_only=false'),
-        correctionId ? api<ProfileIdentity[]>('/auth/profiles') : Promise.resolve([])
+        api<ProfileIdentity[]>('/auth/profiles')
       ]);
       coffeeColorPeers = coffeeItems;
       coffees = coffeeItems.filter((coffee) => coffee.available);
@@ -251,11 +262,25 @@
           await goto(`/brews/${correctionId}`);
           return;
         }
-        if (!grinderItems.some((item) => item.id === source.grinder_id)) {
-          const sourceGrinder = await api<Grinder>(`/grinders/${source.grinder_id}`);
-          grinders = [...grinders, sourceGrinder];
-        }
+        [grinders, drippers, filters] = await Promise.all([
+          includeRecordedEquipment(grinders, source.grinder_id, '/grinders'),
+          includeRecordedEquipment(drippers, source.dripper_id, '/drippers'),
+          includeRecordedEquipment(filters, source.filter_id, '/filters')
+        ]);
         copyBrew(source);
+        if (editId || correctionId) {
+          selectedBrewerIds = source.operators.map((profile) => profile.id);
+          originalBrewerIds = [...selectedBrewerIds].sort().join(',');
+          originalOperatorId = source.operator_id;
+          canManageBrewers =
+            session.profile.role === 'admin' || session.profile.id === source.operator_id;
+          operators = [
+            ...operators,
+            ...source.operators.filter(
+              (profile) => !operators.some((item) => item.id === profile.id)
+            )
+          ];
+        }
         let sourceCoffee = coffeeItems.find((coffee) => coffee.id === source.coffee_id);
         if (!sourceCoffee && (editId || correctionId)) {
           sourceCoffee = await api<Coffee>(`/coffees/${source.coffee_id}`);
@@ -269,7 +294,7 @@
             'The coffee from that recipe is no longer available. Choose an available bag before saving.';
         }
         sourceRevision = source.revision;
-        if (editId) revisionTimer = setInterval(checkEditorRevision, 3000);
+        if (editId || correctionId) revisionTimer = setInterval(checkEditorRevision, 3000);
         if (correctionId) {
           correctionOperatorId = source.operator_id;
           originalOperatorId = source.operator_id;
@@ -318,9 +343,9 @@
   }
 
   async function checkEditorRevision() {
-    if (!editId || editorChangedExternally) return;
+    if (!(editId || correctionId) || editorChangedExternally) return;
     try {
-      const latest = await api<Brew>(`/brews/${editId}`);
+      const latest = await api<Brew>(`/brews/${editId || correctionId}`);
       if (latest.revision !== sourceRevision) editorChangedExternally = true;
     } catch {
       // Submission remains the authoritative conflict check when polling is unavailable.
@@ -355,6 +380,15 @@
       servings: source.servings
     };
     grinderSettingNeedsReview = false;
+  }
+
+  async function includeRecordedEquipment<T extends { id: number }>(
+    items: T[],
+    id: number | null,
+    endpoint: string
+  ): Promise<T[]> {
+    if (id === null || items.some((item) => item.id === id)) return items;
+    return [...items, await api<T>(`${endpoint}/${id}`)];
   }
 
   async function loadHistory() {
@@ -498,7 +532,14 @@
 
   async function saveBrew(confirmUnusualRatio: boolean) {
     if (saving || form.grinder_setting === null) return;
-    const brewForm: BrewInput = { ...form, grinder_setting: form.grinder_setting };
+    const brewForm = {
+      ...form,
+      grinder_setting: form.grinder_setting,
+      operator_ids:
+        canManageBrewers && [...selectedBrewerIds].sort().join(',') !== originalBrewerIds
+          ? selectedBrewerIds
+          : undefined
+    };
     ratioConfirmationOpen = false;
     saving = true;
     error = '';
@@ -523,6 +564,7 @@
                 ...brewForm,
                 operator_id:
                   correctionOperatorId !== originalOperatorId ? correctionOperatorId : undefined,
+                revision: sourceRevision,
                 total_brew_time_s: correctionMinutes * 60 + correctionSeconds
               }
             : editId
@@ -551,9 +593,14 @@
   }
 
   async function clone(source: Brew) {
+    if (repeatingBrewId !== null) return;
+    repeatingBrewId = source.id;
+    const key = repeatKeys.get(source.id) ?? crypto.randomUUID();
+    repeatKeys.set(source.id, key);
     error = '';
     try {
       const brew = await api<Brew>(`/brews/${source.id}/clone`, {
+        headers: { 'Idempotency-Key': key },
         method: 'POST',
         body: jsonBody({})
       });
@@ -561,6 +608,8 @@
       await goto(`/brews/${brew.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not repeat this brew.';
+    } finally {
+      repeatingBrewId = null;
     }
   }
 
@@ -867,14 +916,16 @@
         <label
           >Dripper<select bind:value={form.dripper_id}
             ><option value={null}>Not recorded</option>{#each drippers as item}<option
-                value={item.id}>{item.manufacturer ?? ''} {item.model}</option
+                value={item.id}
+                >{item.manufacturer ?? ''}
+                {item.model}{item.archived ? ' · archived (recorded)' : ''}</option
               >{/each}</select
           ></label
         >
         <label
           >Filter<select bind:value={form.filter_id}
             ><option value={null}>Not recorded</option>{#each filters as item}<option
-                value={item.id}>{item.name}</option
+                value={item.id}>{item.name}{item.archived ? ' · archived (recorded)' : ''}</option
               >{/each}</select
           ></label
         >
@@ -928,12 +979,32 @@
           {/if}
         </div>
       </details>
+      {#if canManageBrewers}
+        <BrewerPicker
+          profiles={operators}
+          bind:selected={selectedBrewerIds}
+          primaryId={correctionId ? correctionOperatorId : originalOperatorId}
+          disabled={saving}
+        />
+      {/if}
       {#if correctionId}
         <fieldset>
           <legend>Recorded result</legend>
           <label>
-            Operator
-            <select bind:value={correctionOperatorId} required>
+            Primary brewer
+            <select
+              value={correctionOperatorId}
+              required
+              onchange={(event) => {
+                correctionOperatorId = Number(event.currentTarget.value);
+                if (!selectedBrewerIds.includes(correctionOperatorId)) {
+                  selectedBrewerIds =
+                    selectedBrewerIds.length === 1
+                      ? [correctionOperatorId]
+                      : [...selectedBrewerIds, correctionOperatorId];
+                }
+              }}
+            >
               {#if !operators.some((operator) => operator.id === originalOperatorId)}
                 <option value={originalOperatorId}
                   >{originalOperatorName} (current; inactive)</option
@@ -1037,7 +1108,12 @@
                     /></small
                   >
                 </div>
-                <button class="secondary" type="button" onclick={() => clone(brew)}>Repeat</button>
+                <button
+                  class="secondary"
+                  type="button"
+                  disabled={repeatingBrewId !== null}
+                  onclick={() => clone(brew)}>Repeat</button
+                >
               </article>{/each}
           </div>
         {/if}

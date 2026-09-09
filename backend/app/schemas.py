@@ -410,11 +410,28 @@ class BrewInput(BaseModel):
         return self
 
 
-class BrewUpdate(BrewInput):
+class BrewParticipants(BaseModel):
+    operator_ids: list[int] | None = Field(default=None, min_length=1)
+
+    @field_validator("operator_ids")
+    @classmethod
+    def validate_operator_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None:
+            if len(value) != len(set(value)) or any(item <= 0 for item in value):
+                raise ValueError("Brewers must be distinct valid profiles")
+            return sorted(value)
+        return value
+
+
+class BrewCreate(BrewInput, BrewParticipants):
+    pass
+
+
+class BrewUpdate(BrewCreate):
     revision: int = Field(ge=1)
 
 
-class BrewFinalize(BaseModel):
+class BrewFinalize(BrewParticipants):
     water_g: float | None = Field(default=None, gt=0, le=5000)
     total_brew_time_s: int = Field(gt=0, le=3600)
     revision: int = Field(ge=1)
@@ -430,7 +447,7 @@ class BrewStatusChange(BaseModel):
     revision: int = Field(ge=1)
 
 
-class BrewCorrection(BrewInput):
+class BrewCorrection(BrewUpdate):
     operator_id: int | None = None
     total_brew_time_s: int = Field(gt=0, le=3600)
 
@@ -562,6 +579,9 @@ class CoffeeRatingInsights(BaseModel):
     rated_brew_count: int
     rated_brews: list[RatedBrewInsight] = Field(default_factory=list)
     next_offset: int | None = None
+    taster_count: int = 0
+    best_brew: RatedBrewInsight | None = None
+    ranking_min_ratings: int = 3
 
 
 class RatingSummary(BaseModel):
@@ -619,6 +639,15 @@ class AnalyticsCoffeeRank(BaseModel):
     name: str
     average: float
     ratings: int
+    brews: int = 0
+    tasters: int = 0
+    bag_label: str = ""
+
+
+class AnalyticsCoffeeSummary(AnalyticsCoffeeRank):
+    chart_color: str
+    available: bool
+    best_brew: RatedBrewInsight | None = None
 
 
 class AnalyticsRecipeRank(BaseModel):
@@ -675,6 +704,8 @@ class AnalyticsResponse(BaseModel):
     flavor_counts: dict[str, int]
     operator_counts: list[AnalyticsOperatorCount]
     scatter: list[AnalyticsPoint]
+    coffee_summaries: list[AnalyticsCoffeeSummary] = Field(default_factory=list)
+    ranking_min_ratings: int = 3
 
 
 class RatingLinkResponse(BaseModel):

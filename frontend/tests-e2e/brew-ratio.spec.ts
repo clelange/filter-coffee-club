@@ -552,17 +552,25 @@ for (const [flow, query, status] of [
   ['repeat', 'repeat', 'completed'],
   ['correction', 'correct', 'completed']
 ] as const) {
-  test(`${flow} keeps an archived recorded grinder and setting`, async ({ page }) => {
+  test(`${flow} keeps archived recorded equipment and settings`, async ({ page }) => {
     const existing = brewFromInput(
       350,
       {
         ...finishInput,
         grinder_id: archivedGrinder.id,
+        dripper_id: 41,
+        filter_id: 51,
         grinder_setting: 96
       },
       status
     );
     await mockCommonApi(page, () => existing);
+    await page.route('**/api/v1/drippers/41', (route) =>
+      fulfillJson(route, { id: 41, manufacturer: 'Classic', model: 'Cone', archived: true })
+    );
+    await page.route('**/api/v1/filters/51', (route) =>
+      fulfillJson(route, { id: 51, name: 'Cone paper', archived: true })
+    );
 
     await page.goto(`/brews/new?${query}=350&kiosk=0`);
 
@@ -576,6 +584,14 @@ for (const [flow, query, status] of [
     ).toHaveText('KINGrinder K6 · archived (recorded)');
     await expect(page.getByRole('spinbutton', { name: 'Grinder setting' })).toHaveValue('96');
     await expect(page.getByText('96 clicks · 1 turn + 36', { exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Dripper', exact: true })).toHaveValue('41');
+    await expect(page.getByRole('combobox', { name: 'Filter', exact: true })).toHaveValue('51');
+    await expect(
+      page.getByRole('option', { name: 'Classic Cone · archived (recorded)' })
+    ).toBeAttached();
+    await expect(
+      page.getByRole('option', { name: 'Cone paper · archived (recorded)' })
+    ).toBeAttached();
   });
 }
 
@@ -893,4 +909,166 @@ test('conflict refresh follows a brew already completed elsewhere', async ({ pag
 
   await expect(finishDialog).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+});
+
+test('brewers can be added in the recipe and removed when finishing', async ({ page }) => {
+  let currentBrew = brewFromInput(707, finishInput);
+  const profiles = [
+    { id: 1, display_name: 'Ada' },
+    { id: 2, display_name: 'Grace' }
+  ];
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/auth/profiles', (route) => fulfillJson(route, profiles));
+  await page.route('**/api/v1/brews/707', (route) => {
+    if (route.request().method() === 'GET') return fulfillJson(route, currentBrew);
+    const payload = route.request().postDataJSON();
+    expect(payload.operator_ids).toEqual([1, 2]);
+    expect(payload.revision).toBe(1);
+    currentBrew = { ...currentBrew, ...payload, operators: profiles, revision: 2 };
+    return fulfillJson(route, currentBrew);
+  });
+  await page.route('**/api/v1/brews/707/finalize', (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload.operator_ids).toEqual([1]);
+    expect(payload.revision).toBe(2);
+    currentBrew = {
+      ...currentBrew,
+      ...payload,
+      operators: [profiles[0]],
+      revision: 3,
+      status: 'completed',
+      completed_at: '2026-08-15T10:03:00Z',
+      rating_token: 'brewers-test'
+    };
+    return fulfillJson(route, currentBrew);
+  });
+  await page.goto('/brews/new?edit=707&kiosk=0');
+  await page.getByRole('combobox', { name: 'Add a brewer' }).selectOption('2');
+  await expect(page.getByRole('button', { name: 'Remove brewer Grace' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove brewer Ada' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await dialog.getByRole('button', { name: 'Remove brewer Grace' }).click();
+  await dialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  expect(currentBrew.operators).toEqual([profiles[0]]);
+});
+
+test('corrections send their loaded revision and preserve the form on conflict', async ({
+  page
+}) => {
+  const currentBrew = {
+    ...brewFromInput(708, finishInput, 'completed'),
+    revision: 7,
+    total_brew_time_s: 180,
+    completed_at: '2026-08-15T10:03:00Z'
+  };
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/brews/708/correction', (route) => {
+    expect(route.request().postDataJSON().revision).toBe(7);
+    return fulfillJson(route, { detail: 'Brew changed; refresh and try again' }, 409);
+  });
+  await page.goto('/brews/new?correct=708&kiosk=0');
+  await page.getByRole('spinbutton', { name: 'Temperature' }).fill('96');
+  await page.getByRole('button', { name: 'Save correction' }).click();
+  await expect(page.getByRole('alert')).toContainText('Brew changed');
+  await expect(page.getByRole('spinbutton', { name: 'Temperature' })).toHaveValue('96');
+});
+
+test('a late draft refresh cannot replace the revision being reviewed in the finish dialog', async ({
+  page
+}) => {
+  let currentBrew = brewFromInput(709, finishInput);
+  const profiles = [session.profile, { id: 2, display_name: 'Grace' }];
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/auth/profiles', (route) => fulfillJson(route, profiles));
+  let reads = 0;
+  let signalPoll!: () => void;
+  const pollStarted = new Promise<void>((resolve) => (signalPoll = resolve));
+  let releasePoll!: () => void;
+  const pendingPoll = new Promise<void>((resolve) => (releasePoll = resolve));
+  await page.route('**/api/v1/brews/709', async (route) => {
+    reads++;
+    if (reads === 2) {
+      currentBrew = { ...currentBrew, revision: 2, operators: profiles };
+      signalPoll();
+      await pendingPoll;
+    }
+    return fulfillJson(route, currentBrew);
+  });
+  let finalizations = 0;
+  await page.route('**/api/v1/brews/709/finalize', (route) => {
+    const payload = route.request().postDataJSON();
+    finalizations++;
+    expect(payload.operator_ids).toBeUndefined();
+    if (finalizations === 1) {
+      expect(payload.revision).toBe(1);
+      return fulfillJson(route, { detail: 'Brew changed; refresh and try again' }, 409);
+    }
+    expect(payload.revision).toBe(2);
+    currentBrew = {
+      ...currentBrew,
+      revision: 3,
+      status: 'completed',
+      total_brew_time_s: payload.total_brew_time_s,
+      completed_at: '2026-08-15T10:03:00Z'
+    };
+    return fulfillJson(route, currentBrew);
+  });
+  await page.goto('/brews/709?kiosk=0');
+  await expect(page.getByRole('button', { name: 'Finish brew' })).toBeVisible();
+  await pollStarted;
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await expect(dialog.getByRole('combobox', { name: 'Add a brewer' })).toBeVisible();
+  const pollResponse = page.waitForResponse('**/api/v1/brews/709');
+  releasePoll();
+  await (await pollResponse).finished();
+  await dialog.getByRole('spinbutton', { name: 'Seconds', exact: true }).fill('15');
+  await dialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Another device changed');
+  await expect(dialog.getByRole('button', { name: 'Remove brewer Grace' })).toBeVisible();
+  await expect(dialog.getByRole('spinbutton', { name: 'Seconds', exact: true })).toHaveValue('15');
+  await dialog.getByRole('button', { name: 'Review latest recipe' }).click();
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  await expect(dialog.getByRole('spinbutton', { name: 'Seconds', exact: true })).toHaveValue('15');
+  await dialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  expect(currentBrew.operators).toEqual(profiles);
+});
+
+test('correcting the primary brewer keeps the selected brewer list consistent', async ({
+  page
+}) => {
+  let currentBrew = {
+    ...brewFromInput(710, finishInput, 'completed'),
+    total_brew_time_s: 180,
+    completed_at: '2026-08-15T10:03:00Z'
+  };
+  const profiles = [session.profile, { id: 2, display_name: 'Grace' }];
+  await mockCommonApi(page, () => currentBrew);
+  await page.route('**/api/v1/auth/profiles', (route) => fulfillJson(route, profiles));
+  await page.route('**/api/v1/brews/710/correction', (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload.operator_id).toBe(2);
+    expect(payload.operator_ids).toEqual([2]);
+    expect(payload.revision).toBe(1);
+    currentBrew = {
+      ...currentBrew,
+      ...payload,
+      operator_name: 'Grace',
+      operators: [profiles[1]],
+      revision: 2
+    };
+    return fulfillJson(route, currentBrew);
+  });
+  await page.goto('/brews/new?correct=710&kiosk=0');
+  await page.getByRole('combobox', { name: 'Primary brewer', exact: true }).selectOption('2');
+  const selected = page.getByLabel('Selected brewers');
+  await expect(selected).toContainText('Grace');
+  await expect(selected).not.toContainText('Ada');
+  await expect(page.getByRole('button', { name: 'Remove brewer Grace' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save correction' }).click();
+  await expect(page).toHaveURL(/\/brews\/710$/);
 });

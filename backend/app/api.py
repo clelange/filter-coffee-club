@@ -94,6 +94,7 @@ from .models import (
 )
 from .schemas import (
     ActiveBrewsResponse,
+    AnalyticsCoffeeSummary,
     AnalyticsRatingMetric,
     AnalyticsResponse,
     AppSettingsResponse,
@@ -101,6 +102,7 @@ from .schemas import (
     BootstrapInput,
     BrewActivityItem,
     BrewCorrection,
+    BrewCreate,
     BrewFinalize,
     BrewInput,
     BrewOperatorUpdate,
@@ -119,7 +121,6 @@ from .schemas import (
     EquipmentInput,
     FilterInput,
     FilterResponse,
-    FlavorAxisSummary,
     FlavorTagInput,
     FlavorTagResponse,
     GrinderCreate,
@@ -173,11 +174,11 @@ from .security import (
     verify_pin,
     verify_profile_pin,
 )
+from .tasting import MIN_RANKING_RATINGS, RATING_FIELDS, ranked_brew_ids, rating_aggregate
 
 RECENT_RATING_PROMPT_WINDOW = timedelta(minutes=30)
 
 router = APIRouter(prefix="/api/v1")
-RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
 
 
 def ensure_catalog_photo_writes_allowed(request: Request) -> None:
@@ -231,9 +232,15 @@ def coffee_creation_fingerprint(payload: CoffeeInput) -> str:
 
 
 def brew_creation_fingerprint(payload: BrewInput, profile_id: int) -> str:
+    values = payload.model_dump(mode="json")
+    operator_ids = values.pop("operator_ids", None)
+    # Preserve fingerprints from before co-brewer selection was added. Omitting
+    # the selection and explicitly selecting only the creator mean the same thing.
+    if operator_ids is not None and operator_ids != [profile_id]:
+        values["operator_ids"] = operator_ids
     canonical_request = json.dumps(
         {
-            "payload": payload.model_dump(mode="json"),
+            "payload": values,
             "profile_id": profile_id,
         },
         ensure_ascii=True,
@@ -671,6 +678,34 @@ def is_brew_operator(brew: Brew, profile_id: int) -> bool:
     return any(operator.id == profile_id for operator in brew.operators)
 
 
+def selected_brewers(
+    db: Session, operator_ids: list[int], primary_id: int, existing: list[Profile]
+) -> list[Profile]:
+    if primary_id not in operator_ids:
+        raise HTTPException(status_code=422, detail="The primary brewer must remain selected")
+    retained = {profile.id: profile for profile in existing}
+    return [
+        retained.get(profile_id) or load_active_operator(db, profile_id)
+        for profile_id in operator_ids
+    ]
+
+
+def changed_brewers(
+    db: Session,
+    brew: Brew,
+    operator_ids: list[int] | None,
+    login_session: LoginSession,
+    primary_id: int | None = None,
+) -> list[Profile] | None:
+    if operator_ids is None:
+        return None
+    if brew.operator_id != login_session.profile_id and login_session.profile.role != "admin":
+        raise HTTPException(
+            status_code=403, detail="Only the primary brewer or an administrator may change brewers"
+        )
+    return selected_brewers(db, operator_ids, primary_id or brew.operator_id, brew.operators)
+
+
 def reserve_active_brew_capacity(db: Session) -> None:
     get_settings(db)
     reserved = db.scalar(
@@ -718,8 +753,10 @@ def commit_guarded_brew_update(
     allow_collaborators: bool = False,
     release_capacity: bool = False,
     before_commit: Callable[[Session, int], None] | None = None,
+    operators: list[Profile] | None = None,
 ) -> BrewResponse:
     conditions = [Brew.id == brew_id, Brew.status == expected_status]
+    allow_collaborators = allow_collaborators and operators is None
     if expected_revision is not None:
         conditions.append(Brew.revision == expected_revision)
     if login_session.profile.role != "admin":
@@ -757,6 +794,12 @@ def commit_guarded_brew_update(
         raise HTTPException(status_code=409, detail="Brew changed; refresh and try again")
     if release_capacity:
         release_active_brew_capacity(db)
+    if operators is not None:
+        db.execute(delete(brew_operators).where(brew_operators.c.brew_id == brew_id))
+        db.execute(
+            insert(brew_operators),
+            [{"brew_id": brew_id, "profile_id": operator.id} for operator in operators],
+        )
     if before_commit is not None:
         db.flush()
         before_commit(db, updated_id)
@@ -783,46 +826,6 @@ def load_flavor_tags(db: Session) -> list[FlavorTag]:
         db.scalars(
             select(FlavorTag).order_by(FlavorTag.parent_id, FlavorTag.sort_order, FlavorTag.name)
         )
-    )
-
-
-def rating_aggregate(ratings: list[Rating], flavor_tags: list[FlavorTag]) -> RatingAggregate:
-    active_parents = sorted(
-        (tag for tag in flavor_tags if tag.active and tag.parent_id is None),
-        key=lambda tag: (tag.sort_order, tag.name),
-    )
-    active_parent_ids = {tag.id for tag in active_parents}
-    category_by_tag_id = {
-        tag.id: tag.id if tag.parent_id is None else tag.parent_id for tag in flavor_tags
-    }
-    mentions: Counter[int] = Counter()
-    for rating in ratings:
-        mentioned_categories = {
-            category_id
-            for tag in rating.flavor_tags
-            if (category_id := category_by_tag_id.get(tag.id)) in active_parent_ids
-        }
-        mentions.update(mentioned_categories)
-    averages = (
-        {
-            field: round(mean(getattr(rating, field) for rating in ratings), 2)
-            for field in RATING_FIELDS
-        }
-        if ratings
-        else {}
-    )
-    return RatingAggregate(
-        count=len(ratings),
-        averages=averages,
-        flavor_axes=[
-            FlavorAxisSummary(
-                id=parent.id,
-                label=parent.name,
-                mentions=mentions[parent.id],
-                total=len(ratings),
-            )
-            for parent in active_parents
-        ],
     )
 
 
@@ -1240,6 +1243,8 @@ def get_coffee_rating_insights(
         )
     )
     flavor_tags = load_flavor_tags(db)
+    ranked_ids = ranked_brew_ids(all_ratings)
+    best = load_brew(db, ranked_ids[0]) if ranked_ids else None
     next_offset = offset + len(page) if offset + len(page) < rated_brew_count else None
     return CoffeeRatingInsights(
         coffee_id=coffee_id,
@@ -1253,6 +1258,15 @@ def get_coffee_rating_insights(
             for brew in page
         ],
         next_offset=next_offset,
+        taster_count=len({rating.profile_id for rating in all_ratings}),
+        ranking_min_ratings=MIN_RANKING_RATINGS,
+        best_brew=(
+            RatedBrewInsight(
+                brew=brew_payload(best), aggregate=rating_aggregate(best.ratings, flavor_tags)
+            )
+            if best is not None
+            else None
+        ),
     )
 
 
@@ -2123,7 +2137,7 @@ def update_flavor_tag(
 
 @router.post("/brews", response_model=BrewResponse)
 def create_brew(
-    payload: BrewInput,
+    payload: BrewCreate,
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
@@ -2158,10 +2172,16 @@ def create_brew(
             if existing is not None:
                 return replay_idempotent_brew_creation(db, existing, request_fingerprint)
         raise
+    operators = selected_brewers(
+        db,
+        payload.operator_ids or [login_session.profile_id],
+        login_session.profile_id,
+        [login_session.profile],
+    )
     brew = Brew(
-        **payload.model_dump(),
+        **payload.model_dump(exclude={"operator_ids"}),
         operator_id=login_session.profile_id,
-        operators=[login_session.profile],
+        operators=operators,
         creation_token=idempotency_key,
         creation_request_hash=request_fingerprint if idempotency_key else None,
     )
@@ -2317,11 +2337,12 @@ def update_brew(
         brew.id,
         "draft",
         login_session,
-        payload.model_dump(exclude={"revision"}),
+        payload.model_dump(exclude={"revision", "operator_ids"}),
         "Only draft brews can be edited",
         "Only a brew operator may edit this draft",
         expected_revision=payload.revision,
         allow_collaborators=True,
+        operators=changed_brewers(db, brew, payload.operator_ids, login_session),
     )
     if confirmed_ratio is not None:
         log_unusual_brew_ratio(
@@ -2439,24 +2460,20 @@ def correct_completed_brew(
         confirmed=confirm_unusual_ratio,
         brew_id=brew.id,
     )
-    values: dict[str, object] = payload.model_dump(exclude={"operator_id"})
+    values: dict[str, object] = payload.model_dump(
+        exclude={"operator_id", "operator_ids", "revision"}
+    )
+    operators = changed_brewers(db, brew, payload.operator_ids, login_session, payload.operator_id)
     if payload.operator_id is not None:
         operator = load_active_operator(db, payload.operator_id)
-        replacing_solo_operator = (
-            operator.id != brew.operator_id
-            and len(brew.operators) == 1
-            and brew.operators[0].id == brew.operator_id
-        )
         values["operator_id"] = operator.id
-        if not is_brew_operator(brew, operator.id):
-            db.execute(insert(brew_operators).values(brew_id=brew.id, profile_id=operator.id))
-        if replacing_solo_operator:
-            db.execute(
-                delete(brew_operators).where(
-                    brew_operators.c.brew_id == brew.id,
-                    brew_operators.c.profile_id == brew.operator_id,
-                )
-            )
+        if operators is None:
+            # Preserve the existing primary-transfer behavior for older clients.
+            operators = list(brew.operators)
+            if len(operators) == 1 and operators[0].id == brew.operator_id:
+                operators = [operator]
+            elif operator.id not in {item.id for item in operators}:
+                operators.append(operator)
     result = commit_guarded_brew_update(
         db,
         brew.id,
@@ -2465,6 +2482,8 @@ def correct_completed_brew(
         values,
         "Only completed brews need correction",
         "Only the operator or an administrator may correct this brew",
+        expected_revision=payload.revision,
+        operators=operators,
     )
     if confirmed_ratio is not None:
         log_unusual_brew_ratio(
@@ -2529,6 +2548,7 @@ def finalize_brew(
         "Only a brew operator may finalize this brew",
         expected_revision=payload.revision,
         allow_collaborators=True,
+        operators=changed_brewers(db, brew, payload.operator_ids, login_session),
         release_capacity=True,
         before_commit=lambda callback_db, updated_id: enqueue_brew_notification(
             callback_db,
@@ -2556,12 +2576,31 @@ def clone_brew(
     request: Request,
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> BrewResponse:
+    fingerprint = hashlib.sha256(f"clone:{brew_id}:{login_session.profile_id}".encode()).hexdigest()
+    if idempotency_key is not None:
+        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+        if existing is not None:
+            return replay_idempotent_brew_creation(db, existing, fingerprint)
     enforce_demo_capacity(request, db, Brew)
     source = load_brew(db, brew_id)
     validate_bloom_water(source.bloom_water_g, source.water_g)
     reserve_available_coffee(db, source.coffee_id)
-    reserve_active_brew_capacity(db)
+    try:
+        reserve_active_brew_capacity(db)
+    except HTTPException:
+        if idempotency_key is not None:
+            existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+            if existing is not None:
+                return replay_idempotent_brew_creation(db, existing, fingerprint)
+        raise
     clone = Brew(
         coffee_id=source.coffee_id,
         operator_id=login_session.profile_id,
@@ -2570,6 +2609,8 @@ def clone_brew(
         filter_id=source.filter_id,
         source_preset_id=source.source_preset_id,
         cloned_from_id=source.id,
+        creation_token=idempotency_key,
+        creation_request_hash=fingerprint if idempotency_key else None,
         dose_g=source.dose_g,
         water_g=source.water_g,
         target_ratio=source.target_ratio,
@@ -2585,14 +2626,23 @@ def clone_brew(
         operators=[login_session.profile],
     )
     db.add(clone)
-    enqueue_brew_notification(
-        db,
-        clone,
-        "brew_started",
-        effective_public_url(request, db),
-        demo_mode=request.app.state.settings.demo_mode,
-    )
-    db.commit()
+    try:
+        enqueue_brew_notification(
+            db,
+            clone,
+            "brew_started",
+            effective_public_url(request, db),
+            demo_mode=request.app.state.settings.demo_mode,
+        )
+        db.commit()
+    except IntegrityError:
+        if idempotency_key is None:
+            raise
+        db.rollback()
+        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+        if existing is None:
+            raise
+        return replay_idempotent_brew_creation(db, existing, fingerprint)
     return brew_payload(load_brew(db, clone.id), include_token=True)
 
 
@@ -2938,6 +2988,8 @@ def analytics(
                 selectinload(Brew.operator),
                 selectinload(Brew.operators),
                 selectinload(Brew.grinder),
+                selectinload(Brew.dripper),
+                selectinload(Brew.brew_filter),
                 selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
             )
             .where(Brew.status == "completed")
@@ -2945,38 +2997,72 @@ def analytics(
         )
     )
     all_ratings = [rating for brew in brews for rating in brew.ratings]
-    coffee_scores: dict[int, list[int]] = defaultdict(list)
+    coffee_brews: dict[int, list[Brew]] = defaultdict(list)
     coffee_names: dict[int, str] = {}
+    flavor_tags = load_flavor_tags(db)
     for brew in brews:
         coffee_names[brew.coffee_id] = f"{brew.coffee.roaster} · {brew.coffee.name}"
-        coffee_scores[brew.coffee_id].extend(rating.liking for rating in brew.ratings)
-    top_coffees = [
-        {
-            "coffee_id": coffee_id,
-            "name": coffee_names[coffee_id],
-            "average": round(mean(scores), 2),
-            "ratings": len(scores),
-        }
-        for coffee_id, scores in coffee_scores.items()
-        if len(scores) >= 3
-    ]
-    top_coffees.sort(key=lambda item: (-item["average"], -item["ratings"]))
-    top_recipes = [
-        {
-            "brew_id": brew.id,
-            "name": f"{brew.coffee.roaster} · {brew.coffee.name}",
-            "recipe": (
-                f"1:{brew_ratio(brew.water_g, brew.dose_g)} · "
-                f"{brew.temperature_c:g} °C · {brew.grinder_setting:g} "
-                f"{brew.grinder.setting_unit}"
+        coffee_brews[brew.coffee_id].append(brew)
+    coffee_summaries = []
+    for coffee_id, observations in coffee_brews.items():
+        ratings = [rating for brew in observations for rating in brew.ratings]
+        if not ratings:
+            continue
+        coffee = observations[0].coffee
+        ranked_ids = ranked_brew_ids(ratings)
+        best = next(
+            (brew for brew in observations if ranked_ids and brew.id == ranked_ids[0]), None
+        )
+        coffee_summaries.append(
+            AnalyticsCoffeeSummary(
+                coffee_id=coffee_id,
+                name=coffee_names[coffee_id],
+                average=rating_aggregate(ratings, []).averages["liking"],
+                ratings=len(ratings),
+                brews=sum(bool(brew.ratings) for brew in observations),
+                tasters=len({rating.profile_id for rating in ratings}),
+                bag_label=f"Bag #{coffee_id}"
+                + (f" · roasted {coffee.roast_date.isoformat()}" if coffee.roast_date else ""),
+                chart_color=coffee.chart_color,
+                available=coffee.available,
+                best_brew=(
+                    RatedBrewInsight(
+                        brew=brew_payload(best),
+                        aggregate=rating_aggregate(best.ratings, flavor_tags),
+                    )
+                    if best
+                    else None
+                ),
+            )
+        )
+    # Sort on the unrounded pooled score; rounding is for display only.
+    coffee_summaries.sort(
+        key=lambda item: (
+            -mean(
+                rating.liking for brew in coffee_brews[item.coffee_id] for rating in brew.ratings
             ),
-            "average": round(mean(rating.liking for rating in brew.ratings), 2),
-            "ratings": len(brew.ratings),
-        }
-        for brew in brews
-        if len(brew.ratings) >= 3
-    ]
-    top_recipes.sort(key=lambda item: (-item["average"], -item["ratings"]))
+            -item.ratings,
+            item.coffee_id,
+        )
+    )
+    top_coffees = [item for item in coffee_summaries if item.ratings >= MIN_RANKING_RATINGS]
+    brews_by_id = {brew.id: brew for brew in brews}
+    top_recipes = []
+    for brew_id in ranked_brew_ids(all_ratings)[:10]:
+        brew = brews_by_id[brew_id]
+        top_recipes.append(
+            {
+                "brew_id": brew.id,
+                "name": f"{coffee_names[brew.coffee_id]} · Bag #{brew.coffee_id}",
+                "recipe": (
+                    f"1:{brew_ratio(brew.water_g, brew.dose_g)} · {brew.temperature_c:g} °C · "
+                    f"{brew.grinder.manufacturer} {brew.grinder.model} "
+                    f"{brew.grinder_setting:g} {brew.grinder.setting_unit}"
+                ),
+                "average": rating_aggregate(brew.ratings, []).averages["liking"],
+                "ratings": len(brew.ratings),
+            }
+        )
     flavor_counts = Counter(tag.name for rating in all_ratings for tag in rating.flavor_tags)
     operator_counts: Counter[int] = Counter(
         operator.id for brew in brews for operator in brew.operators
@@ -3017,7 +3103,7 @@ def analytics(
             }
         )
     return AnalyticsResponse(
-        counts={"brews": len(brews), "ratings": len(all_ratings), "coffees": len(coffee_scores)},
+        counts={"brews": len(brews), "ratings": len(all_ratings), "coffees": len(coffee_brews)},
         top_coffees=top_coffees[:10],
         top_recipes=top_recipes[:10],
         flavor_counts=dict(flavor_counts.most_common(12)),
@@ -3030,6 +3116,8 @@ def analytics(
             for profile_id, brew_count in operator_counts.most_common()
         ],
         scatter=scatter,
+        coffee_summaries=coffee_summaries,
+        ranking_min_ratings=MIN_RANKING_RATINGS,
     )
 
 

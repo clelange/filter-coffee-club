@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { page } from '$app/stores';
+  import BestBrewCard from '$lib/BestBrewCard.svelte';
   import { goto } from '$app/navigation';
   import AnalyticsScatterPlot from '$lib/AnalyticsScatterPlot.svelte';
   import { loginPath } from '$lib/device';
@@ -31,12 +33,34 @@
   let variable = $state<AnalyticsAxisKey>('ratio');
   let coffeeFilter = $state('all');
   let grinderFilter = $state('all');
-  let mapCoffeeFilter = $state('');
+  const mapCoffeeFilter = $derived(coffeeFilter === 'all' ? '' : coffeeFilter);
   let mapGrinderFilter = $state('');
   let mapX = $state<AnalyticsAxisKey>('ratio');
   let mapY = $state<AnalyticsAxisKey>('temperature_c');
   let mapColor = $state<AnalyticsRatingKey>('liking');
   let error = $state('');
+  const summaries = $derived(data?.coffee_summaries ?? []);
+  const selectedSummary = $derived(
+    summaries.find((coffee) => String(coffee.coffee_id) === coffeeFilter)
+  );
+
+  function selectCoffee(id: string) {
+    coffeeFilter = id || 'all';
+    grinderFilter = 'all';
+    mapGrinderFilter = '';
+  }
+
+  async function exploreCoffee(id: string) {
+    selectCoffee(id);
+    await tick();
+    document
+      .getElementById('coffee-exploration')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function changeCoffee(event: Event) {
+    selectCoffee((event.currentTarget as HTMLSelectElement).value);
+  }
 
   function hasMeasurement(point: AnalyticsScatterPoint, key: AnalyticsAxisKey): boolean {
     return point[key] !== null && Number.isFinite(Number(point[key]));
@@ -57,7 +81,10 @@
     if (!data) return [];
     return [
       ...new Map(
-        data.scatter.map((point) => [point.coffee_id, { id: point.coffee_id, name: point.coffee }])
+        data.scatter.map((point) => [
+          point.coffee_id,
+          { id: point.coffee_id, name: `${point.coffee} · Bag #${point.coffee_id}` }
+        ])
       ).values()
     ].sort((left, right) => left.name.localeCompare(right.name));
   }
@@ -115,18 +142,20 @@
   }
 
   function changeMapCoffee(event: Event): void {
-    mapCoffeeFilter = (event.currentTarget as HTMLSelectElement).value;
-    mapGrinderFilter = '';
+    changeCoffee(event);
   }
 
   onMount(async () => {
     if (!(await ensureSession())) {
-      await goto(loginPath('/analytics'));
+      await goto(loginPath($page.url.pathname + $page.url.search));
       return;
     }
     try {
       data = await api<AnalyticsResponse>('/analytics');
-      if (coffees().length === 1) mapCoffeeFilter = String(coffees()[0].id);
+      const requested = $page.url.searchParams.get('coffee');
+      if (requested && coffees().some((coffee) => String(coffee.id) === requested))
+        selectCoffee(requested);
+      else if (coffees().length === 1) selectCoffee(String(coffees()[0].id));
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load analytics.';
     }
@@ -135,10 +164,10 @@
 
 <svelte:head><title>Analytics · Filter Coffee Club</title></svelte:head>
 <p class="eyebrow">Club observations</p>
-<h1>Find the useful signal.</h1>
+<h1 class="results-title">Coffee results.</h1>
 <p class="lede">
-  Small samples stay visible. These patterns help form the next hypothesis; they do not prove
-  causation.
+  Compare coffee bags, explore individual brews, and find settings to try again. Every score is
+  overall liking on a 1–9 scale; sensory intensities are shown separately.
 </p>
 
 {#if error}<p class="error section" role="alert">{error}</p>{:else if !data}<div
@@ -157,8 +186,60 @@
       <strong>{data.counts.coffees}</strong><span>coffees observed</span>
     </article>
   </section>
+  <section class="panel coffee-overview section" aria-labelledby="coffee-averages-title">
+    <div>
+      <p class="eyebrow">All coffees · All time</p>
+      <h2 id="coffee-averages-title">Coffee averages</h2>
+    </div>
+    <p class="hint">
+      Each coffee is a separate bag. Scores pool all ratings of its completed brews, with equal
+      weight per rating. A busy tasting contributes more than a brew with fewer ratings.
+    </p>
+    {#if summaries.length === 0}<p class="muted">No rated coffees yet.</p>{:else}
+      <div class="coffee-summary-list">
+        {#each summaries as coffee (coffee.coffee_id)}
+          <article class="coffee-summary" class:active={coffeeFilter === String(coffee.coffee_id)}>
+            <div>
+              <a href={`/coffees/${coffee.coffee_id}`}
+                ><i style={`background:${coffee.chart_color}`}></i>{coffee.name}</a
+              ><small
+                >{coffee.bag_label}{#if !coffee.available}
+                  · Finished / archived{/if}</small
+              >
+            </div>
+            <div class="summary-score">
+              <strong>{coffee.average}<small> / 9</small></strong
+              >{#if coffee.ratings < (data.ranking_min_ratings ?? 3)}<small>Early result</small
+                >{/if}
+            </div>
+            <p>
+              {coffee.ratings} ratings · {coffee.brews} brews<br /><small
+                >{coffee.tasters} tasters</small
+              >
+            </p>
+            <button
+              class="secondary"
+              aria-pressed={coffeeFilter === String(coffee.coffee_id)}
+              onclick={() =>
+                exploreCoffee(
+                  coffeeFilter === String(coffee.coffee_id) ? 'all' : String(coffee.coffee_id)
+                )}>{coffeeFilter === String(coffee.coffee_id) ? 'Show all' : 'Explore'}</button
+            >
+          </article>
+        {/each}
+      </div>
+    {/if}
+  </section>
   <div class="dashboard section">
-    <div class="chart-stack">
+    <div class="chart-stack" id="coffee-exploration">
+      {#if selectedSummary}
+        <BestBrewCard
+          coffeeName={`${selectedSummary.name} · ${selectedSummary.bag_label}`}
+          result={selectedSummary.best_brew ?? null}
+          available={selectedSummary.available}
+          minimumRatings={data.ranking_min_ratings ?? 3}
+        />
+      {/if}
       <section class="panel chart-panel">
         <div class="chart-heading">
           <div>
@@ -167,7 +248,7 @@
           </div>
           <div class="chart-filters">
             <label
-              >Coffee<select bind:value={coffeeFilter}
+              >Coffee<select value={coffeeFilter} onchange={changeCoffee}
                 ><option value="all">All coffees</option>{#each coffees() as coffee}<option
                     value={String(coffee.id)}>{coffee.name}</option
                   >{/each}</select
@@ -198,11 +279,16 @@
             xLabel={axisLabel(variable, grinderFilter === 'all' ? '' : grinderFilter)}
             yLabel="Liking (1–9)"
             colorByCoffee
+            coffeeSummaries={summaries}
+            coffeeAverage={selectedSummary ?? null}
+            onselectcoffee={(id) => selectCoffee(coffeeFilter === String(id) ? 'all' : String(id))}
           />{/if}
         <p class="hint">
-          Each color identifies a coffee; each circle is one brew, and larger circles have more
-          ratings. Filter grinder-setting views to one grinder before interpreting them.
-          Observational, not causal.
+          Each colour and marker shape identifies a coffee; each point is one brew’s average liking.
+          Larger points have more ratings (size is capped at six). Select a legend entry to isolate
+          a coffee or show all again. The dashed coffee average covers all its rated brews,
+          including measurements hidden by this chart’s filters. Coffee selection is shared with the
+          recipe map. Grinder and axis filters apply only to their chart. Observational, not causal.
         </p>
       </section>
 
@@ -272,23 +358,36 @@
     </div>
     <aside class="stack">
       <section class="card">
-        <p class="eyebrow">Qualified favorites</p>
-        <h2>Top coffees</h2>
+        <p class="eyebrow">All coffees · All time</p>
+        <h2>Highest-rated coffees</h2>
+        <p class="hint">
+          Average liking across a bag’s completed brews. At least {data.ranking_min_ratings ?? 3} ratings
+          per coffee; up to 10 coffees. Chart filters do not change this ranking.
+        </p>
         {#if data.top_coffees.length === 0}<p class="muted">
             A coffee needs at least three ratings to enter the ranking.
           </p>{:else}<ol class="ranking">
             {#each data.top_coffees as coffee}<li>
-                <span>{coffee.name}<small>{coffee.ratings} ratings</small></span><strong
-                  >{coffee.average}</strong
+                <a href={`/coffees/${coffee.coffee_id}`}
+                  ><span
+                    >{coffee.name}<small>{coffee.bag_label}</small><small
+                      >{coffee.ratings} ratings · {coffee.brews} brews · {coffee.tasters} tasters</small
+                    ></span
+                  ><strong>{coffee.average}</strong></a
                 >
               </li>{/each}
           </ol>{/if}
       </section>
       <section class="card">
-        <p class="eyebrow">Repeatable signals</p>
-        <h2>Top recipes</h2>
+        <p class="eyebrow">All coffees · All time</p>
+        <h2>Highest-rated brews</h2>
+        <p class="hint">
+          Individual brew sessions ranked by average liking, with at least {data.ranking_min_ratings ??
+            3} ratings each. Repeated settings are not grouped. Up to 10 brews; chart filters do not change
+          this ranking.
+        </p>
         {#if data.top_recipes.length === 0}<p class="muted">
-            A recipe needs at least three ratings to enter the ranking.
+            No brew has enough ratings yet.
           </p>{:else}<ol class="ranking">
             {#each data.top_recipes as recipe}<li>
                 <a href={`/brews/${recipe.brew_id}`}
@@ -300,7 +399,7 @@
           </ol>{/if}
       </section>
       <section class="card">
-        <p class="eyebrow">Tasting vocabulary</p>
+        <p class="eyebrow">All coffees · All time</p>
         <h2>Frequent notes</h2>
         <div class="bars">
           {#each Object.entries(data.flavor_counts) as [name, count]}<div>
@@ -310,7 +409,7 @@
         </div>
       </section>
       <section class="card">
-        <p class="eyebrow">Operators</p>
+        <p class="eyebrow">Brewers · All time</p>
         <div class="operator-list">
           {#each data.operator_counts as operator}<span
               ><ProfileLink profileId={operator.profile_id} displayName={operator.display_name} /><b
@@ -324,6 +423,70 @@
 {/if}
 
 <style>
+  .results-title {
+    font-size: clamp(2.2rem, 5vw, 3.6rem);
+  }
+  .coffee-overview {
+    display: grid;
+    gap: 14px;
+  }
+  .coffee-overview h2,
+  .coffee-overview p {
+    margin: 0;
+  }
+  .coffee-summary-list {
+    display: grid;
+  }
+  .coffee-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: 18px;
+    align-items: center;
+    padding: 16px 4px;
+    border-top: 1px solid var(--line);
+  }
+  .coffee-summary.active {
+    background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+  }
+  .coffee-summary a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+  .coffee-summary i {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    border: 1px solid var(--ink);
+    border-radius: 50%;
+  }
+  .coffee-summary small {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .coffee-summary > div {
+    display: grid;
+    gap: 4px;
+  }
+  .summary-score strong {
+    white-space: nowrap;
+    font-size: 1.4rem;
+  }
+  .coffee-summary button {
+    min-height: 44px;
+  }
+  @media (max-width: 700px) {
+    .coffee-summary {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+    }
+    .coffee-summary button {
+      justify-self: end;
+    }
+  }
+
   .metric-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -336,6 +499,7 @@
     align-items: start;
   }
   .chart-stack {
+    scroll-margin-top: 160px;
     display: grid;
     gap: 18px;
     min-width: 0;
@@ -344,19 +508,21 @@
     min-width: 0;
   }
   .chart-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: start;
-    gap: 20px;
+    display: grid;
+    gap: 16px;
+  }
+  .dashboard h2 {
+    font-size: clamp(1.6rem, 2.6vw, 2.2rem);
   }
   .chart-filters {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
   .chart-heading label {
     min-width: 180px;
+    flex: 1;
   }
   .chart-filters select {
     min-width: 0;

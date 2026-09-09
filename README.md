@@ -48,6 +48,33 @@ AI-generated text below!
 
 The bundled Filter Coffee Club mark is original. The official PSI logo is deliberately not included.
 
+## Understanding results
+
+Each coffee record represents one bag or lot. **Coffee averages** pool the overall-liking ratings
+from all its completed brews, with equal weight per tasting response. Results show rating, rated-brew,
+and distinct-taster counts. **Highest-rated coffees** requires at least three responses per bag;
+**Highest-rated brews** ranks individual sessions with at least three responses each. Both rankings
+show up to ten entries across all coffees and all time. Identical settings are not grouped into a
+reusable recipe, and one well-rated session does not establish repeatability.
+
+Selecting a coffee links the settings plot and recipe map. Its dashed average line includes all
+the bag's rated brews, including measurements excluded by chart filters. Grinder and axis filters
+are local to each chart; they do not change the all-time rankings. The **Best-rated brew** card
+uses the highest average liking among qualifying sessions, breaking ties by response count and
+then newest brew record. **Use these settings** prefills a new recipe for review before starting.
+
+Coffee colours are stored permanently. Automatic assignment uses the original palette first and
+then generates additional unused colours with contrast against the configured surface. Shapes,
+bag labels, and selectable legends supplement colour differences. Existing colours remain intact.
+
+The primary brewer or an administrator can add or remove co-brewers during recipe entry,
+finalisation, or later correction. Co-brewers can edit and finish an active brew but cannot change
+its brewer list. Membership and measurement changes commit together, with revision checks to
+prevent stale edits. Completed-brew correction requests must include the loaded `revision`;
+older open clients should reload after upgrading. Repeat requests support `Idempotency-Key` so a
+retry does not create another draft or consume another brewing slot. No database migration is
+required for these changes.
+
 ## Deploy with Docker
 
 ```sh
