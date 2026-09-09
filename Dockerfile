@@ -1,4 +1,5 @@
-FROM node:22-alpine AS frontend-builder
+# Static frontend assets are architecture-independent; build them without QEMU.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 WORKDIR /src/frontend
 RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
