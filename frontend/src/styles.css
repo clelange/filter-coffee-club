@@ -202,9 +202,12 @@ textarea:focus-visible {
 
 main {
   width: min(1180px, calc(100% - 32px));
+  min-width: 0;
   min-height: calc(100vh - 150px);
   margin: 0 auto;
   padding: clamp(28px, 6vw, 72px) 0;
+  /* Names and notes may contain words longer than their available column. */
+  overflow-wrap: anywhere;
 }
 
 main.loading {
@@ -439,6 +442,7 @@ input,
 select,
 textarea {
   width: 100%;
+  min-width: 0;
   min-height: var(--control-height);
   padding: var(--space-control);
   border: 1px solid color-mix(in srgb, var(--coffee) 28%, var(--cream));
@@ -461,6 +465,17 @@ input[type='range'] {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 500;
+}
+
+/* Native selects stay single-line; expose a clipped selection below the control. */
+.selected-option {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .error,
@@ -526,6 +541,7 @@ tr:last-child td {
   --catalog-gap-md: 16px;
   --catalog-gap-lg: clamp(30px, 6vw, 58px);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--catalog-gap-lg);
   min-width: 0;
 }
@@ -559,6 +575,8 @@ tr:last-child td {
 .detail-page .edit-panel,
 .detail-page .photo-edit {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .detail-page .detail-identity,
@@ -570,12 +588,9 @@ tr:last-child td {
 .detail-page .identity-topline,
 .detail-page .detail-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-}
-
-.detail-page .detail-actions {
-  flex-wrap: wrap;
 }
 
 .detail-page .detail-identity h1 {

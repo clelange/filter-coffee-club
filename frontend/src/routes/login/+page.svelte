@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import PinPad from '$lib/PinPad.svelte';
+  import { selectedOption } from '$lib/selected-option';
   import { deviceModeStore } from '$lib/device';
   import { api, ApiError, jsonBody, setSession } from '$lib/api';
   import type { AppSettings, ProfileIdentity, Session } from '$lib/types';
@@ -131,6 +132,7 @@
     <label>
       Profile
       <select
+        use:selectedOption={profileId}
         bind:value={profileId}
         required
         disabled={initializing || Boolean(initializationError)}

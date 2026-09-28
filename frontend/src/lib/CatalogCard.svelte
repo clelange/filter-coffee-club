@@ -62,6 +62,8 @@
   }
   .catalog-summary {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
     flex: 1;
     gap: var(--catalog-gap-md, 16px);
     padding: var(--catalog-card-padding, 20px);
@@ -73,6 +75,7 @@
   }
   .catalog-copy {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: var(--catalog-gap-sm, 8px);
     min-width: 0;
@@ -94,11 +97,15 @@
     line-height: 1.08;
   }
   .eyebrow {
+    min-width: 0;
     color: var(--cyan);
     font-size: 0.72rem;
     font-weight: 850;
     letter-spacing: 0.12em;
     text-transform: uppercase;
+  }
+  .status {
+    flex: 0 0 auto;
   }
   .metadata {
     color: var(--muted);

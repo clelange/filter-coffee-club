@@ -7,6 +7,7 @@
   import { loginPath } from '$lib/device';
   import { api, ensureSession } from '$lib/api';
   import ProfileLink from '$lib/ProfileLink.svelte';
+  import { selectedOption } from '$lib/selected-option';
   import type { components } from '$lib/generated-api';
   import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
 
@@ -201,7 +202,7 @@
           <article class="coffee-summary" class:active={coffeeFilter === String(coffee.coffee_id)}>
             <div>
               <a href={`/coffees/${coffee.coffee_id}`}
-                ><i style={`background:${coffee.chart_color}`}></i>{coffee.name}</a
+                ><i style={`background:${coffee.chart_color}`}></i><span>{coffee.name}</span></a
               ><small
                 >{coffee.bag_label}{#if !coffee.available}
                   · Finished / archived{/if}</small
@@ -248,7 +249,10 @@
           </div>
           <div class="chart-filters">
             <label
-              >Coffee<select value={coffeeFilter} onchange={changeCoffee}
+              >Coffee<select
+                use:selectedOption={coffeeFilter}
+                value={coffeeFilter}
+                onchange={changeCoffee}
                 ><option value="all">All coffees</option>{#each coffees() as coffee}<option
                     value={String(coffee.id)}>{coffee.name}</option
                   >{/each}</select
@@ -259,7 +263,7 @@
                   >{/each}</select
               ></label
             >{#if variable === 'grinder_setting'}<label
-                >Grinder<select bind:value={grinderFilter}
+                >Grinder<select use:selectedOption={grinderFilter} bind:value={grinderFilter}
                   ><option value="all">Choose one grinder</option
                   >{#each grinderOptions() as grinder}<option value={String(grinder.id)}
                       >{grinder.name}</option
@@ -300,7 +304,10 @@
           </div>
           <div class="chart-filters map-filters">
             <label
-              >Map coffee<select value={mapCoffeeFilter} onchange={changeMapCoffee}
+              >Map coffee<select
+                use:selectedOption={mapCoffeeFilter}
+                value={mapCoffeeFilter}
+                onchange={changeMapCoffee}
                 ><option value="">Choose a coffee</option>{#each coffees() as coffee}<option
                     value={String(coffee.id)}>{coffee.name}</option
                   >{/each}</select
@@ -325,7 +332,9 @@
                   >{/each}</select
               ></label
             >{#if mapNeedsGrinder()}<label
-                >Map grinder<select bind:value={mapGrinderFilter}
+                >Map grinder<select
+                  use:selectedOption={mapGrinderFilter}
+                  bind:value={mapGrinderFilter}
                   ><option value="">Choose a grinder</option
                   >{#each grinderOptions(mapCoffeeFilter) as grinder}<option
                       value={String(grinder.id)}>{grinder.name}</option
@@ -455,6 +464,10 @@
     font-weight: 800;
     text-decoration: none;
   }
+  .coffee-summary a span,
+  .coffee-summary > div {
+    min-width: 0;
+  }
   .coffee-summary i {
     width: 12px;
     height: 12px;
@@ -517,12 +530,14 @@
   .chart-filters {
     display: flex;
     flex-wrap: wrap;
+    align-items: start;
     gap: 8px;
     justify-content: flex-start;
   }
   .chart-heading label {
     min-width: 180px;
     flex: 1;
+    align-content: start;
   }
   .chart-filters select {
     min-width: 0;
@@ -553,6 +568,7 @@
   }
   .ranking span {
     display: grid;
+    min-width: 0;
   }
   .ranking small {
     color: var(--muted);

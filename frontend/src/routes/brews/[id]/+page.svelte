@@ -976,6 +976,12 @@
   .brew-heading h1 {
     margin-bottom: 6px;
   }
+  .brew-heading > div {
+    min-width: 0;
+  }
+  .brew-heading > .status {
+    flex-shrink: 0;
+  }
   .recipe-display {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
