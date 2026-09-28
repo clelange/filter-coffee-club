@@ -243,6 +243,13 @@
   .profile-hero h1 {
     margin-bottom: 10px;
   }
+  .profile-hero > div,
+  .rating-heading > div {
+    min-width: 0;
+  }
+  .rating-heading .button {
+    flex-shrink: 0;
+  }
   .visibility-note {
     max-width: 640px;
     padding: 12px 15px;
@@ -317,7 +324,7 @@
   }
   .favorite-card {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 14px;
     padding: 20px;

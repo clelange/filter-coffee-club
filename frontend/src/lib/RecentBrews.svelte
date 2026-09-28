@@ -164,6 +164,8 @@
   }
   .brew-heading > div {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
     gap: 4px;
   }
   .brew-heading strong {

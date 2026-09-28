@@ -21,6 +21,7 @@
   import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
   import ConfirmDialog from '$lib/ConfirmDialog.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
+  import { selectedOption } from '$lib/selected-option';
   import { deviceModeStore, loginPath } from '$lib/device';
   import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
@@ -692,7 +693,12 @@
       <div class="field-row">
         <label>
           Coffee
-          <select bind:value={form.coffee_id} onchange={loadHistory} required>
+          <select
+            use:selectedOption={form.coffee_id}
+            bind:value={form.coffee_id}
+            onchange={loadHistory}
+            required
+          >
             {#each coffees as coffee}<option value={coffee.id}
                 >{coffee.roaster} · {coffee.name}{coffee.available
                   ? ''
@@ -754,7 +760,12 @@
       <div class="grinder-choice">
         <label>
           Choose a grinder
-          <select bind:value={form.grinder_id} onchange={changeGrinder} required>
+          <select
+            use:selectedOption={form.grinder_id}
+            bind:value={form.grinder_id}
+            onchange={changeGrinder}
+            required
+          >
             {#if grinders.length !== 1}
               <option value={0} disabled>Choose a grinder</option>
             {/if}
@@ -914,7 +925,7 @@
           {/if}
         </div>
         <label
-          >Dripper<select bind:value={form.dripper_id}
+          >Dripper<select use:selectedOption={form.dripper_id} bind:value={form.dripper_id}
             ><option value={null}>Not recorded</option>{#each drippers as item}<option
                 value={item.id}
                 >{item.manufacturer ?? ''}
@@ -923,7 +934,7 @@
           ></label
         >
         <label
-          >Filter<select bind:value={form.filter_id}
+          >Filter<select use:selectedOption={form.filter_id} bind:value={form.filter_id}
             ><option value={null}>Not recorded</option>{#each filters as item}<option
                 value={item.id}>{item.name}{item.archived ? ' · archived (recorded)' : ''}</option
               >{/each}</select
@@ -1136,7 +1147,7 @@
 <style>
   .field-row {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: end;
   }
@@ -1338,6 +1349,12 @@
     margin-top: 3px;
   }
   @media (max-width: 600px) {
+    .field-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .field-row > button {
+      justify-self: start;
+    }
     .preset-grid,
     .calculator {
       grid-template-columns: 1fr;
