@@ -5,13 +5,9 @@
   import { page } from '$app/stores';
   import BrewActivityRail from '$lib/BrewActivityRail.svelte';
   import Logo from '$lib/Logo.svelte';
+  import Navigation from '$lib/Navigation.svelte';
   import { brewStatusStore } from '$lib/brew-status';
-  import {
-    adoptSessionDeviceMode,
-    deviceModeStore,
-    initializeDeviceMode,
-    loginPath
-  } from '$lib/device';
+  import { adoptSessionDeviceMode, deviceModeStore, initializeDeviceMode } from '$lib/device';
   import { api, appSettingsStore, ensureSession, logout, sessionStore } from '$lib/api';
   import type { AppSettings } from '$lib/types';
   import '../styles.css';
@@ -44,9 +40,6 @@
   let settingsLoaded = $state(false);
   let appBootstrapped = $state(false);
   let bootstrapError = $state('');
-  let navOpen = $state(false);
-  let navToggle: HTMLButtonElement;
-  let navPanel: HTMLElement;
   const brewing = $derived(Boolean($brewStatusStore?.active_count));
 
   function applyTheme(value: AppSettings) {
@@ -132,27 +125,6 @@
     void bootstrapApp();
   });
 
-  async function signOut() {
-    navOpen = false;
-    await logout();
-    await goto(loginPath());
-  }
-
-  function closeNav() {
-    navOpen = false;
-  }
-
-  function handleNavKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || !navOpen) return;
-    navOpen = false;
-    navToggle?.focus();
-  }
-
-  function handleOutsideClick(event: MouseEvent) {
-    const target = event.target as Node;
-    if (navOpen && !navToggle?.contains(target) && !navPanel?.contains(target)) navOpen = false;
-  }
-
   $effect(() => {
     const currentUrl = $page.url;
     if (
@@ -164,8 +136,6 @@
     }
   });
 </script>
-
-<svelte:window onkeydown={handleNavKeydown} onclick={handleOutsideClick} />
 
 <svelte:head>
   <meta name="theme-color" content={settings.color_cream} />
@@ -188,88 +158,7 @@
         <small>{settings.subtitle}</small>
       </span>
     </a>
-    <button
-      class="nav-toggle"
-      type="button"
-      bind:this={navToggle}
-      aria-expanded={navOpen}
-      aria-controls="main-navigation"
-      onclick={() => (navOpen = !navOpen)}>Menu</button
-    >
-    <nav
-      id="main-navigation"
-      class="main-navigation"
-      class:open={navOpen}
-      aria-label="Main navigation"
-      bind:this={navPanel}
-    >
-      {#if ready}
-        {#if $sessionStore}
-          {#if $sessionStore.profile.pin_change_required}
-            {#if !settings.demo_mode}
-              <a
-                class:active={$page.url.pathname === '/account/pin'}
-                href="/account/pin"
-                onclick={closeNav}>Change PIN</a
-              >
-            {/if}
-          {:else}
-            <a
-              class:active={$page.url.pathname.startsWith('/coffees')}
-              href="/coffees"
-              onclick={closeNav}>Coffees</a
-            >
-            <a
-              class:active={$page.url.pathname.startsWith('/equipment')}
-              href="/equipment"
-              onclick={closeNav}>Equipment</a
-            >
-            <a
-              class:active={$page.url.pathname === '/profiles' ||
-                ($page.url.pathname.startsWith('/profiles/') &&
-                  $page.url.pathname !== `/profiles/${$sessionStore.profile.id}`)}
-              href="/profiles"
-              onclick={closeNav}>Members</a
-            >
-            <a
-              class:active={$page.url.pathname.startsWith('/analytics')}
-              href="/analytics"
-              onclick={closeNav}>Analytics</a
-            >
-            {#if $sessionStore.profile.role === 'admin' && $deviceModeStore !== 'kiosk'}
-              <a
-                class:active={$page.url.pathname.startsWith('/admin')}
-                href="/admin"
-                onclick={closeNav}>Admin</a
-              >
-            {/if}
-            {#if !settings.demo_mode}
-              <a
-                class:active={$page.url.pathname === '/account/pin'}
-                href="/account/pin"
-                onclick={closeNav}>Change PIN</a
-              >
-            {/if}
-          {/if}
-          {#if !$sessionStore.profile.pin_change_required}
-            <a
-              class:active={$page.url.pathname === `/profiles/${$sessionStore.profile.id}`}
-              href={`/profiles/${$sessionStore.profile.id}`}
-              onclick={closeNav}>{$sessionStore.profile.display_name}</a
-            >
-          {/if}
-          <button class="nav-action" onclick={signOut}>Sign out</button>
-        {:else}
-          <a class:active={$page.url.pathname === '/'} href="/" onclick={closeNav}>Home</a>
-          <a
-            class:active={$page.url.pathname.startsWith('/coffees')}
-            href="/coffees"
-            onclick={closeNav}>Coffees</a
-          >
-          <a href={loginPath()} onclick={closeNav}>Sign in</a>
-        {/if}
-      {/if}
-    </nav>
+    <Navigation {ready} demoMode={settings.demo_mode} />
   </div>
   {#if ready && appBootstrapped && $page.url.pathname !== '/setup'}
     <BrewActivityRail />
