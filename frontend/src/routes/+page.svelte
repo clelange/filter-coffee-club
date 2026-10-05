@@ -331,4 +331,16 @@
       justify-items: end;
     }
   }
+  @media (max-width: 560px) {
+    .section-heading {
+      flex-direction: column;
+    }
+    .section-heading h2 {
+      margin-bottom: 0;
+    }
+    .section-links {
+      justify-content: start;
+      justify-items: start;
+    }
+  }
 </style>
