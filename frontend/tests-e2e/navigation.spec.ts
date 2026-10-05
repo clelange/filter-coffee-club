@@ -117,6 +117,11 @@ const scenarios: { name: string; options: NavigationOptions; items: string[] }[]
     name: 'required PIN change',
     options: { pinChangeRequired: true },
     items: ['Change PIN', 'Sign out']
+  },
+  {
+    name: 'demo with a required PIN change',
+    options: { pinChangeRequired: true, demoMode: true },
+    items: ['Sign out']
   }
 ];
 

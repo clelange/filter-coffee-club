@@ -90,15 +90,7 @@
 >
   {#if ready}
     {#if $sessionStore}
-      {#if $sessionStore.profile.pin_change_required}
-        {#if !demoMode}
-          <a
-            class:active={$page.url.pathname === '/account/pin'}
-            href="/account/pin"
-            onclick={closeNav}>Change PIN</a
-          >
-        {/if}
-      {:else}
+      {#if !$sessionStore.profile.pin_change_required}
         <a
           class:active={$page.url.pathname.startsWith('/coffees')}
           href="/coffees"
@@ -126,13 +118,13 @@
             >Admin</a
           >
         {/if}
-        {#if !demoMode}
-          <a
-            class:active={$page.url.pathname === '/account/pin'}
-            href="/account/pin"
-            onclick={closeNav}>Change PIN</a
-          >
-        {/if}
+      {/if}
+      {#if !demoMode}
+        <a
+          class:active={$page.url.pathname === '/account/pin'}
+          href="/account/pin"
+          onclick={closeNav}>Change PIN</a
+        >
       {/if}
       {#if !$sessionStore.profile.pin_change_required}
         <a
