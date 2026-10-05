@@ -130,30 +130,35 @@ for (const scenario of scenarios) {
 
 for (const signedIn of [false, true]) {
   test(`mobile navigation closes on keyboard exit ${signedIn ? 'signed in' : 'signed out'}`, async ({
-    page
+    page,
+    browserName
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockNavigation(page, { signedIn });
     const toggle = page.getByRole('button', { name: 'Menu', exact: true });
     const navigation = page.getByRole('navigation', { name: 'Main navigation', exact: true });
     const items = navigation.locator('a, button');
+    // macOS WebKit uses Option-Tab to include links in keyboard navigation.
+    const tab = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
+    const previous =
+      browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Shift+Tab' : 'Shift+Tab';
 
     await toggle.focus();
     await page.keyboard.press('Enter');
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(tab);
     await expect(items.first()).toBeFocused();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
-    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press(previous);
     await expect(toggle).toBeFocused();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press(previous);
     await expect(page.getByRole('link', { name: 'Filter Coffee Club home' })).toBeFocused();
     await expect(navigation).toBeHidden();
 
     await toggle.click();
     await items.last().focus();
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(tab);
     const start = page.getByTestId('start-brew-chip');
     await expect(start).toBeFocused();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -208,4 +213,36 @@ test('signing out through navigation clears the session and opens sign in', asyn
   await navigation.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(navigation.locator('a, button')).toHaveText(['Home', 'Coffees', 'Sign in']);
+});
+
+test('navigation keeps focus on a visible control when crossing the mobile breakpoint', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockNavigation(page);
+  const toggle = page.getByRole('button', { name: 'Menu', exact: true });
+  const navigation = page.getByRole('navigation', { name: 'Main navigation', exact: true });
+  const firstLink = navigation.getByRole('link', { name: 'Coffees', exact: true });
+
+  await toggle.focus();
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await expect(firstLink).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(toggle).toBeFocused();
+  await expect(navigation).toBeHidden();
+
+  await toggle.click();
+  await firstLink.focus();
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await expect(firstLink).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(toggle).toBeFocused();
+  await expect(navigation).toBeHidden();
+
+  const start = page.getByTestId('start-brew-chip');
+  await start.focus();
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await expect(start).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(start).toBeFocused();
 });

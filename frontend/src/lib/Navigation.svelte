@@ -9,6 +9,7 @@
   let navOpen = $state(false);
   let navToggle: HTMLButtonElement;
   let navPanel: HTMLElement;
+  let focusedNavControl: HTMLElement | null = null;
 
   function closeNav() {
     navOpen = false;
@@ -33,22 +34,43 @@
   }
 
   function handleOutsideInteraction(event: MouseEvent | FocusEvent) {
-    if (navOpen && !containsTarget(event.target)) closeNav();
+    if (containsTarget(event.target)) return;
+    focusedNavControl = null;
+    if (navOpen) closeNav();
   }
 
-  afterNavigate(closeNav);
+  function handleNavFocus(event: FocusEvent) {
+    focusedNavControl = event.target instanceof HTMLElement ? event.target : null;
+    handleOutsideInteraction(event);
+  }
+
+  function handleBreakpointChange(event: MediaQueryListEvent) {
+    // Browsers can blur a hidden control before the media query change event runs.
+    const focused = focusedNavControl;
+    closeNav();
+    if (event.matches && navPanel?.contains(focused)) {
+      navToggle?.focus();
+    } else if (!event.matches && focused === navToggle) {
+      navPanel?.querySelector<HTMLElement>('a, button')?.focus();
+    }
+  }
+
+  afterNavigate(() => {
+    focusedNavControl = null;
+    closeNav();
+  });
 
   onMount(() => {
     const mobile = window.matchMedia('(max-width: 820px)');
-    mobile.addEventListener('change', closeNav);
-    return () => mobile.removeEventListener('change', closeNav);
+    mobile.addEventListener('change', handleBreakpointChange);
+    return () => mobile.removeEventListener('change', handleBreakpointChange);
   });
 </script>
 
 <svelte:window
   onkeydown={handleNavKeydown}
   onclick={handleOutsideInteraction}
-  onfocusin={handleOutsideInteraction}
+  onfocusin={handleNavFocus}
 />
 
 <button
