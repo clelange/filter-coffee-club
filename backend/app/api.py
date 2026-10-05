@@ -57,6 +57,7 @@ from .demo import (
 from .grinders import (
     GRINDER_DEFINITIONS,
     grinder_definition,
+    to_reference_setting,
     translate_reference_setting,
 )
 from .mattermost import (
@@ -3097,6 +3098,10 @@ def analytics(
                 "grinder_name": f"{brew.grinder.manufacturer} {brew.grinder.model}",
                 "grinder_unit": brew.grinder.setting_unit,
                 "grinder_setting": brew.grinder_setting,
+                "grinder_definition_key": brew.grinder.definition_key,
+                "reference_grinder_setting": to_reference_setting(
+                    brew.grinder_setting, brew.grinder.definition_key
+                ),
                 "total_brew_time_s": brew.total_brew_time_s,
                 "target_flow_g_s": brew.target_flow_g_s,
                 "overall_throughput_g_s": overall_throughput(brew.water_g, brew.total_brew_time_s),
@@ -3116,6 +3121,7 @@ def analytics(
             for profile_id, brew_count in operator_counts.most_common()
         ],
         scatter=scatter,
+        grinder_definitions=list_grinder_definitions(),
         coffee_summaries=coffee_summaries,
         ranking_min_ratings=MIN_RANKING_RATINGS,
     )

@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { components } from '$lib/generated-api';
   import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
+  import { convertedGrind, grinderSetting, type GrinderScale } from '$lib/analytics-grind';
+  import { snapGrinderSetting } from '$lib/brew-recipe';
 
   type AnalyticsScatterPoint = components['schemas']['AnalyticsPoint'];
   type CoffeeSummary = components['schemas']['AnalyticsCoffeeSummary'];
@@ -16,6 +18,7 @@
   export let yKey: PlotKey;
   export let xLabel: string;
   export let yLabel: string;
+  export let grindScale: GrinderScale | null = null;
   export let colorKey: AnalyticsRatingKey | null = null;
   export let colorLabel = '';
   export let colorByCoffee = false;
@@ -43,9 +46,9 @@
     touchPointId = null;
     touchPointWasActive = false;
   }
-  $: xScale = scaleSpec(xKey, points);
-  $: yScale = scaleSpec(yKey, points);
-  $: plottedPoints = displayPoints(points, xKey, yKey, xScale, yScale);
+  $: xScale = scaleSpec(xKey, points, grindScale);
+  $: yScale = scaleSpec(yKey, points, grindScale);
+  $: plottedPoints = displayPoints(points, xKey, yKey, xScale, yScale, grindScale);
   $: coffeeSeries = colorByCoffee
     ? [
         ...new Map(
@@ -57,7 +60,9 @@
       ].sort((left, right) => left.name.localeCompare(right.name))
     : [];
 
-  function value(point: AnalyticsScatterPoint, key: PlotKey): number {
+  function value(point: AnalyticsScatterPoint, key: PlotKey, scale: GrinderScale | null): number {
+    if (key === 'grinder_setting' && scale)
+      return grinderSetting(point, scale) ?? point.grinder_setting;
     return key === 'liking' ? point.liking : Number(point[key]);
   }
 
@@ -69,9 +74,13 @@
     return niceFraction * power;
   }
 
-  function scaleSpec(key: PlotKey, sourcePoints: AnalyticsScatterPoint[]): ScaleSpec {
+  function scaleSpec(
+    key: PlotKey,
+    sourcePoints: AnalyticsScatterPoint[],
+    grind: GrinderScale | null
+  ): ScaleSpec {
     if (key === 'liking') return { minimum: 1, maximum: 9, ticks: [1, 3, 5, 7, 9] };
-    const values = sourcePoints.map((point) => value(point, key));
+    const values = sourcePoints.map((point) => value(point, key, grind));
     if (!values.length) return { minimum: 0, maximum: 1, ticks: [0, 0.25, 0.5, 0.75, 1] };
     let minimum = Math.min(...values);
     let maximum = Math.max(...values);
@@ -113,25 +122,28 @@
     selectedX: PlotKey,
     selectedY: PlotKey,
     selectedXScale: ScaleSpec,
-    selectedYScale: ScaleSpec
+    selectedYScale: ScaleSpec,
+    grind: GrinderScale | null
   ): { point: AnalyticsScatterPoint; cx: number; cy: number }[] {
     const groups = new Map<string, AnalyticsScatterPoint[]>();
     for (const point of sourcePoints) {
-      const key = `${value(point, selectedX)}|${value(point, selectedY)}`;
+      const key = `${value(point, selectedX, grind)}|${value(point, selectedY, grind)}`;
       groups.set(key, [...(groups.get(key) ?? []), point]);
     }
     return sourcePoints.map((point) => {
-      const group = groups.get(`${value(point, selectedX)}|${value(point, selectedY)}`) ?? [point];
+      const group = groups.get(
+        `${value(point, selectedX, grind)}|${value(point, selectedY, grind)}`
+      ) ?? [point];
       const index = group.findIndex((item) => item.brew_id === point.brew_id);
       const offsetRadius = group.length > 1 ? Math.min(10, 4 + group.length) : 0;
       const angle = (index / group.length) * Math.PI * 2 - Math.PI / 2;
       return {
         point,
         cx:
-          position(value(point, selectedX), selectedXScale, left, width - right) +
+          position(value(point, selectedX, grind), selectedXScale, left, width - right) +
           Math.cos(angle) * offsetRadius,
         cy:
-          position(value(point, selectedY), selectedYScale, height - bottom, top) +
+          position(value(point, selectedY, grind), selectedYScale, height - bottom, top) +
           Math.sin(angle) * offsetRadius
       };
     });
@@ -174,14 +186,16 @@
     }
   }
 
-  function detailLabel(point: AnalyticsScatterPoint): string {
-    const coordinate = `${xLabel} ${formatNumber(value(point, xKey))}; ${yLabel} ${formatNumber(value(point, yKey))}`;
+  function detailLabel(point: AnalyticsScatterPoint, grind: GrinderScale | null): string {
+    const coordinate = `${xLabel} ${formatNumber(value(point, xKey, grind))}; ${yLabel} ${formatNumber(value(point, yKey, grind))}`;
+    const original = `Original grinder: ${point.grinder_name}, ${formatNumber(point.grinder_setting)} ${point.grinder_unit}.`;
+    const conversion = convertedGrind(point, grind) ? ' Converted grind is approximate.' : '';
     if (!colorKey) {
       const metric = point.rating_metrics.liking;
-      return `${point.coffee}. ${coordinate}. Liking average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
+      return `${point.coffee}. ${coordinate}. ${original}${conversion} Liking average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
     }
     const metric = point.rating_metrics[colorKey];
-    return `${point.coffee}. ${coordinate}. ${colorLabel} average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
+    return `${point.coffee}. ${coordinate}. ${original}${conversion} ${colorLabel} average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
   }
 
   function select(point: AnalyticsScatterPoint): void {
@@ -277,7 +291,7 @@
         data-brew-id={item.point.brew_id}
         href={`/brews/${item.point.brew_id}`}
         tabindex="0"
-        aria-label={detailLabel(item.point)}
+        aria-label={detailLabel(item.point, grindScale)}
         onfocus={() => select(item.point)}
         onmouseenter={() => select(item.point)}
         onpointerdown={(event) => preparePointer(event, item.point)}
@@ -292,7 +306,7 @@
               item.cy,
               6 + Math.min(item.point.ratings, 6)
             )}
-            {fill}><title>{detailLabel(item.point)}</title></path
+            {fill}><title>{detailLabel(item.point, grindScale)}</title></path
           >
         {:else}
           <circle
@@ -306,7 +320,7 @@
                 ? item.point.coffee_color
                 : 'var(--cyan)'}
           >
-            <title>{detailLabel(item.point)}</title>
+            <title>{detailLabel(item.point, grindScale)}</title>
           </circle>
         {/if}
       </a>
@@ -374,10 +388,27 @@
     <div>
       <span>Selected brew</span><strong>{activePoint.coffee}</strong>
       <small
-        >{xLabel}: {formatNumber(value(activePoint, xKey))} · {yLabel}: {formatNumber(
-          value(activePoint, yKey)
+        >{xLabel}: {formatNumber(value(activePoint, xKey, grindScale))} · {yLabel}: {formatNumber(
+          value(activePoint, yKey, grindScale)
         )}</small
       >
+      <small
+        >Original grinder: {activePoint.grinder_name} · {formatNumber(activePoint.grinder_setting)}
+        {activePoint.grinder_unit}</small
+      >
+      {#if grindScale && convertedGrind(activePoint, grindScale)}
+        {@const translated = grinderSetting(activePoint, grindScale)!}
+        <small>
+          Approximate conversion: ≈ {formatNumber(translated)}
+          {grindScale.unit} on {grindScale.name}. Setting to try: {formatNumber(
+            snapGrinderSetting(translated, {
+              setting_unit: grindScale.unit,
+              setting_step: grindScale.step
+            })
+          )}
+          {grindScale.unit}.
+        </small>
+      {/if}
       {#if colorKey}
         {@const metric = activePoint.rating_metrics[colorKey]}
         <small

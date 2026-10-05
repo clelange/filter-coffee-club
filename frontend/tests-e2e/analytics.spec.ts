@@ -1,4 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { components } from '../src/lib/generated-api';
+import { grinderDefinitions } from '../tests-fixtures/grinders';
+
+type AnalyticsResponse = components['schemas']['AnalyticsResponse'];
 
 const e2eBaseURL = `http://127.0.0.1:${process.env.E2E_PORT ?? 8000}`;
 
@@ -40,8 +44,9 @@ function metric(average: number, minimum = average, maximum = average) {
   return { average, minimum, maximum };
 }
 
-const analytics = {
+const analytics: AnalyticsResponse = {
   counts: { brews: 4, ratings: 8, coffees: 2 },
+  grinder_definitions: grinderDefinitions,
   top_coffees: [],
   top_recipes: [],
   flavor_counts: {},
@@ -64,9 +69,11 @@ const analytics = {
       ratio: 16,
       temperature_c: 92,
       grinder_id: 21,
-      grinder_name: 'Orbit One',
+      grinder_name: 'Comandante C40',
       grinder_unit: 'clicks',
       grinder_setting: 20,
+      grinder_definition_key: 'comandante_c40',
+      reference_grinder_setting: 20,
       total_brew_time_s: 180,
       target_flow_g_s: null,
       overall_throughput_g_s: 1.33
@@ -87,10 +94,12 @@ const analytics = {
       },
       ratio: 16,
       temperature_c: 92,
-      grinder_id: 21,
-      grinder_name: 'Orbit One',
+      grinder_id: 23,
+      grinder_name: 'KINGrinder K6',
       grinder_unit: 'clicks',
-      grinder_setting: 22,
+      grinder_setting: 90,
+      grinder_definition_key: 'kingrinder_k6',
+      reference_grinder_setting: 28.125,
       total_brew_time_s: 200,
       target_flow_g_s: 4.5,
       overall_throughput_g_s: 1.2
@@ -115,6 +124,8 @@ const analytics = {
       grinder_name: 'Orbit Two',
       grinder_unit: 'steps',
       grinder_setting: 5,
+      grinder_definition_key: 'custom',
+      reference_grinder_setting: null,
       total_brew_time_s: 210,
       target_flow_g_s: null,
       overall_throughput_g_s: 1.14
@@ -136,9 +147,11 @@ const analytics = {
       ratio: 15.5,
       temperature_c: 91,
       grinder_id: 21,
-      grinder_name: 'Orbit One',
+      grinder_name: 'Comandante C40',
       grinder_unit: 'clicks',
       grinder_setting: 18,
+      grinder_definition_key: 'comandante_c40',
+      reference_grinder_setting: 18,
       total_brew_time_s: 175,
       target_flow_g_s: null,
       overall_throughput_g_s: 1.37
@@ -146,7 +159,7 @@ const analytics = {
   ]
 };
 
-async function mockAnalyticsPage(page: Page) {
+async function mockAnalyticsPage(page: Page, response: AnalyticsResponse = analytics) {
   await page.route('**/api/v1/settings', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settings) })
   );
@@ -161,7 +174,7 @@ async function mockAnalyticsPage(page: Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) })
   );
   await page.route('**/api/v1/analytics', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(analytics) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) })
   );
 }
 
@@ -299,11 +312,17 @@ test('recipe map exposes comparable axes, ratings, and brew details', async ({ p
   await coffee.selectOption('11');
   await expect(recipeMap.locator('.plot-point')).toHaveCount(1);
   await xAxis.selectOption('grinder_setting');
+  await expect(recipeMap.locator('.plot-point')).toHaveCount(2);
   await expect(
-    recipeMap.getByText('Choose one grinder before comparing grinder settings.', { exact: true })
-  ).toBeVisible();
-  const grinder = recipeMap.getByRole('combobox', { name: 'Map grinder', exact: true });
+    recipeMap.getByRole('combobox', { name: 'Show settings in', exact: true })
+  ).toHaveValue('comandante_c40');
+  await expect(recipeMap.getByTestId('unconverted-brews')).toContainText(
+    '1 brew cannot be converted'
+  );
+  const grinder = recipeMap.getByRole('combobox', { name: 'Brewed with', exact: true });
   await grinder.selectOption('21');
+  await expect(recipeMap.locator('.plot-point')).toHaveCount(1);
+  await grinder.selectOption('all');
   await expect(recipeMap.locator('.plot-point')).toHaveCount(2);
   await expect(yAxis.locator('option[value="grinder_setting"]')).toHaveAttribute('disabled', '');
 
@@ -316,6 +335,174 @@ test('recipe map exposes comparable axes, ratings, and brew details', async ({ p
     };
   });
   expect(mobileLayout).toEqual({ plotScrolls: true, pageFits: true });
+});
+
+test('grind charts combine grinders, switch scales, and retain original settings', async ({
+  page
+}, testInfo) => {
+  await mockAnalyticsPage(page);
+  await page.goto('/analytics?coffee=11&kiosk=0');
+  const comparison = page.locator('.chart-panel').filter({
+    has: page.getByRole('heading', { name: 'Settings versus liking' })
+  });
+  const axis = comparison.getByRole('combobox', { name: 'Horizontal axis', exact: true });
+  await axis.selectOption('grinder_setting');
+  const scale = comparison.getByRole('combobox', { name: 'Show settings in', exact: true });
+  const source = comparison.getByRole('combobox', { name: 'Brewed with', exact: true });
+  const details = comparison.getByTestId('point-details');
+  await expect(scale).toHaveValue('comandante_c40');
+  await expect(source).toHaveValue('all');
+  await expect(comparison.locator('.plot-point')).toHaveCount(2);
+  await expect(comparison.getByTestId('unconverted-brews')).toContainText(
+    '1 brew cannot be converted'
+  );
+  await comparison.locator('.plot-point[data-brew-id="102"]').focus();
+  await expect(details).toContainText('28.125');
+  await expect(details).toContainText('Original grinder: KINGrinder K6 · 90 clicks');
+  await expect(details).toContainText('Approximate conversion');
+  await expect(details).toContainText('Setting to try: 28 clicks');
+  await comparison.screenshot({ path: testInfo.outputPath('combined-grinders-desktop.png') });
+  await expect(comparison.locator('.plot-point[data-brew-id="102"]')).toHaveAttribute(
+    'aria-label',
+    /Original grinder: KINGrinder K6, 90 clicks.*Converted grind is approximate/
+  );
+
+  await scale.selectOption('kingrinder_k6');
+  await expect(comparison.locator('.plot-point')).toHaveCount(2);
+  await expect(details).toContainText('Grind (K6-equivalent clicks): 90');
+  await expect(details).not.toContainText('Approximate conversion');
+  await comparison.locator('.plot-point[data-brew-id="101"]').focus();
+  await expect(details).toContainText('Approximate conversion: ≈ 64 clicks on KINGrinder K6');
+  await expect(details).toContainText('Original grinder: Comandante C40 · 20 clicks');
+  await source.selectOption('23');
+  await expect(comparison.locator('.plot-point')).toHaveCount(1);
+  await expect(details).toContainText('Focus, hover, or tap a point');
+
+  await source.selectOption('all');
+  await scale.selectOption('grinder:22');
+  await expect(comparison.locator('.plot-point')).toHaveCount(1);
+  await comparison.locator('.plot-point[data-brew-id="103"]').focus();
+  await expect(details).toContainText('Grinder setting (steps): 5');
+  await expect(details).toContainText('Original grinder: Orbit Two · 5 steps');
+  await expect(details).not.toContainText('Approximate conversion');
+  await axis.selectOption('ratio');
+  await expect(comparison.locator('.plot-point')).toHaveCount(3);
+  await expect(comparison.getByTestId('unconverted-brews')).toHaveCount(0);
+
+  const map = page.locator('.recipe-map');
+  await map.getByRole('combobox', { name: 'Y axis', exact: true }).selectOption('grinder_setting');
+  await expect(map.locator('.plot-point')).toHaveCount(2);
+  await map.locator('.plot-point[data-brew-id="102"]').focus();
+  await expect(map.getByTestId('point-details')).toContainText(
+    'Grind (C40-equivalent clicks): 28.125'
+  );
+  await map
+    .getByRole('combobox', { name: 'Show settings in', exact: true })
+    .selectOption('kingrinder_k6');
+  await expect(map.getByTestId('point-details')).toContainText('Grind (K6-equivalent clicks): 90');
+  await expect(map.getByTestId('point-details')).not.toContainText('Approximate conversion');
+  await page.setViewportSize({ width: 360, height: 800 });
+  await axis.selectOption('grinder_setting');
+  await scale.selectOption('comandante_c40');
+  await comparison.locator('.plot-point[data-brew-id="102"]').focus();
+  await expect(comparison.locator('.plot-point')).toHaveCount(2);
+  await expect(scale).toHaveValue('comandante_c40');
+  await expect(comparison.getByTestId('point-details')).toContainText('28.125');
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    )
+  ).toBe(true);
+  await comparison.screenshot({ path: testInfo.outputPath('combined-grinders-mobile.png') });
+});
+
+for (const chart of ['comparison', 'map']) {
+  test(`${chart} recovers from incompatible grinder filters and coffee changes`, async ({
+    page
+  }) => {
+    await mockAnalyticsPage(page);
+    await page.goto('/analytics?coffee=11&kiosk=0');
+    const panel =
+      chart === 'comparison'
+        ? page
+            .locator('.chart-panel')
+            .filter({ has: page.getByRole('heading', { name: 'Settings versus liking' }) })
+        : page.locator('.recipe-map');
+    await panel
+      .getByRole('combobox', {
+        name: chart === 'comparison' ? 'Horizontal axis' : 'X axis',
+        exact: true
+      })
+      .selectOption('grinder_setting');
+    const scale = panel.getByRole('combobox', { name: 'Show settings in', exact: true });
+    const source = panel.getByRole('combobox', { name: 'Brewed with', exact: true });
+    await source.selectOption('23');
+    await scale.selectOption('grinder:22');
+    await expect(source).toHaveValue('all');
+    await expect(panel.locator('.plot-point')).toHaveCount(1);
+    await expect(panel.locator('.plot-point')).toHaveAttribute('data-brew-id', '103');
+    await expect(source.locator('option[value="23"]')).toHaveCount(0);
+
+    const coffee = panel.getByRole('combobox', {
+      name: chart === 'comparison' ? 'Coffee' : 'Map coffee',
+      exact: true
+    });
+    await coffee.selectOption('12');
+    await expect(scale).toHaveValue('comandante_c40');
+    await expect(scale.locator('option[value="grinder:22"]')).toHaveCount(0);
+    await expect(panel.locator('.plot-point')).toHaveCount(1);
+    await expect(panel.locator('.plot-point')).toHaveAttribute('data-brew-id', '201');
+
+    await scale.selectOption('kingrinder_k6');
+    await coffee.selectOption('11');
+    await expect(scale).toHaveValue('kingrinder_k6');
+    await expect(source).toHaveValue('all');
+    await expect(panel.locator('.plot-point')).toHaveCount(2);
+    await expect(scale.locator('option[value="grinder:22"]')).toHaveCount(1);
+  });
+}
+
+test('equivalent settings overlap on the chart and recommendations round to usable clicks', async ({
+  page
+}) => {
+  const points = [
+    analytics.scatter[0],
+    {
+      ...analytics.scatter[1],
+      grinder_setting: 64,
+      reference_grinder_setting: 20,
+      liking: 1,
+      rating_metrics: { ...analytics.scatter[1].rating_metrics, liking: metric(1) }
+    },
+    { ...analytics.scatter[0], brew_id: 104, grinder_setting: 28, reference_grinder_setting: 28 }
+  ];
+  await mockAnalyticsPage(page, { ...analytics, scatter: points });
+  await page.goto('/analytics?coffee=11&kiosk=0');
+  const map = page.locator('.recipe-map');
+  await map.getByRole('combobox', { name: 'X axis', exact: true }).selectOption('grinder_setting');
+  const first = map.locator('.plot-point[data-brew-id="101"] circle');
+  const equivalent = map.locator('.plot-point[data-brew-id="102"] circle');
+  const positions = await Promise.all(
+    [first, equivalent].map((marker) =>
+      marker.evaluate((element) => ({
+        x: Number(element.getAttribute('cx')),
+        y: Number(element.getAttribute('cy'))
+      }))
+    )
+  );
+  expect(Math.abs(positions[0].x - positions[1].x)).toBeLessThan(1);
+  expect(Math.abs(positions[0].y - positions[1].y)).toBeGreaterThan(1);
+  expect(Math.abs(positions[0].y - positions[1].y)).toBeLessThanOrEqual(20);
+  await map.locator('.plot-point[data-brew-id="102"]').focus();
+  await expect(map.getByTestId('point-details')).toContainText('Grind (C40-equivalent clicks): 20');
+  await map
+    .getByRole('combobox', { name: 'Show settings in', exact: true })
+    .selectOption('kingrinder_k6');
+  await map.locator('.plot-point[data-brew-id="104"]').focus();
+  await expect(map.getByTestId('point-details')).toContainText(
+    'Approximate conversion: ≈ 89.6 clicks'
+  );
+  await expect(map.getByTestId('point-details')).toContainText('Setting to try: 90 clicks');
 });
 
 test('a touch point opens details first and follows its brew link on the second tap', async ({

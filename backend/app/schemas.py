@@ -692,6 +692,8 @@ class AnalyticsPoint(BaseModel):
     grinder_name: str
     grinder_unit: str
     grinder_setting: float
+    grinder_definition_key: GrinderDefinitionKey
+    reference_grinder_setting: float | None
     total_brew_time_s: int | None
     target_flow_g_s: float | None
     overall_throughput_g_s: float | None
@@ -704,6 +706,7 @@ class AnalyticsResponse(BaseModel):
     flavor_counts: dict[str, int]
     operator_counts: list[AnalyticsOperatorCount]
     scatter: list[AnalyticsPoint]
+    grinder_definitions: list[GrinderDefinitionResponse] = Field(default_factory=list)
     coffee_summaries: list[AnalyticsCoffeeSummary] = Field(default_factory=list)
     ranking_min_ratings: int = 3
 

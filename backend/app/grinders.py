@@ -96,3 +96,11 @@ def translate_reference_setting(value: float, definition_key: str) -> float | No
     if definition.reference_multiplier is None:
         return None
     return round_to_step(value * definition.reference_multiplier, definition.setting_step)
+
+
+def to_reference_setting(value: float, definition_key: str) -> float | None:
+    """Express an observed setting in C40 clicks without rounding away precision."""
+    definition = grinder_definition(definition_key)
+    if definition.reference_multiplier is None:
+        return None
+    return value / definition.reference_multiplier

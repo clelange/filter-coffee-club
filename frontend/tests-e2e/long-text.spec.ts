@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { grinderDefinitions } from '../tests-fixtures/grinders';
 
 const name = 'Teilchenbeschleuniger';
 const longName = name.repeat(3);
@@ -213,6 +214,7 @@ async function mockCatalog(page: Page) {
     else if (path === '/analytics')
       body = {
         counts: { brews: 4, ratings: 16, coffees: 4 },
+        grinder_definitions: grinderDefinitions,
         coffee_summaries: summaries,
         top_coffees: summaries,
         top_recipes: [],
@@ -231,6 +233,8 @@ async function mockCatalog(page: Page) {
           grinder_name: longName,
           grinder_unit: 'clicks',
           grinder_setting: 25,
+          grinder_definition_key: 'custom',
+          reference_grinder_setting: null,
           total_brew_time_s: 180,
           target_flow_g_s: 4,
           overall_throughput_g_s: 1.78,
@@ -448,5 +452,69 @@ test('native selectors reveal clipped values, update with selection, and hide wh
   );
   await chartCoffee.selectOption('all');
   await expect(chartCoffee.locator('..').locator('.selected-option')).toBeHidden();
+  expect(unexpected).toEqual([]);
+});
+
+test('grind controls and original-setting details fit long labels at phone and Pi widths', async ({
+  page
+}, testInfo) => {
+  const unexpected = await mockCatalog(page);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/analytics?coffee=2');
+  const panels = [
+    page
+      .locator('.chart-panel')
+      .filter({ has: page.getByRole('heading', { name: 'Settings versus liking' }) }),
+    page.locator('.recipe-map')
+  ];
+  for (let index = 0; index < panels.length; index++) {
+    const panel = panels[index];
+    await panel
+      .getByRole('combobox', { name: index === 0 ? 'Horizontal axis' : 'Y axis', exact: true })
+      .selectOption('grinder_setting');
+    const scale = panel.getByRole('combobox', { name: 'Show settings in', exact: true });
+    await expect(panel.getByTestId('unconverted-brews')).toContainText(
+      '1 brew cannot be converted'
+    );
+    await scale.selectOption('grinder:1');
+    await expect(panel.locator('.plot-point')).toHaveCount(1);
+    await panel.locator('.plot-point').focus();
+    await expect(panel.getByTestId('point-details')).toContainText(`Original grinder: ${longName}`);
+    await expect(panel.getByTestId('point-details')).not.toContainText('Approximate conversion');
+  }
+  for (const viewport of [
+    { width: 320, height: 800 },
+    { width: 375, height: 812 },
+    { width: 600, height: 900 },
+    { width: 1024, height: 600 }
+  ]) {
+    await page.setViewportSize(viewport);
+    for (const panel of panels) {
+      const scale = panel.getByRole('combobox', { name: 'Show settings in', exact: true });
+      const source = panel.getByRole('combobox', { name: 'Brewed with', exact: true });
+      await expect(scale.locator('..').locator('.selected-option')).toBeVisible();
+      await expectTextInside(panel.locator('.selected-option'), 'label');
+      await expectTextInside(panel.locator('.point-details small'), '.point-details > div');
+      if (viewport.width <= 500) {
+        const fieldWidths = await panel
+          .locator('select')
+          .evaluateAll((selects) => selects.map((select) => select.getBoundingClientRect().width));
+        expect(Math.max(...fieldWidths) - Math.min(...fieldWidths)).toBeLessThanOrEqual(1);
+      }
+      await expect(source).toHaveValue('all');
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true
+    );
+  }
+  await page.setViewportSize({ width: 1024, height: 1600 });
+  await panels[0].evaluate((panel) =>
+    window.scrollTo(0, window.scrollY + panel.getBoundingClientRect().top - 160)
+  );
+  await panels[0].screenshot({ path: testInfo.outputPath('grind-controls-long-desktop.png') });
+  await page.setViewportSize({ width: 375, height: 1800 });
+  await panels[0].screenshot({ path: testInfo.outputPath('grind-controls-long-mobile.png') });
+  expect(errors).toEqual([]);
   expect(unexpected).toEqual([]);
 });

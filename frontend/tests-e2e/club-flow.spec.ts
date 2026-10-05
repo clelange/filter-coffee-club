@@ -1207,10 +1207,11 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(mapLegend).toContainText('Acidity average');
 
   await mapXAxis.selectOption('grinder_setting');
+  await expect(recipeMap.locator('.plot-point')).not.toHaveCount(0);
   await expect(
-    recipeMap.getByText('Choose one grinder before comparing grinder settings.', { exact: true })
-  ).toBeVisible();
-  const mapGrinder = recipeMap.getByRole('combobox', { name: 'Map grinder', exact: true });
+    recipeMap.getByRole('combobox', { name: 'Show settings in', exact: true })
+  ).toHaveValue('comandante_c40');
+  const mapGrinder = recipeMap.getByRole('combobox', { name: 'Brewed with', exact: true });
   await mapGrinder.selectOption({ index: 1 });
   await expect(recipeMap.locator('.plot-point')).not.toHaveCount(0);
   await expect(mapYAxis.locator('option[value="grinder_setting"]')).toHaveAttribute('disabled', '');

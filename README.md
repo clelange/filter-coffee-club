@@ -58,10 +58,17 @@ show up to ten entries across all coffees and all time. Identical settings are n
 reusable recipe, and one well-rated session does not establish repeatability.
 
 Selecting a coffee links the settings plot and recipe map. Its dashed average line includes all
-the bag's rated brews, including measurements excluded by chart filters. Grinder and axis filters
+the bag's rated brews, including measurements excluded by chart filters. Grinder scales, grinder filters, and axes
 are local to each chart; they do not change the all-time rankings. The **Best-rated brew** card
 uses the highest average liking among qualifying sessions, breaking ties by response count and
 then newest brew record. **Use these settings** prefills a new recipe for review before starting.
+
+Grind axes combine Comandante C40 and KINGrinder K6 brews on a shared scale, defaulting to
+C40-equivalent clicks. **Show settings in** switches the display scale; **Brewed with** optionally
+filters by the grinder actually used. Conversions use the existing preset factor (K6 = C40 × 3.2)
+and represent approximate starting points. Charts retain fractional converted values; brew details
+show the original setting and a converted setting rounded to usable steps. Custom grinders have
+their own original scales, and charts report how many brews lack a conversion to the chosen scale.
 
 Coffee colours are stored permanently. Automatic assignment uses the original palette first and
 then generates additional unused colours with contrast against the configured surface. Shapes,

@@ -1253,6 +1253,13 @@ export interface components {
             grinder_unit: string;
             /** Grinder Setting */
             grinder_setting: number;
+            /**
+             * Grinder Definition Key
+             * @enum {string}
+             */
+            grinder_definition_key: "comandante_c40" | "kingrinder_k6" | "custom";
+            /** Reference Grinder Setting */
+            reference_grinder_setting: number | null;
             /** Total Brew Time S */
             total_brew_time_s: number | null;
             /** Target Flow G S */
@@ -1305,6 +1312,8 @@ export interface components {
             operator_counts: components["schemas"]["AnalyticsOperatorCount"][];
             /** Scatter */
             scatter: components["schemas"]["AnalyticsPoint"][];
+            /** Grinder Definitions */
+            grinder_definitions?: components["schemas"]["GrinderDefinitionResponse"][];
             /** Coffee Summaries */
             coffee_summaries?: components["schemas"]["AnalyticsCoffeeSummary"][];
             /**

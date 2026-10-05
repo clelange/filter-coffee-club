@@ -126,7 +126,7 @@ export function presetDeviations(
   return deviations;
 }
 
-export function isClickGrinder(grinder: Grinder | undefined): boolean {
+export function isClickGrinder(grinder: Pick<Grinder, 'setting_unit'> | undefined): boolean {
   return ['click', 'clicks'].includes(grinder?.setting_unit.trim().toLowerCase() ?? '');
 }
 
@@ -136,7 +136,10 @@ function decimalPlaces(value: number): number {
   return text.includes('.') ? text.split('.')[1].length : 0;
 }
 
-export function snapGrinderSetting(value: number, grinder: Grinder): number {
+export function snapGrinderSetting(
+  value: number,
+  grinder: Pick<Grinder, 'setting_unit' | 'setting_step'>
+): number {
   const step = isClickGrinder(grinder) ? 1 : grinder.setting_step;
   const snapped = Math.round(value / step) * step;
   return Number(snapped.toFixed(decimalPlaces(step)));

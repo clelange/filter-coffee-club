@@ -3518,6 +3518,68 @@ def test_catalog_usage_insights_and_equipment_detail_reads(tmp_path: Path) -> No
         assert pin_required["rating_count"] is None
 
 
+def test_analytics_preserves_original_settings_and_adds_reference_scale(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees", headers=headers, json={"roaster": "Atlas", "name": "Alpha"}
+        ).json()
+        c40 = client.get("/api/v1/grinders").json()[0]
+        k6 = client.post(
+            "/api/v1/grinders", headers=headers, json={"definition_key": "kingrinder_k6"}
+        ).json()
+        custom = client.post(
+            "/api/v1/grinders",
+            headers=headers,
+            json={
+                "definition_key": "custom",
+                "manufacturer": "Orbit",
+                "model": "One",
+                "setting_unit": "steps",
+                "setting_step": 0.25,
+            },
+        ).json()
+        for grinder, setting in [(c40, 28), (k6, 90), (custom, 5.25)]:
+            created = client.post(
+                "/api/v1/brews",
+                headers=headers,
+                json={
+                    "coffee_id": coffee["id"],
+                    "grinder_id": grinder["id"],
+                    "dose_g": 15,
+                    "water_g": 240,
+                    "temperature_c": 92,
+                    "grinder_setting": setting,
+                },
+            )
+            assert created.status_code == 200, created.text
+            brew = created.json()
+            finalized = client.post(
+                f"/api/v1/brews/{brew['id']}/finalize",
+                headers=headers,
+                json={"total_brew_time_s": 180, "revision": brew["revision"]},
+            )
+            assert finalized.status_code == 200, finalized.text
+            rating = client.post(
+                f"/api/v1/brews/{brew['id']}/ratings",
+                headers=headers,
+                json={"liking": 7, "acidity": 3, "bitterness": 1, "sweetness": 3, "body": 2},
+            )
+            assert rating.status_code == 200, rating.text
+
+        response = client.get("/api/v1/analytics")
+        assert response.status_code == 200, response.text
+        analytics = response.json()
+        assert analytics["grinder_definitions"] == client.get("/api/v1/grinder-definitions").json()
+        points = {point["grinder_definition_key"]: point for point in analytics["scatter"]}
+        assert points["comandante_c40"]["reference_grinder_setting"] == 28
+        assert points["kingrinder_k6"]["reference_grinder_setting"] == 28.125
+        assert points["kingrinder_k6"]["grinder_setting"] == 90
+        assert points["custom"]["reference_grinder_setting"] is None
+        assert points["custom"]["grinder_setting"] == 5.25
+        assert points["custom"]["grinder_unit"] == "steps"
+
+
 def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, admin_headers = bootstrap(client)
@@ -3694,6 +3756,8 @@ def test_coffee_and_brew_rating_insights(tmp_path: Path) -> None:
             "body": {"average": 4, "minimum": 3, "maximum": 5},
         }
         assert first_point["grinder_unit"] == "clicks"
+        assert first_point["grinder_definition_key"] == "comandante_c40"
+        assert first_point["reference_grinder_setting"] == first_point["grinder_setting"]
         assert first_point["target_flow_g_s"] is None
         assert first_point["overall_throughput_g_s"] == 1.2
         second_point = next(
