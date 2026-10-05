@@ -208,7 +208,7 @@
     grid-template-columns: 1.25fr 0.75fr;
     gap: 40px;
     align-items: center;
-    min-height: 58vh;
+    min-height: min(58vh, 600px);
   }
   .hero-logo {
     display: grid;
