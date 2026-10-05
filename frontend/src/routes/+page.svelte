@@ -14,7 +14,9 @@
   let brews: Brew[] = $state([]);
   let comparisons: RatingComparisonData[] = $state([]);
   let loading = $state(true);
-  let error = $state('');
+  let loadError = $state('');
+  let repeatError = $state<{ brewId: number; message: string } | null>(null);
+  let joinError = $state('');
   let comparisonError = $state('');
   let repeatingBrewId = $state<number | null>(null);
   const repeatKeys = new Map<number, string>();
@@ -29,7 +31,7 @@
     try {
       brews = await api<Brew[]>('/brews?exclude_status=draft&limit=12');
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not load brews.';
+      loadError = caught instanceof Error ? caught.message : 'Could not load brews.';
       return;
     } finally {
       loading = false;
@@ -55,6 +57,7 @@
 
   async function repeat(brew: Brew) {
     if (repeatingBrewId !== null) return;
+    repeatError = null;
     repeatingBrewId = brew.id;
     const key = repeatKeys.get(brew.id) ?? crypto.randomUUID();
     repeatKeys.set(brew.id, key);
@@ -67,7 +70,10 @@
       await refreshBrewStatusAfterMutation().catch(() => undefined);
       location.href = `/brews/${clone.id}`;
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not start another brew.';
+      repeatError = {
+        brewId: brew.id,
+        message: caught instanceof Error ? caught.message : 'Could not start another brew.'
+      };
       await refreshBrewStatusAfterMutation().catch(() => undefined);
     } finally {
       repeatingBrewId = null;
@@ -76,13 +82,14 @@
 
   async function join(brew: BrewActivityItem) {
     if (joiningBrewId !== null) return;
+    joinError = '';
     joiningBrewId = brew.id;
     try {
       await api<Brew>(`/brews/${brew.id}/join`, { method: 'POST', body: jsonBody({}) });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
       location.href = `/brews/${brew.id}`;
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not join this brew.';
+      joinError = caught instanceof Error ? caught.message : 'Could not join this brew.';
     } finally {
       joiningBrewId = null;
     }
@@ -139,6 +146,7 @@
         <h2>{active.active_count} of {active.max_active_brews} active</h2>
       </div>
     </div>
+    {#if joinError}<p class="error" role="alert">{joinError}</p>{/if}
     <div class="card-grid">
       {#each active.brews as brew}
         <article class="card active-card">
@@ -153,7 +161,11 @@
             {#if participates(brew)}
               <a class="button small" href={`/brews/${brew.id}`}>Continue brew</a>
             {:else}
-              <button class="small" onclick={() => join(brew)} disabled={joiningBrewId !== null}
+              <button
+                class="button small"
+                class:disabled={joiningBrewId !== null}
+                onclick={() => join(brew)}
+                aria-disabled={joiningBrewId !== null}
                 >{joiningBrewId === brew.id ? 'Joining…' : 'Join brew'}</button
               >
             {/if}
@@ -179,8 +191,8 @@
   </div>
   {#if loading}
     <div class="empty">Loading brew log…</div>
-  {:else if error}
-    <p class="error" role="alert">{error}</p>
+  {:else if loadError}
+    <p class="error" role="alert">{loadError}</p>
   {:else if brews.length === 0}
     <div class="empty">No brews yet. The first measurement is waiting.</div>
   {:else}
@@ -192,8 +204,9 @@
         {@const comparison = ratingForBrew(brew.id)}
         <BrewCard
           {brew}
-          {comparison}
+          comparison={$sessionStore ? comparison : undefined}
           profileId={$sessionStore?.profile.id}
+          repeatError={repeatError?.brewId === brew.id ? repeatError.message : undefined}
           repeatDisabled={repeatingBrewId !== null}
           onrepeat={$sessionStore ? repeat : undefined}
         />

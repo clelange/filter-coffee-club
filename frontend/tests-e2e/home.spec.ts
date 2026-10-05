@@ -207,3 +207,85 @@ for (const signedIn of [false, true]) {
     }
   });
 }
+
+test('a failed repeat keeps the log, focus, and idempotency key available for retry', async ({
+  page
+}) => {
+  const pending: Route[] = [];
+  const keys: string[] = [];
+  await mockHome(page, {
+    onclone: async (route) => {
+      keys.push(route.request().headers()['idempotency-key']);
+      expect(route.request().headers()['x-csrf-token']).toBe(session.csrf_token);
+      if (keys.length === 1) {
+        pending.push(route);
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        json: { detail: 'Brew service temporarily unavailable' }
+      });
+    }
+  });
+  const repeat = page.locator('.brew-card').getByRole('button', { name: 'Repeat', exact: true });
+  await repeat.first().focus();
+  await repeat.first().press('Enter');
+  await expect.poll(() => pending.length).toBe(1);
+  await expect(repeat).toHaveCount(2);
+  for (const button of await repeat.all()) await expect(button).toBeDisabled();
+  await page.keyboard.press('Enter');
+  await pending[0].fulfill({
+    status: 503,
+    json: { detail: 'Brew service temporarily unavailable' }
+  });
+  const failedCard = page.locator('.brew-card').filter({ hasText: 'Ethiopia Guji Hambela' });
+  await expect(failedCard.getByRole('alert')).toHaveText('Brew service temporarily unavailable');
+  await expect(page.locator('.brew-card')).toHaveCount(4);
+  await expect(repeat.first()).toBeFocused();
+  for (const button of await repeat.all()) await expect(button).toBeEnabled();
+
+  await repeat.first().press('Enter');
+  await expect.poll(() => keys.length).toBe(2);
+  expect(keys[0]).toBeTruthy();
+  expect(keys[1]).toBe(keys[0]);
+  await expect(repeat.first()).toBeEnabled();
+  await expect(page.locator('.brew-card')).toHaveCount(4);
+});
+
+test('a failed join preserves the brew log and an accessible retry button', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockHome(page, {
+    onjoin: (route) =>
+      route.fulfill({ status: 503, json: { detail: 'Could not join this brew yet' } })
+  });
+  const join = page.getByRole('button', { name: 'Join brew', exact: true });
+  expect((await join.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await join.focus();
+  await join.press('Enter');
+  await expect(page.locator('.active-section').getByRole('alert')).toHaveText(
+    'Could not join this brew yet'
+  );
+  await expect(join).toBeEnabled();
+  await expect(join).toBeFocused();
+  await expect(page.locator('.brew-card')).toHaveCount(4);
+});
+
+test('session expiry keeps public brews visible while removing cached personal comparisons', async ({
+  page
+}) => {
+  await mockHome(page, {
+    onclone: (route) => route.fulfill({ status: 401, json: { detail: 'Please sign in again' } })
+  });
+  await page
+    .locator('.brew-card')
+    .getByRole('button', { name: 'Repeat', exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole('alert')).toHaveText('Please sign in again');
+  await expect(page.locator('.brew-card')).toHaveCount(4);
+  await expect(page.getByText('Your rating vs other tasters')).toHaveCount(0);
+  await expect(
+    page.locator('.brew-card').getByRole('button', { name: 'Repeat', exact: true })
+  ).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Sign in to brew', exact: true })).toBeVisible();
+});

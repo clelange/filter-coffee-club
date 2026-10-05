@@ -8,12 +8,14 @@
     brew,
     comparison,
     profileId,
+    repeatError,
     repeatDisabled = false,
     onrepeat
   }: {
     brew: Brew;
     comparison?: RatingComparisonData;
     profileId?: number;
+    repeatError?: string;
     repeatDisabled?: boolean;
     onrepeat?: (brew: Brew) => void;
   } = $props();
@@ -47,6 +49,7 @@
       <RatingComparison result={comparison} compact />
     </div>
   {/if}
+  {#if repeatError}<p class="error" role="alert">{repeatError}</p>{/if}
   <div class="actions">
     <a class="button small" href={`/brews/${brew.id}`}
       >{brew.status === 'completed'
@@ -56,8 +59,13 @@
           : 'View record'}</a
     >
     {#if onrepeat && brew.status === 'completed'}
-      <button class="secondary" disabled={repeatDisabled} onclick={() => onrepeat?.(brew)}
-        >Repeat</button
+      <button
+        class="button secondary"
+        class:disabled={repeatDisabled}
+        aria-disabled={repeatDisabled}
+        onclick={() => {
+          if (!repeatDisabled) onrepeat?.(brew);
+        }}>Repeat</button
       >
     {/if}
   </div>
