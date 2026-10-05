@@ -261,6 +261,7 @@
   @media (max-width: 560px) {
     .section-heading {
       flex-direction: column;
+      margin-bottom: 16px;
     }
     .section-heading h2 {
       margin-bottom: 0;
