@@ -9,6 +9,7 @@
   import { brewStatusStore } from '$lib/brew-status';
   import { adoptSessionDeviceMode, deviceModeStore, initializeDeviceMode } from '$lib/device';
   import { api, appSettingsStore, ensureSession, logout, sessionStore } from '$lib/api';
+  import { applyTheme } from '$lib/theme';
   import type { AppSettings } from '$lib/types';
   import '../styles.css';
 
@@ -42,19 +43,11 @@
   let bootstrapError = $state('');
   const brewing = $derived(Boolean($brewStatusStore?.active_count));
 
-  function applyTheme(value: AppSettings) {
-    const root = document.documentElement;
-    root.style.setProperty('--cream', value.color_cream);
-    root.style.setProperty('--surface', value.color_surface);
-    root.style.setProperty('--ink', value.color_ink);
-    root.style.setProperty('--coffee', value.color_coffee);
-    root.style.setProperty('--cyan', value.color_cyan);
-    root.style.setProperty('--amber', value.color_amber);
-    document.title = value.app_name;
-  }
-
   $effect(() => {
-    if (browser) applyTheme(settings);
+    if (browser) {
+      applyTheme(settings);
+      document.title = settings.app_name;
+    }
   });
 
   function versionUrl(version: string): string {
