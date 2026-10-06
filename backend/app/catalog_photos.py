@@ -3,12 +3,16 @@ from __future__ import annotations
 import io
 import logging
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
 from anyio import to_thread
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -39,6 +43,8 @@ class MissingPhotoError(CatalogPhotoError):
 
 
 class CatalogPhotoOwner(Protocol):
+    id: int
+    updated_at: datetime
     photo_path: str | None
     photo_focus_x: float | None
     photo_focus_y: float | None
@@ -114,8 +120,20 @@ def _remove_file(settings: Settings, public_path: str | None) -> None:
         logger.warning("Could not remove replaced catalog photo", extra={"path": str(path)})
 
 
-def _commit_photo_change(db: Session) -> None:
+@contextmanager
+def _catalog_photo_change(db: Session, item: CatalogPhotoOwner) -> Iterator[None]:
+    """Serialize a photo change, using current state and rolling back failures."""
     try:
+        row_type = type(item)
+        # Reserve the row without advancing its timestamp until a real change is flushed.
+        db.execute(
+            update(row_type)
+            .where(row_type.id == item.id)
+            .values(photo_path=row_type.photo_path, updated_at=row_type.updated_at)
+            .execution_options(synchronize_session=False, autoflush=False)
+        )
+        db.refresh(item)
+        yield
         db.commit()
     except BaseException:
         db.rollback()
@@ -137,11 +155,11 @@ async def save_catalog_photo(
     destination = settings.catalog_upload_dir / filename
     await to_thread.run_sync(_atomic_write, destination, normalized)
 
-    old_path = item.photo_path
-    item.photo_path = f"/uploads/catalog/{filename}"
-    apply_catalog_photo_framing(item, framing)
     try:
-        _commit_photo_change(db)
+        with _catalog_photo_change(db, item):
+            old_path = item.photo_path
+            item.photo_path = f"/uploads/catalog/{filename}"
+            apply_catalog_photo_framing(item, framing)
     except BaseException:
         destination.unlink(missing_ok=True)
         raise
@@ -151,10 +169,10 @@ async def save_catalog_photo(
 
 
 def remove_catalog_photo(settings: Settings, db: Session, item: CatalogPhotoOwner) -> None:
-    old_path = item.photo_path
-    item.photo_path = None
-    apply_catalog_photo_framing(item, None)
-    _commit_photo_change(db)
+    with _catalog_photo_change(db, item):
+        old_path = item.photo_path
+        item.photo_path = None
+        apply_catalog_photo_framing(item, None)
     _remove_file(settings, old_path)
     db.refresh(item)
 
@@ -164,8 +182,8 @@ def update_catalog_photo_framing(
     item: CatalogPhotoOwner,
     framing: tuple[float, float, float] | None,
 ) -> None:
-    if item.photo_path is None:
-        raise MissingPhotoError("Catalog item has no photo to frame")
-    apply_catalog_photo_framing(item, framing)
-    _commit_photo_change(db)
+    with _catalog_photo_change(db, item):
+        if item.photo_path is None:
+            raise MissingPhotoError("Catalog item has no photo to frame")
+        apply_catalog_photo_framing(item, framing)
     db.refresh(item)

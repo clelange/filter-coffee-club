@@ -12,6 +12,8 @@ from threading import Barrier, Event
 import pytest
 from alembic import command
 from alembic.config import Config
+from app import branding as branding_module
+from app import catalog_photos as catalog_photos_module
 from app import main as main_module
 from app import mattermost as mattermost_module
 from app.config import Settings
@@ -700,6 +702,63 @@ def test_regular_logo_replacement_removes_previous_upload(tmp_path: Path) -> Non
         assert replacement.status_code == 200, replacement.text
         assert client.get(first_path).status_code == 404
         assert client.get(replacement.json()["logo_path"]).status_code == 200
+
+
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_overlapping_logo_uploads_remove_the_superseded_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resource: str
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        endpoint = f"/api/v1/settings/{resource}"
+        initial = client.post(
+            endpoint,
+            headers=headers,
+            files={"logo": ("initial.webp", image_upload("WEBP", size=(20, 20)), "image/webp")},
+        )
+        assert initial.status_code == 200
+        slow_upload_stored = Event()
+        allow_slow_upload = Event()
+        store_logo = branding_module.store_logo
+
+        async def pause_png_upload(content, content_type, settings, filename_prefix):
+            path = await store_logo(content, content_type, settings, filename_prefix)
+            if content_type == "image/png":
+                slow_upload_stored.set()
+                assert await asyncio.to_thread(allow_slow_upload.wait, 10)
+            return path
+
+        monkeypatch.setattr(branding_module, "store_logo", pause_png_upload)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            slow = executor.submit(
+                client.post,
+                endpoint,
+                headers=headers,
+                files={"logo": ("slow.png", image_upload(size=(20, 20)), "image/png")},
+            )
+            try:
+                assert slow_upload_stored.wait(timeout=10)
+                fast = client.post(
+                    endpoint,
+                    headers=headers,
+                    files={
+                        "logo": ("fast.webp", image_upload("WEBP", size=(24, 24)), "image/webp")
+                    },
+                )
+                assert fast.status_code == 200, fast.text
+            finally:
+                allow_slow_upload.set()
+            final = slow.result(timeout=10)
+
+        assert final.status_code == 200, final.text
+        attribute = "logo_path" if resource == "logo" else "brewing_logo_path"
+        final_path = final.json()[attribute]
+        assert client.get("/api/v1/settings").json()[attribute] == final_path
+        assert client.get(final_path).status_code == 200
+        assert client.get(fast.json()[attribute]).status_code == 404
+        assert list((tmp_path / "uploads").glob(f"{resource}-*")) == [
+            tmp_path / "uploads" / Path(final_path).name
+        ]
 
 
 @pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
@@ -3414,6 +3473,70 @@ def test_catalog_photo_validation_limits(tmp_path: Path, resource: str, payload:
         assert malformed.status_code == 415
         assert malformed.json()["detail"] == "Photo is not a valid supported image"
         assert list(client.app.state.settings.catalog_upload_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("resource", "payload"),
+    [
+        ("coffees", {"roaster": "Test", "name": "Overlapping photos"}),
+        ("grinders", {"definition_key": "kingrinder_k6"}),
+        ("drippers", {"manufacturer": "Test", "model": "Cone"}),
+        ("filters", {"name": "Test paper"}),
+    ],
+)
+def test_overlapping_catalog_photos_remove_the_superseded_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resource: str, payload: dict
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        item = client.post(f"/api/v1/{resource}", headers=headers, json=payload).json()
+        endpoint = f"/api/v1/{resource}/{item['id']}/photo"
+        initial = client.put(
+            endpoint,
+            headers=headers,
+            files={"photo": ("initial.png", image_upload(size=(16, 16)), "image/png")},
+        )
+        assert initial.status_code == 200
+        slow_write_started = Event()
+        allow_slow_write = Event()
+        atomic_write = catalog_photos_module._atomic_write
+
+        def pause_small_photo_write(path: Path, content: bytes) -> None:
+            with Image.open(io.BytesIO(content)) as image:
+                is_slow = image.width == 20
+            if is_slow:
+                slow_write_started.set()
+                assert allow_slow_write.wait(timeout=10)
+            atomic_write(path, content)
+
+        monkeypatch.setattr(catalog_photos_module, "_atomic_write", pause_small_photo_write)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            slow = executor.submit(
+                client.put,
+                endpoint,
+                headers=headers,
+                files={"photo": ("slow.png", image_upload(size=(20, 20)), "image/png")},
+            )
+            try:
+                assert slow_write_started.wait(timeout=10)
+                fast = client.put(
+                    endpoint,
+                    headers=headers,
+                    files={"photo": ("fast.png", image_upload(size=(24, 24)), "image/png")},
+                )
+                assert fast.status_code == 200, fast.text
+            finally:
+                allow_slow_write.set()
+            final = slow.result(timeout=10)
+
+        assert final.status_code == 200, final.text
+        final_path = final.json()["photo_path"]
+        assert client.get(f"/api/v1/{resource}/{item['id']}").json()["photo_path"] == final_path
+        assert client.get(final_path).status_code == 200
+        assert client.get(fast.json()["photo_path"]).status_code == 404
+        assert list(client.app.state.settings.catalog_upload_dir.iterdir()) == [
+            client.app.state.settings.catalog_upload_dir / Path(final_path).name
+        ]
 
 
 def test_catalog_photo_framing_validation(tmp_path: Path) -> None:

@@ -20,6 +20,7 @@ from app.config import Settings
 from app.db import Base, build_engine
 from app.models import Coffee, Profile
 from PIL import Image
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 
@@ -59,6 +60,10 @@ def test_save_raw_bytes_and_manage_photo_framing(photo_context) -> None:
         assert image.format == "WEBP"
         assert image.size == (20, 10)
     assert coffee.photo_framing == {"focus_x": 0.2, "focus_y": 0.7, "zoom": 1.5}
+
+    unchanged_at = coffee.updated_at
+    update_catalog_photo_framing(db, coffee, (0.2, 0.7, 1.5))
+    assert coffee.updated_at == unchanged_at
 
     update_catalog_photo_framing(db, coffee, None)
     assert coffee.photo_framing is None
@@ -124,16 +129,32 @@ def test_failed_replacement_preserves_previous_photo(photo_context, monkeypatch)
     assert list(settings.catalog_upload_dir.iterdir()) == [old_file]
 
 
+def fail_refresh_after_commit(db: Session, monkeypatch) -> None:
+    commit = db.commit
+    refresh = db.refresh
+    committed = False
+
+    def mark_commit() -> None:
+        nonlocal committed
+        commit()
+        committed = True
+
+    def fail_refresh(item) -> None:
+        if committed:
+            raise RuntimeError("Refresh failed")
+        refresh(item)
+
+    monkeypatch.setattr(db, "commit", mark_commit)
+    monkeypatch.setattr(db, "refresh", fail_refresh)
+
+
 def test_refresh_failure_keeps_committed_photo(photo_context, monkeypatch) -> None:
     settings, db, coffee = photo_context
     asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
     old_file = settings.catalog_upload_dir / Path(coffee.photo_path).name
     coffee_id = coffee.id
 
-    def fail_refresh(_item) -> None:
-        raise RuntimeError("Refresh failed")
-
-    monkeypatch.setattr(db, "refresh", fail_refresh)
+    fail_refresh_after_commit(db, monkeypatch)
     with pytest.raises(RuntimeError, match="Refresh failed"):
         asyncio.run(save_catalog_photo(png_content(), settings, db, coffee, (0.2, 0.7, 1.5)))
 
@@ -151,10 +172,7 @@ def test_refresh_failure_after_removal_cleans_up_file(photo_context, monkeypatch
     old_file = settings.catalog_upload_dir / Path(coffee.photo_path).name
     coffee_id = coffee.id
 
-    def fail_refresh(_item) -> None:
-        raise RuntimeError("Refresh failed")
-
-    monkeypatch.setattr(db, "refresh", fail_refresh)
+    fail_refresh_after_commit(db, monkeypatch)
     with pytest.raises(RuntimeError, match="Refresh failed"):
         remove_catalog_photo(settings, db, coffee)
 
@@ -232,3 +250,52 @@ def test_cancellation_during_write_finishes_photo_transaction(photo_context, mon
     assert list(settings.catalog_upload_dir.iterdir()) == [new_file]
     with Session(db.get_bind()) as verification_db:
         assert verification_db.get(Coffee, coffee.id).photo_path == coffee.photo_path
+
+
+def test_removal_uses_current_photo_path(photo_context) -> None:
+    settings, db, coffee = photo_context
+    asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
+    coffee_id = coffee.id
+    with Session(db.get_bind()) as other_db:
+        other_coffee = other_db.get(Coffee, coffee_id)
+        asyncio.run(save_catalog_photo(png_content(), settings, other_db, other_coffee))
+
+    remove_catalog_photo(settings, db, coffee)
+    assert coffee.photo_path is None
+    assert list(settings.catalog_upload_dir.iterdir()) == []
+
+
+def test_framing_detects_a_photo_removed_by_another_session(photo_context) -> None:
+    settings, db, coffee = photo_context
+    asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
+    coffee_id = coffee.id
+    with Session(db.get_bind()) as other_db:
+        other_coffee = other_db.get(Coffee, coffee_id)
+        remove_catalog_photo(settings, other_db, other_coffee)
+
+    with pytest.raises(MissingPhotoError, match="Catalog item has no photo to frame"):
+        update_catalog_photo_framing(db, coffee, (0.2, 0.7, 1.5))
+    assert coffee.photo_path is None
+    assert coffee.photo_framing is None
+
+
+def test_failed_precommit_photo_read_removes_new_file(photo_context) -> None:
+    settings, db, coffee = photo_context
+    asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
+    old_path = coffee.photo_path
+    old_file = settings.catalog_upload_dir / Path(old_path).name
+    db.expire(coffee)
+
+    def fail_reads(_connection, _cursor, statement, _parameters, _context, _executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            raise RuntimeError("Read failed")
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", fail_reads)
+    try:
+        with pytest.raises(RuntimeError, match="Read failed"):
+            asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_reads)
+    assert coffee.photo_path == old_path
+    assert list(settings.catalog_upload_dir.iterdir()) == [old_file]

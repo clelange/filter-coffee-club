@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from ..branding import replace_logo_path, store_logo
+from ..branding import replace_logo_path, save_logo
 from ..db import session_dependency
 from ..demo import DEMO_NOTICE, DEMO_PIN, DEMO_PROFILE_NAMES
 from ..models import DEFAULT_BREWING_LOGO_PATH, LoginSession
@@ -63,15 +63,7 @@ async def upload_logo(
     settings = request.app.state.settings
     content = await logo.read(settings.max_logo_bytes + 1)
     with branding_http_errors():
-        logo_path = await store_logo(content, logo.content_type, settings, "logo")
-    replace_logo_path(
-        db,
-        settings,
-        item,
-        "logo_path",
-        logo_path,
-        created_upload=logo_path,
-    )
+        await save_logo(content, logo.content_type, settings, db, item, "logo_path")
     return public_settings(request, db)
 
 
@@ -87,15 +79,7 @@ async def upload_brewing_logo(
     settings = request.app.state.settings
     content = await logo.read(settings.max_logo_bytes + 1)
     with branding_http_errors():
-        logo_path = await store_logo(content, logo.content_type, settings, "brewing-logo")
-    replace_logo_path(
-        db,
-        settings,
-        item,
-        "brewing_logo_path",
-        logo_path,
-        created_upload=logo_path,
-    )
+        await save_logo(content, logo.content_type, settings, db, item, "brewing_logo_path")
     return public_settings(request, db)
 
 

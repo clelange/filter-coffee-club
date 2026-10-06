@@ -8,6 +8,7 @@ from typing import Literal
 
 from anyio import to_thread
 from PIL import Image, UnidentifiedImageError
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -109,6 +110,20 @@ async def store_logo(
     return f"{_UPLOAD_PREFIX}{filename}"
 
 
+async def save_logo(
+    content: bytes,
+    content_type: str | None,
+    settings: Settings,
+    db: Session,
+    item: AppSettings,
+    attribute: LogoAttribute,
+) -> None:
+    """Store and attach a logo, cleaning up the new upload if persistence fails."""
+    filename_prefix = "logo" if attribute == "logo_path" else "brewing-logo"
+    path = await store_logo(content, content_type, settings, filename_prefix)
+    replace_logo_path(db, settings, item, attribute, path, created_upload=path)
+
+
 def replace_logo_path(
     db: Session,
     settings: Settings,
@@ -119,10 +134,18 @@ def replace_logo_path(
     created_upload: str | None = None,
 ) -> None:
     """Commit a logo change and remove uploads no longer referenced by either slot."""
-    old_path = getattr(item, attribute)
-    setattr(item, attribute, new_path)
-    retained_paths = {item.logo_path, item.brewing_logo_path}
     try:
+        # Serialize path changes before refreshing a row loaded ahead of an upload await.
+        db.execute(
+            update(AppSettings)
+            .where(AppSettings.id == item.id)
+            .values(id=AppSettings.id)
+            .execution_options(synchronize_session=False, autoflush=False)
+        )
+        db.refresh(item)
+        old_path = getattr(item, attribute)
+        setattr(item, attribute, new_path)
+        retained_paths = {item.logo_path, item.brewing_logo_path}
         db.commit()
     except BaseException:
         try:

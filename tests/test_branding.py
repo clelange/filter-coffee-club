@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 from app.branding import LogoTooLargeError, UnsupportedLogoError, replace_logo_path, store_logo
@@ -158,3 +160,108 @@ def test_replacement_cleanup_requires_no_read_after_commit(branding_context, mon
     assert item.logo_path == new_path
     assert (settings.upload_dir / Path(new_path).name).exists()
     assert not (settings.upload_dir / Path(old_path).name).exists()
+
+
+def test_replacement_uses_current_other_slot_reference(branding_context) -> None:
+    settings, db, item = branding_context
+    old_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    replace_logo_path(db, settings, item, "logo_path", old_path, created_upload=old_path)
+    replace_logo_path(db, settings, item, "brewing_logo_path", old_path)
+    assert item.logo_path == item.brewing_logo_path == old_path
+
+    with Session(db.get_bind()) as other_db:
+        other_item = other_db.get(AppSettings, item.id)
+        replace_logo_path(other_db, settings, other_item, "brewing_logo_path", None)
+
+    new_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    replace_logo_path(db, settings, item, "logo_path", new_path, created_upload=new_path)
+    assert item.brewing_logo_path is None
+    assert not (settings.upload_dir / Path(old_path).name).exists()
+    assert (settings.upload_dir / Path(new_path).name).exists()
+
+
+def test_failed_precommit_read_removes_uncommitted_upload(branding_context) -> None:
+    settings, db, item = branding_context
+    new_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    db.expire(item)
+
+    def fail_reads(_connection, _cursor, statement, _parameters, _context, _executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            raise RuntimeError("Read failed")
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", fail_reads)
+    try:
+        with pytest.raises(RuntimeError, match="Read failed"):
+            replace_logo_path(db, settings, item, "logo_path", new_path, created_upload=new_path)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_reads)
+    assert item.logo_path is None
+    assert not (settings.upload_dir / Path(new_path).name).exists()
+
+
+def test_concurrent_logo_replacements_keep_only_the_final_file(
+    branding_context, monkeypatch
+) -> None:
+    settings, db, item = branding_context
+    old_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    replace_logo_path(db, settings, item, "logo_path", old_path, created_upload=old_path)
+    first_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    second_path = asyncio.run(store_logo(logo_content(), "image/png", settings, "logo"))
+    first_ready_to_commit = Event()
+    allow_first_commit = Event()
+    second_started = Event()
+    second_finished = Event()
+
+    with (
+        Session(db.get_bind(), expire_on_commit=False) as first_db,
+        Session(db.get_bind(), expire_on_commit=False) as second_db,
+    ):
+        first_item = first_db.get(AppSettings, item.id)
+        second_item = second_db.get(AppSettings, item.id)
+        commit = first_db.commit
+
+        def paused_commit() -> None:
+            first_ready_to_commit.set()
+            assert allow_first_commit.wait(timeout=10)
+            commit()
+
+        monkeypatch.setattr(first_db, "commit", paused_commit)
+
+        def replace_second() -> None:
+            second_started.set()
+            replace_logo_path(
+                second_db,
+                settings,
+                second_item,
+                "logo_path",
+                second_path,
+                created_upload=second_path,
+            )
+            second_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(
+                replace_logo_path,
+                first_db,
+                settings,
+                first_item,
+                "logo_path",
+                first_path,
+                created_upload=first_path,
+            )
+            try:
+                assert first_ready_to_commit.wait(timeout=10)
+                second = executor.submit(replace_second)
+                assert second_started.wait(timeout=10)
+                assert not second_finished.wait(timeout=1)
+            finally:
+                allow_first_commit.set()
+            first.result(timeout=10)
+            second.result(timeout=10)
+
+    db.refresh(item)
+    assert item.logo_path == second_path
+    assert list(settings.upload_dir.glob("logo-*")) == [
+        settings.upload_dir / Path(second_path).name
+    ]
