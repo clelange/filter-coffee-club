@@ -29,6 +29,7 @@ from app.routers import auth as auth_module
 from app.routers import brews as brews_module
 from app.routers import coffees as coffees_module
 from app.routers import profiles as profiles_module
+from app.routers import settings as settings_module
 from app.schemas import MattermostChannelOption, MattermostVerifyResponse, ProfileUpdate
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -701,36 +702,63 @@ def test_regular_logo_replacement_removes_previous_upload(tmp_path: Path) -> Non
         assert client.get(replacement.json()["logo_path"]).status_code == 200
 
 
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
 @pytest.mark.parametrize(
-    ("filename", "content", "content_type", "expected_status"),
+    ("filename", "content", "content_type", "expected_status", "expected_detail"),
     [
-        ("logo.txt", b"not an image", "text/plain", 415),
-        ("logo.png", b"\x89PNG\r\n\x1a\ntruncated", "image/png", 415),
-        ("logo.png", b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024), "image/png", 413),
+        ("logo.txt", b"not an image", "text/plain", 415, "Logo must be PNG or WebP"),
+        (
+            "logo.png",
+            b"\x89PNG\r\n\x1a\ntruncated",
+            "image/png",
+            415,
+            "Logo contents do not match its file type",
+        ),
+        (
+            "logo.png",
+            b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024),
+            "image/png",
+            413,
+            "Logo exceeds 2 MB",
+        ),
+        (
+            "logo.webp",
+            image_upload(size=(20, 20)),
+            "image/webp",
+            415,
+            "Logo contents do not match its file type",
+        ),
     ],
 )
-def test_brewing_logo_upload_validation(
+def test_logo_upload_validation(
     tmp_path: Path,
+    resource: str,
     filename: str,
     content: bytes,
     content_type: str,
     expected_status: int,
+    expected_detail: str,
 ) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
         response = client.post(
-            "/api/v1/settings/brewing-logo",
+            f"/api/v1/settings/{resource}",
             headers=headers,
             files={"logo": (filename, content, content_type)},
         )
         assert response.status_code == expected_status, response.text
+        assert response.json()["detail"] == expected_detail
+        assert list(client.app.state.settings.upload_dir.iterdir()) == [
+            client.app.state.settings.catalog_upload_dir
+        ]
 
 
-def test_brewing_logo_rejects_excessive_dimensions(tmp_path: Path) -> None:
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_logo_rejects_excessive_dimensions(tmp_path: Path, resource: str) -> None:
     with build_client(tmp_path, max_logo_pixels=100) as client:
         _session, headers = bootstrap(client)
         response = client.post(
-            "/api/v1/settings/brewing-logo",
+            f"/api/v1/settings/{resource}",
             headers=headers,
             files={"logo": ("large.png", image_upload(size=(20, 20)), "image/png")},
         )
@@ -738,18 +766,49 @@ def test_brewing_logo_rejects_excessive_dimensions(tmp_path: Path) -> None:
         assert response.json()["detail"] == "Logo dimensions are too large"
 
 
-def test_brewing_logo_upload_requires_csrf(tmp_path: Path) -> None:
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_logo_upload_requires_csrf(tmp_path: Path, resource: str) -> None:
     with build_client(tmp_path) as client:
         bootstrap(client)
         response = client.post(
-            "/api/v1/settings/brewing-logo",
+            f"/api/v1/settings/{resource}",
             files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
         )
         assert response.status_code == 403, response.text
 
 
-def test_failed_brewing_logo_commit_removes_new_upload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_logo_upload_requires_admin(tmp_path: Path, resource: str) -> None:
+    with build_client(tmp_path) as client:
+        _session, admin_headers = bootstrap(client)
+        member = client.post(
+            "/api/v1/people",
+            headers=admin_headers,
+            json={"display_name": "Member", "pin": "5678", "role": "member"},
+        ).json()
+        updated = client.put(
+            f"/api/v1/people/{member['id']}",
+            headers=admin_headers,
+            json={"pin_change_required": False},
+        )
+        assert updated.status_code == 200
+        session = client.post(
+            "/api/v1/auth/login",
+            json={"profile_id": member["id"], "pin": "5678", "device_mode": "personal"},
+        ).json()
+        response = client.post(
+            f"/api/v1/settings/{resource}",
+            headers={"X-CSRF-Token": session["csrf_token"]},
+            files={"logo": ("logo.png", image_upload(size=(20, 20)), "image/png")},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Administrator access required"
+        assert list((tmp_path / "uploads").glob(f"{resource}-*")) == []
+
+
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_failed_logo_commit_removes_new_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resource: str
 ) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
@@ -760,11 +819,31 @@ def test_failed_brewing_logo_commit_removes_new_upload(
         monkeypatch.setattr(Session, "commit", fail_commit)
         with pytest.raises(RuntimeError, match="forced branding commit failure"):
             client.post(
-                "/api/v1/settings/brewing-logo",
+                f"/api/v1/settings/{resource}",
                 headers=headers,
                 files={"logo": ("brewing.png", image_upload(size=(20, 20)), "image/png")},
             )
-        assert list((tmp_path / "uploads").glob("brewing-logo-*")) == []
+        assert list((tmp_path / "uploads").glob(f"{resource}-*")) == []
+
+
+@pytest.mark.parametrize("resource", ["logo", "brewing-logo"])
+def test_logo_settings_lookup_failure_writes_no_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resource: str
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+
+        def fail_lookup(_db: Session) -> None:
+            raise RuntimeError("Settings lookup failed")
+
+        monkeypatch.setattr(settings_module, "get_settings", fail_lookup)
+        with pytest.raises(RuntimeError, match="Settings lookup failed"):
+            client.post(
+                f"/api/v1/settings/{resource}",
+                headers=headers,
+                files={"logo": ("logo.png", image_upload(size=(20, 20)), "image/png")},
+            )
+        assert list((tmp_path / "uploads").glob(f"{resource}-*")) == []
 
 
 def test_render_deployments_fall_back_to_the_short_commit(

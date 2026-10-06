@@ -7,7 +7,7 @@ from threading import Event
 
 import anyio
 import pytest
-from app import catalog_photos
+from app import catalog_photos, upload_storage
 from app.catalog_photos import (
     MissingPhotoError,
     PhotoTooLargeError,
@@ -194,7 +194,7 @@ def test_failed_atomic_write_preserves_previous_photo(photo_context, monkeypatch
     def fail_replace(_source, _destination) -> None:
         raise OSError("Disk write failed")
 
-    monkeypatch.setattr(catalog_photos.os, "replace", fail_replace)
+    monkeypatch.setattr(upload_storage.os, "replace", fail_replace)
     with pytest.raises(OSError, match="Disk write failed"):
         asyncio.run(save_catalog_photo(png_content(), settings, db, coffee))
 

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import secrets
-import tempfile
 from pathlib import Path
 from typing import Protocol
 
@@ -14,6 +12,8 @@ from pillow_heif import register_heif_opener
 from sqlalchemy.orm import Session
 
 from .config import Settings
+from .upload_storage import atomic_write as _atomic_write
+from .upload_storage import upload_limit_label
 
 logger = logging.getLogger(__name__)
 
@@ -92,20 +92,6 @@ def _normalized_webp(content: bytes, settings: Settings) -> bytes:
         raise UnsupportedPhotoError("Photo is not a valid supported image") from exc
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".photo-", dir=path.parent)
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary_path, path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
-        raise
-
-
 def _catalog_file(settings: Settings, public_path: str | None) -> Path | None:
     prefix = "/uploads/catalog/"
     if not public_path or not public_path.startswith(prefix):
@@ -144,11 +130,7 @@ async def save_catalog_photo(
     framing: tuple[float, float, float] | None = None,
 ) -> None:
     if len(content) > settings.max_catalog_photo_bytes:
-        bytes_per_mb = 1024 * 1024
-        limit = settings.max_catalog_photo_bytes
-        limit_label = (
-            f"{limit // bytes_per_mb} MB" if limit % bytes_per_mb == 0 else f"{limit} bytes"
-        )
+        limit_label = upload_limit_label(settings.max_catalog_photo_bytes)
         raise PhotoTooLargeError(f"Photo exceeds {limit_label}")
     normalized = await to_thread.run_sync(_normalized_webp, content, settings)
     filename = f"photo-{secrets.token_hex(16)}.webp"
