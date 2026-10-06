@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..db import utcnow
 from ..mattermost import cancel_brew_notifications, enqueue_brew_notification
 from ..models import Brew, brew_operators
-from ..schemas import (
+from ..schemas.brews import (
     BrewCorrection,
     BrewCreate,
     BrewFinalize,

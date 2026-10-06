@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from statistics import mean
 
 from .models import FlavorTag, Rating
-from .schemas import FlavorAxisSummary, RatingAggregate
+from .schemas.ratings import FlavorAxisSummary, RatingAggregate
 
 RATING_FIELDS = ("liking", "acidity", "bitterness", "sweetness", "body")
 MIN_RANKING_RATINGS = 3

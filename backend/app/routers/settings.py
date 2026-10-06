@@ -7,7 +7,7 @@ from ..branding import replace_logo_path, save_logo
 from ..db import session_dependency
 from ..demo import DEMO_NOTICE, DEMO_PIN, DEMO_PROFILE_NAMES
 from ..models import DEFAULT_BREWING_LOGO_PATH, LoginSession
-from ..schemas import AppSettingsResponse, AppSettingsUpdate
+from ..schemas.settings import AppSettingsResponse, AppSettingsUpdate
 from ..security import require_csrf
 from ._branding import branding_http_errors, require_branding_admin
 from ._common import effective_public_url, get_settings

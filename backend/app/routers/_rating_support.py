@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Brew, FlavorTag, Profile, Rating
-from ..schemas import ProfileRatingResult, RatingComparison, RatingItem, RatingSummary
+from ..schemas.ratings import ProfileRatingResult, RatingComparison, RatingItem, RatingSummary
 from ..tasting import RATING_FIELDS, rating_aggregate
 from ._brew_support import brew_payload
 

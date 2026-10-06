@@ -11,12 +11,8 @@ from ..calculations import brew_ratio, overall_throughput
 from ..db import session_dependency
 from ..grinders import to_reference_setting
 from ..models import Brew, Profile, Rating
-from ..schemas import (
-    AnalyticsCoffeeSummary,
-    AnalyticsRatingMetric,
-    AnalyticsResponse,
-    RatedBrewInsight,
-)
+from ..schemas.analytics import AnalyticsCoffeeSummary, AnalyticsRatingMetric, AnalyticsResponse
+from ..schemas.ratings import RatedBrewInsight
 from ..security import require_user
 from ..tasting import MIN_RANKING_RATINGS, RATING_FIELDS, ranked_brew_ids, rating_aggregate
 from ._brew_support import brew_payload

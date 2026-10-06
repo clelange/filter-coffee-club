@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import FlavorTag, LoginSession
-from ..schemas import FlavorTagInput, FlavorTagResponse
+from ..schemas.flavor_tags import FlavorTagInput, FlavorTagResponse
 from ..security import require_csrf
 
 router = APIRouter()

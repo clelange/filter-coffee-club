@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import session_dependency, utcnow
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Brew, LoginSession, Profile
-from ..schemas import (
+from ..schemas.brews import (
     ActiveBrewsResponse,
     BrewCorrection,
     BrewCreate,
@@ -21,8 +21,8 @@ from ..schemas import (
     BrewResponse,
     BrewStatusChange,
     BrewUpdate,
-    RatingAggregate,
 )
+from ..schemas.ratings import RatingAggregate
 from ..security import require_csrf, require_user
 from ..services import brews as brew_service
 from ..services.brew_types import BrewActor, BrewNotifications

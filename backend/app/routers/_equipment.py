@@ -11,7 +11,8 @@ from ..grinders import (
     uses_integer_clicks,
 )
 from ..models import Grinder, RecipePreset
-from ..schemas import GrinderDefinitionResponse, GrinderRangeResponse, PresetResponse, PresetUpdate
+from ..schemas.equipment import GrinderDefinitionResponse
+from ..schemas.presets import GrinderRangeResponse, PresetResponse, PresetUpdate
 
 
 def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:

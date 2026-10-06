@@ -7,7 +7,8 @@ from ..calculations import (
     overall_throughput,
 )
 from ..models import Brew
-from ..schemas import BrewActivityItem, BrewResponse, ProfileIdentity
+from ..schemas.brews import BrewActivityItem, BrewResponse
+from ..schemas.profiles import ProfileIdentity
 from ..services.brew_store import load_brew as query_brew
 from ._brew_errors import brew_http_errors
 

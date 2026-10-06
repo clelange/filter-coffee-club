@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Brew, FlavorTag, LoginSession, Profile, Rating
-from ..schemas import RatingComparison, RatingInput, RatingLinkResponse, RatingSummary
+from ..schemas.ratings import RatingComparison, RatingInput, RatingLinkResponse, RatingSummary
 from ..security import require_csrf, require_user
 from ._brew_support import brew_payload, load_brew
 from ._rating_support import rating_comparison, rating_summary

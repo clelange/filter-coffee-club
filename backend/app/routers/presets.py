@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Grinder, LoginSession, PresetGrinderRange, RecipePreset
-from ..schemas import PresetResponse, PresetUpdate
+from ..schemas.presets import PresetResponse, PresetUpdate
 from ..security import require_csrf
 from ._equipment import active_grinders, preset_payload, validate_preset_grinder_ranges
 

@@ -22,7 +22,7 @@ from ..mattermost import (
     target_fingerprint,
 )
 from ..models import LoginSession, MattermostNotification, Profile
-from ..schemas import (
+from ..schemas.mattermost import (
     MattermostRetryResponse,
     MattermostSettingsResponse,
     MattermostSettingsUpdate,

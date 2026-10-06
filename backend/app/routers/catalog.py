@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..calculations import brew_ratio, overall_throughput
 from ..db import session_dependency
 from ..models import Brew, BrewFilter, Coffee, Dripper, Grinder, LoginSession
-from ..schemas import (
+from ..schemas.catalog import (
     CatalogBrewResult,
     CatalogInsights,
     CatalogKind,

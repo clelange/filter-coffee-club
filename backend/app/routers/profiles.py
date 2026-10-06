@@ -8,15 +8,14 @@ from sqlalchemy.orm import Session, aliased, selectinload
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, is_protected_demo_profile
 from ..models import Brew, Coffee, LoginSession, Profile, Rating
-from ..schemas import (
-    ProfileCoffeePreference,
+from ..schemas.profiles import (
     ProfileCreate,
     ProfileDirectoryItem,
     ProfileIdentity,
     ProfilePublic,
-    ProfileRatingsResponse,
     ProfileUpdate,
 )
+from ..schemas.ratings import ProfileCoffeePreference, ProfileRatingsResponse
 from ..security import clear_login_failures, hash_pin, require_admin, require_csrf, require_user
 from ..tasting import RATING_FIELDS
 from ._rating_support import profile_rating_result

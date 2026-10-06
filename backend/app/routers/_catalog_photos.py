@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from fastapi import HTTPException, Request
 
 from ..catalog_photos import MissingPhotoError, PhotoTooLargeError, UnsupportedPhotoError
-from ..schemas import PhotoFraming
+from ..schemas.photos import PhotoFraming
 
 
 @contextmanager

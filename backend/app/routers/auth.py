@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..db import session_dependency
 from ..demo import enforce_demo_write_rate_limit, is_protected_demo_profile, prune_demo_sessions
 from ..models import AppSettings, LoginSession, Profile
-from ..schemas import (
+from ..schemas.profiles import (
     BootstrapInput,
     LoginInput,
     PinChange,

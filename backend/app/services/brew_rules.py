@@ -14,7 +14,7 @@ from ..calculations import (
 )
 from ..grinders import uses_integer_clicks
 from ..models import Brew, Grinder, Profile
-from ..schemas import BrewInput
+from ..schemas.brews import BrewInput
 from .brew_errors import BrewPermissionError, BrewValidationError, UnusualBrewRatioError
 from .brew_store import load_active_operator
 from .brew_types import BrewActor

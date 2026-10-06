@@ -17,13 +17,9 @@ from ..coffee_colors import next_coffee_color
 from ..db import session_dependency, utcnow
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Brew, Coffee, LoginSession, Profile, Rating
-from ..schemas import (
-    CoffeeInput,
-    CoffeeRatingInsights,
-    CoffeeResponse,
-    PhotoFramingUpdate,
-    RatedBrewInsight,
-)
+from ..schemas.coffees import CoffeeInput, CoffeeResponse
+from ..schemas.photos import PhotoFramingUpdate
+from ..schemas.ratings import CoffeeRatingInsights, RatedBrewInsight
 from ..security import require_csrf, require_personal_csrf, require_user
 from ..tasting import MIN_RANKING_RATINGS, ranked_brew_ids, rating_aggregate
 from ._brew_support import brew_payload, load_brew

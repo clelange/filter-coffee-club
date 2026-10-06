@@ -13,7 +13,7 @@ from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..grinders import grinder_definition
 from ..models import BrewFilter, Dripper, Grinder, LoginSession, PresetGrinderRange, RecipePreset
-from ..schemas import (
+from ..schemas.equipment import (
     DripperResponse,
     EquipmentInput,
     FilterInput,
@@ -22,8 +22,8 @@ from ..schemas import (
     GrinderDefinitionResponse,
     GrinderInput,
     GrinderResponse,
-    PhotoFramingUpdate,
 )
+from ..schemas.photos import PhotoFramingUpdate
 from ..security import require_csrf, require_login_session, require_personal_csrf
 from ._catalog_photos import (
     catalog_photo_http_errors,
