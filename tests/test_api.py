@@ -12,8 +12,8 @@ from threading import Barrier, Event
 import pytest
 from alembic import command
 from alembic.config import Config
-from app import api as api_module
 from app import main as main_module
+from app import mattermost as mattermost_module
 from app.config import Settings
 from app.demo import DEMO_PROFILE_NAMES, _write_attempts
 from app.main import create_app
@@ -25,6 +25,10 @@ from app.models import (
     MattermostNotification,
     Profile,
 )
+from app.routers import auth as auth_module
+from app.routers import brews as brews_module
+from app.routers import coffees as coffees_module
+from app.routers import profiles as profiles_module
 from app.schemas import MattermostChannelOption, MattermostVerifyResponse, ProfileUpdate
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -166,18 +170,18 @@ def test_mattermost_settings_encrypt_verify_test_and_clear(
     monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
     verification_calls: list[tuple[str, str]] = []
 
-    def verify_pat(client: api_module.MattermostClient) -> MattermostVerifyResponse:
+    def verify_pat(client: mattermost_module.MattermostClient) -> MattermostVerifyResponse:
         verification_calls.append((client.server_url, client.credential))
         return mattermost_verification()
 
-    monkeypatch.setattr(api_module.MattermostClient, "verify_pat", verify_pat)
+    monkeypatch.setattr(mattermost_module.MattermostClient, "verify_pat", verify_pat)
     sent: list[dict[str, object]] = []
 
     def capture_send(_client, **kwargs: object) -> str:  # type: ignore[no-untyped-def]
         sent.append(kwargs)
         return "post-1"
 
-    monkeypatch.setattr(api_module.MattermostClient, "send", capture_send)
+    monkeypatch.setattr(mattermost_module.MattermostClient, "send", capture_send)
     encryption_key = Fernet.generate_key().decode()
     with build_client(tmp_path, mattermost_secret_key=encryption_key) as client:
         assert client.get("/api/v1/settings/mattermost").status_code == 401
@@ -272,7 +276,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
     monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
     deliveries: list[dict[str, object]] = []
 
-    def capture_send(client: api_module.MattermostClient, **kwargs: object) -> None:
+    def capture_send(client: mattermost_module.MattermostClient, **kwargs: object) -> None:
         deliveries.append(
             {
                 "auth_mode": client.auth_mode,
@@ -281,7 +285,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
             }
         )
 
-    monkeypatch.setattr(api_module.MattermostClient, "send", capture_send)
+    monkeypatch.setattr(mattermost_module.MattermostClient, "send", capture_send)
     encryption_key = Fernet.generate_key().decode()
     with build_client(tmp_path, mattermost_secret_key=encryption_key) as client:
         _session, headers = bootstrap(client)
@@ -315,7 +319,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
             assert integration.credential_ciphertext is not None
             assert webhook_secret not in integration.credential_ciphertext
             assert (
-                api_module.decrypt_credential(
+                mattermost_module.decrypt_credential(
                     client.app.state.settings,
                     integration.credential_ciphertext,
                 )
@@ -361,7 +365,7 @@ def test_mattermost_webhook_lifecycle_requires_explicit_mode_and_preserves_secre
             assert integration is not None
             assert integration.target_fingerprint != original_fingerprint
             assert (
-                api_module.decrypt_credential(
+                mattermost_module.decrypt_credential(
                     client.app.state.settings,
                     integration.credential_ciphertext,
                 )
@@ -407,7 +411,7 @@ def test_mattermost_settings_report_unreadable_credential_after_key_change(
 ) -> None:
     monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
     monkeypatch.setattr(
-        api_module.MattermostClient,
+        mattermost_module.MattermostClient,
         "verify_pat",
         lambda _client: mattermost_verification(),
     )
@@ -494,7 +498,7 @@ def test_brew_transitions_create_and_cancel_durable_mattermost_events(
 ) -> None:
     monkeypatch.setattr(main_module, "delivery_worker", inactive_mattermost_worker)
     monkeypatch.setattr(
-        api_module.MattermostClient,
+        mattermost_module.MattermostClient,
         "verify_pat",
         lambda _client: mattermost_verification(),
     )
@@ -934,14 +938,14 @@ def test_concurrent_bootstrap_creates_exactly_one_administrator(
 ) -> None:
     with build_client(tmp_path) as client:
         barrier = Barrier(2)
-        original_hash_pin = api_module.hash_pin
+        original_hash_pin = auth_module.hash_pin
 
         def synchronized_hash_pin(pin: str) -> str:
             result = original_hash_pin(pin)
             barrier.wait(timeout=10)
             return result
 
-        monkeypatch.setattr(api_module, "hash_pin", synchronized_hash_pin)
+        monkeypatch.setattr(auth_module, "hash_pin", synchronized_hash_pin)
 
         def create_administrator(item: tuple[str, str]) -> tuple[int, dict]:
             name, pin = item
@@ -1008,13 +1012,13 @@ def test_concurrent_profile_changes_preserve_an_active_administrator(
             json={"display_name": "Grace", "pin": "5678", "role": "admin"},
         ).json()["id"]
         barrier = Barrier(2)
-        original_reserve = api_module.reserve_admin_removal
+        original_reserve = profiles_module.reserve_admin_removal
 
         def synchronized_reserve(db: Session, profile_id: int, payload: ProfileUpdate) -> None:
             barrier.wait(timeout=10)
             original_reserve(db, profile_id, payload)
 
-        monkeypatch.setattr(api_module, "reserve_admin_removal", synchronized_reserve)
+        monkeypatch.setattr(profiles_module, "reserve_admin_removal", synchronized_reserve)
 
         def demote(profile_id: int) -> int:
             return client.put(
@@ -1479,7 +1483,7 @@ def finish_before_availability_reservation(
 ) -> Response:
     reservation_started = Event()
     continue_reservation = Event()
-    original_reservation = api_module.reserve_available_coffee
+    original_reservation = brews_module.reserve_available_coffee
 
     def paused_reservation(db: Session, target_id: int) -> Coffee:
         if target_id == coffee_id:
@@ -1487,7 +1491,7 @@ def finish_before_availability_reservation(
             assert continue_reservation.wait(timeout=5)
         return original_reservation(db, target_id)
 
-    monkeypatch.setattr(api_module, "reserve_available_coffee", paused_reservation)
+    monkeypatch.setattr(brews_module, "reserve_available_coffee", paused_reservation)
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             pending_action = executor.submit(action)
@@ -1498,7 +1502,7 @@ def finish_before_availability_reservation(
             return pending_action.result(timeout=5)
     finally:
         continue_reservation.set()
-        monkeypatch.setattr(api_module, "reserve_available_coffee", original_reservation)
+        monkeypatch.setattr(brews_module, "reserve_available_coffee", original_reservation)
 
 
 def test_finishing_coffee_wins_races_with_new_brew_mutations(
@@ -1657,13 +1661,15 @@ def test_concurrent_coffee_creation_with_same_key_commits_once(
         idempotent_headers = {**headers, "Idempotency-Key": "concurrent-coffee-create"}
         payload = {"roaster": "Orbit", "name": "Concurrent bag"}
         barrier = Barrier(2)
-        original_enforce_demo_capacity = api_module.enforce_demo_capacity
+        original_enforce_demo_capacity = coffees_module.enforce_demo_capacity
 
         def synchronized_enforce_demo_capacity(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
             barrier.wait(timeout=5)
             original_enforce_demo_capacity(*args, **kwargs)
 
-        monkeypatch.setattr(api_module, "enforce_demo_capacity", synchronized_enforce_demo_capacity)
+        monkeypatch.setattr(
+            coffees_module, "enforce_demo_capacity", synchronized_enforce_demo_capacity
+        )
 
         def create_coffee(_attempt: int) -> tuple[int, int]:
             response = client.post("/api/v1/coffees", headers=idempotent_headers, json=payload)
@@ -2055,13 +2061,15 @@ def test_concurrent_brew_creation_with_same_key_uses_one_capacity_slot(
         }
         idempotent_headers = {**headers, "Idempotency-Key": "concurrent-brew-create"}
         barrier = Barrier(2)
-        original_enforce_demo_capacity = api_module.enforce_demo_capacity
+        original_enforce_demo_capacity = brews_module.enforce_demo_capacity
 
         def synchronized_enforce_demo_capacity(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
             barrier.wait(timeout=5)
             original_enforce_demo_capacity(*args, **kwargs)
 
-        monkeypatch.setattr(api_module, "enforce_demo_capacity", synchronized_enforce_demo_capacity)
+        monkeypatch.setattr(
+            brews_module, "enforce_demo_capacity", synchronized_enforce_demo_capacity
+        )
 
         def create_brew(_attempt: int) -> tuple[int, int]:
             response = client.post("/api/v1/brews", headers=idempotent_headers, json=payload)
@@ -2218,7 +2226,7 @@ def test_active_brews_include_recent_rating_prompts_for_thirty_minutes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     now = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(api_module, "utcnow", lambda: now)
+    monkeypatch.setattr(brews_module, "utcnow", lambda: now)
 
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)
@@ -2496,7 +2504,7 @@ def test_concurrent_duplicate_joins_are_idempotent(tmp_path: Path, monkeypatch) 
         bob_headers = {"X-CSRF-Token": login["csrf_token"]}
 
         barrier = Barrier(2)
-        original_is_brew_operator = api_module.is_brew_operator
+        original_is_brew_operator = brews_module.is_brew_operator
 
         def synchronized_membership_check(loaded_brew: Brew, profile_id: int) -> bool:
             result = original_is_brew_operator(loaded_brew, profile_id)
@@ -2504,7 +2512,7 @@ def test_concurrent_duplicate_joins_are_idempotent(tmp_path: Path, monkeypatch) 
                 barrier.wait(timeout=5)
             return result
 
-        monkeypatch.setattr(api_module, "is_brew_operator", synchronized_membership_check)
+        monkeypatch.setattr(brews_module, "is_brew_operator", synchronized_membership_check)
 
         def join(_attempt: int):
             return client.post(f"/api/v1/brews/{brew['id']}/join", headers=bob_headers, json={})
@@ -2557,7 +2565,7 @@ def test_join_cannot_race_with_finalization(tmp_path: Path, monkeypatch) -> None
 
         join_checked = Event()
         allow_join = Event()
-        original_is_brew_operator = api_module.is_brew_operator
+        original_is_brew_operator = brews_module.is_brew_operator
 
         def pause_join_after_membership_check(loaded_brew: Brew, profile_id: int) -> bool:
             result = original_is_brew_operator(loaded_brew, profile_id)
@@ -2566,7 +2574,7 @@ def test_join_cannot_race_with_finalization(tmp_path: Path, monkeypatch) -> None
                 assert allow_join.wait(timeout=5)
             return result
 
-        monkeypatch.setattr(api_module, "is_brew_operator", pause_join_after_membership_check)
+        monkeypatch.setattr(brews_module, "is_brew_operator", pause_join_after_membership_check)
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             pending_join = executor.submit(
@@ -2616,13 +2624,13 @@ def test_concurrent_finalization_releases_capacity_once(tmp_path: Path, monkeypa
         brew = client.post("/api/v1/brews", headers=headers, json=brew_input).json()
 
         barrier = Barrier(2)
-        original_commit_guarded = api_module.commit_guarded_brew_update
+        original_commit_guarded = brews_module.commit_guarded_brew_update
 
         def synchronized_commit(*args, **kwargs):
             barrier.wait(timeout=5)
             return original_commit_guarded(*args, **kwargs)
 
-        monkeypatch.setattr(api_module, "commit_guarded_brew_update", synchronized_commit)
+        monkeypatch.setattr(brews_module, "commit_guarded_brew_update", synchronized_commit)
 
         def finalize(_attempt: int):
             return client.post(
@@ -3267,12 +3275,23 @@ def test_coffee_chart_colors_are_assigned_validated_and_exported(tmp_path: Path)
         assert "#D55E00" in coffees_csv
 
 
-def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("resource", "payload"),
+    [
+        ("coffees", {"roaster": "Test", "name": "Photo validation"}),
+        ("grinders", {"definition_key": "kingrinder_k6"}),
+        ("drippers", {"manufacturer": "Test", "model": "Cone"}),
+        ("filters", {"name": "Test paper"}),
+    ],
+)
+def test_catalog_photo_validation_limits(tmp_path: Path, resource: str, payload: dict) -> None:
     size_path = tmp_path / "size-limit"
     with build_client(size_path, max_catalog_photo_bytes=32) as client:
         _session, headers = bootstrap(client)
+        item = client.post(f"/api/v1/{resource}", headers=headers, json=payload).json()
+        photo_url = f"/api/v1/{resource}/{item['id']}/photo"
         oversized = client.put(
-            "/api/v1/grinders/1/photo",
+            photo_url,
             headers=headers,
             files={"photo": ("photo.png", image_upload(size=(20, 20)), "image/png")},
         )
@@ -3282,8 +3301,18 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
     pixel_path = tmp_path / "pixel-limit"
     with build_client(pixel_path, max_catalog_photo_pixels=100) as client:
         _session, headers = bootstrap(client)
+        item = client.post(f"/api/v1/{resource}", headers=headers, json=payload).json()
+        photo_url = f"/api/v1/{resource}/{item['id']}/photo"
+        missing_photo = client.patch(
+            photo_url,
+            headers=headers,
+            json={"photo_framing": {"focus_x": 0.5, "focus_y": 0.5, "zoom": 1}},
+        )
+        assert missing_photo.status_code == 409
+        assert missing_photo.json()["detail"] == "Catalog item has no photo to frame"
+
         excessive_resolution = client.put(
-            "/api/v1/grinders/1/photo",
+            photo_url,
             headers=headers,
             files={"photo": ("photo.png", image_upload(size=(20, 20)), "image/png")},
         )
@@ -3291,12 +3320,21 @@ def test_catalog_photo_validation_limits(tmp_path: Path) -> None:
         assert excessive_resolution.json()["detail"] == "Photo resolution is too large"
 
         unsupported = client.put(
-            "/api/v1/grinders/1/photo",
+            photo_url,
             headers=headers,
             files={"photo": ("photo.jpg", animated_gif_upload(), "image/jpeg")},
         )
         assert unsupported.status_code == 415
         assert unsupported.json()["detail"] == "Animated photos are not supported"
+
+        malformed = client.put(
+            photo_url,
+            headers=headers,
+            files={"photo": ("photo.png", b"not an image", "image/png")},
+        )
+        assert malformed.status_code == 415
+        assert malformed.json()["detail"] == "Photo is not a valid supported image"
+        assert list(client.app.state.settings.catalog_upload_dir.iterdir()) == []
 
 
 def test_catalog_photo_framing_validation(tmp_path: Path) -> None:
@@ -4590,14 +4628,14 @@ def test_concurrent_operator_transfers_are_atomic(tmp_path: Path, monkeypatch) -
         assert finalized.status_code == 200
 
         barrier = Barrier(2)
-        original_load_active_operator = api_module.load_active_operator
+        original_load_active_operator = brews_module.load_active_operator
 
         def synchronized_load_active_operator(db, operator_id: int) -> Profile:
             operator = original_load_active_operator(db, operator_id)
             barrier.wait(timeout=5)
             return operator
 
-        monkeypatch.setattr(api_module, "load_active_operator", synchronized_load_active_operator)
+        monkeypatch.setattr(brews_module, "load_active_operator", synchronized_load_active_operator)
 
         def reassign_draft(operator_id: int) -> int:
             return client.put(

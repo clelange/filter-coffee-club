@@ -8,13 +8,27 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import router
 from .config import Settings
 from .db import build_engine, build_session_factory
 from .demo import capture_demo_protected_ids
 from .mattermost import delivery_worker
 from .migrations import run_migrations
 from .observability import configure_logging, install_request_logging
+from .routers import (
+    analytics,
+    auth,
+    brews,
+    catalog,
+    coffees,
+    equipment,
+    exports,
+    flavor_tags,
+    presets,
+    profiles,
+    ratings,
+)
+from .routers import mattermost as mattermost_routes
+from .routers import settings as settings_routes
 from .seeds import seed_database, seed_demo_database
 
 
@@ -52,7 +66,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.demo_protected_ids = {}
     install_request_logging(app)
-    app.include_router(router)
+    for routes in (
+        auth,
+        profiles,
+        coffees,
+        equipment,
+        catalog,
+        presets,
+        flavor_tags,
+        brews,
+        ratings,
+        analytics,
+        mattermost_routes,
+        settings_routes,
+        exports,
+    ):
+        app.include_router(routes.router, prefix="/api/v1")
 
     app.mount("/uploads", StaticFiles(directory=app_settings.upload_dir), name="uploads")
 
