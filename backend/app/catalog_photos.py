@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import secrets
-import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from fastapi import HTTPException, UploadFile
+from anyio import to_thread
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
+from sqlalchemy import update
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
+from .upload_storage import atomic_write as _atomic_write
+from .upload_storage import upload_limit_label
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,25 @@ register_heif_opener()
 MULTI_PICTURE_STILL_FORMATS = {"MPO"}
 
 
+class CatalogPhotoError(Exception):
+    """A catalog photo cannot be processed or updated."""
+
+
+class UnsupportedPhotoError(CatalogPhotoError):
+    """The content is not a supported still image."""
+
+
+class PhotoTooLargeError(CatalogPhotoError):
+    """The content exceeds the configured byte or pixel limit."""
+
+
+class MissingPhotoError(CatalogPhotoError):
+    """Framing cannot be updated without a photo."""
+
+
 class CatalogPhotoOwner(Protocol):
+    id: int
+    updated_at: datetime
     photo_path: str | None
     photo_focus_x: float | None
     photo_focus_y: float | None
@@ -48,10 +69,10 @@ def _normalized_webp(content: bytes, settings: Settings) -> bytes:
             if getattr(source, "is_animated", False) and (
                 source.format not in MULTI_PICTURE_STILL_FORMATS
             ):
-                raise HTTPException(status_code=415, detail="Animated photos are not supported")
+                raise UnsupportedPhotoError("Animated photos are not supported")
             source.seek(0)
             if source.width * source.height > settings.max_catalog_photo_pixels:
-                raise HTTPException(status_code=413, detail="Photo resolution is too large")
+                raise PhotoTooLargeError("Photo resolution is too large")
 
             source.load()
             image = ImageOps.exif_transpose(source)
@@ -71,24 +92,10 @@ def _normalized_webp(content: bytes, settings: Settings) -> bytes:
                 method=6,
             )
             return output.getvalue()
-    except HTTPException:
+    except CatalogPhotoError:
         raise
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
-        raise HTTPException(status_code=415, detail="Photo is not a valid supported image") from exc
-
-
-def _atomic_write(path: Path, content: bytes) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".photo-", dir=path.parent)
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary_path, path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
-        raise
+        raise UnsupportedPhotoError("Photo is not a valid supported image") from exc
 
 
 def _catalog_file(settings: Settings, public_path: str | None) -> Path | None:
@@ -113,46 +120,61 @@ def _remove_file(settings: Settings, public_path: str | None) -> None:
         logger.warning("Could not remove replaced catalog photo", extra={"path": str(path)})
 
 
+@contextmanager
+def _catalog_photo_change(db: Session, item: CatalogPhotoOwner) -> Iterator[None]:
+    """Serialize a photo change, using current state and rolling back failures."""
+    try:
+        row_type = type(item)
+        # Reserve the row without advancing its timestamp until a real change is flushed.
+        db.execute(
+            update(row_type)
+            .where(row_type.id == item.id)
+            .values(photo_path=row_type.photo_path, updated_at=row_type.updated_at)
+            .execution_options(synchronize_session=False, autoflush=False)
+        )
+        db.refresh(item)
+        yield
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
 async def save_catalog_photo(
-    upload: UploadFile,
+    content: bytes,
     settings: Settings,
     db: Session,
     item: CatalogPhotoOwner,
     framing: tuple[float, float, float] | None = None,
 ) -> None:
-    content = await upload.read(settings.max_catalog_photo_bytes + 1)
     if len(content) > settings.max_catalog_photo_bytes:
-        bytes_per_mb = 1024 * 1024
-        limit = settings.max_catalog_photo_bytes
-        limit_label = (
-            f"{limit // bytes_per_mb} MB" if limit % bytes_per_mb == 0 else f"{limit} bytes"
-        )
-        raise HTTPException(status_code=413, detail=f"Photo exceeds {limit_label}")
-    normalized = await run_in_threadpool(_normalized_webp, content, settings)
+        limit_label = upload_limit_label(settings.max_catalog_photo_bytes)
+        raise PhotoTooLargeError(f"Photo exceeds {limit_label}")
+    normalized = await to_thread.run_sync(_normalized_webp, content, settings)
     filename = f"photo-{secrets.token_hex(16)}.webp"
     destination = settings.catalog_upload_dir / filename
-    await run_in_threadpool(_atomic_write, destination, normalized)
+    await to_thread.run_sync(_atomic_write, destination, normalized)
 
-    old_path = item.photo_path
-    item.photo_path = f"/uploads/catalog/{filename}"
-    apply_catalog_photo_framing(item, framing)
     try:
-        db.commit()
-        db.refresh(item)
+        with _catalog_photo_change(db, item):
+            old_path = item.photo_path
+            item.photo_path = f"/uploads/catalog/{filename}"
+            apply_catalog_photo_framing(item, framing)
     except BaseException:
-        db.rollback()
         destination.unlink(missing_ok=True)
         raise
+    # Once committed, the new file belongs to the row even if a subsequent read fails.
     _remove_file(settings, old_path)
+    db.refresh(item)
 
 
 def remove_catalog_photo(settings: Settings, db: Session, item: CatalogPhotoOwner) -> None:
-    old_path = item.photo_path
-    item.photo_path = None
-    apply_catalog_photo_framing(item, None)
-    db.commit()
-    db.refresh(item)
+    with _catalog_photo_change(db, item):
+        old_path = item.photo_path
+        item.photo_path = None
+        apply_catalog_photo_framing(item, None)
     _remove_file(settings, old_path)
+    db.refresh(item)
 
 
 def update_catalog_photo_framing(
@@ -160,8 +182,8 @@ def update_catalog_photo_framing(
     item: CatalogPhotoOwner,
     framing: tuple[float, float, float] | None,
 ) -> None:
-    if item.photo_path is None:
-        raise HTTPException(status_code=409, detail="Catalog item has no photo to frame")
-    apply_catalog_photo_framing(item, framing)
-    db.commit()
+    with _catalog_photo_change(db, item):
+        if item.photo_path is None:
+            raise MissingPhotoError("Catalog item has no photo to frame")
+        apply_catalog_photo_framing(item, framing)
     db.refresh(item)

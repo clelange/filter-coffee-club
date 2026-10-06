@@ -20,7 +20,7 @@ from .calculations import brew_ratio
 from .config import Settings
 from .db import utcnow
 from .models import Brew, MattermostIntegration, MattermostNotification
-from .schemas import MattermostChannelOption, MattermostVerifyResponse
+from .schemas.mattermost import MattermostChannelOption, MattermostVerifyResponse
 
 DEFAULT_MATTERMOST_SERVER = "https://mattermost.web.cern.ch"
 DELIVERY_TIMEOUT_SECONDS = 10.0

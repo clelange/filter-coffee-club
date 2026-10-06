@@ -4,7 +4,8 @@ from threading import Barrier
 
 from app.coffee_colors import COFFEE_COLOR_PALETTE, contrast_ratio, next_coffee_color
 from fastapi.testclient import TestClient
-from test_api import bootstrap, build_client
+
+from tests.api_helpers import bootstrap, build_client
 
 
 def test_automatic_colors_extend_without_reassignment_and_support_dark_surfaces():
