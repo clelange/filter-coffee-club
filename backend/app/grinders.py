@@ -104,3 +104,7 @@ def to_reference_setting(value: float, definition_key: str) -> float | None:
     if definition.reference_multiplier is None:
         return None
     return value / definition.reference_multiplier
+
+
+def uses_integer_clicks(setting_unit: str) -> bool:
+    return setting_unit.strip().lower() in {"click", "clicks"}

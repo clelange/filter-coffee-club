@@ -4,24 +4,14 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..grinders import GRINDER_DEFINITIONS, grinder_definition, translate_reference_setting
+from ..grinders import (
+    GRINDER_DEFINITIONS,
+    grinder_definition,
+    translate_reference_setting,
+    uses_integer_clicks,
+)
 from ..models import Grinder, RecipePreset
 from ..schemas import GrinderDefinitionResponse, GrinderRangeResponse, PresetResponse, PresetUpdate
-
-
-def uses_integer_clicks(grinder: Grinder) -> bool:
-    return grinder.setting_unit.strip().lower() in {"click", "clicks"}
-
-
-def validate_grinder_setting(db: Session, grinder_id: int, setting: float) -> None:
-    grinder = db.get(Grinder, grinder_id)
-    if grinder is None:
-        raise HTTPException(status_code=422, detail="Grinder not found")
-    if uses_integer_clicks(grinder) and not float(setting).is_integer():
-        raise HTTPException(
-            status_code=422,
-            detail="Grinder click settings must be whole numbers",
-        )
 
 
 def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
@@ -36,7 +26,7 @@ def validate_preset_grinder_ranges(db: Session, payload: PresetUpdate) -> None:
             )
         if grinder.archived:
             raise HTTPException(status_code=422, detail="Archived grinders cannot receive ranges")
-        if uses_integer_clicks(grinder) and not (
+        if uses_integer_clicks(grinder.setting_unit) and not (
             float(grinder_range.setting_min).is_integer()
             and float(grinder_range.setting_max).is_integer()
         ):

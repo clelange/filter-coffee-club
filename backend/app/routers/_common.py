@@ -16,10 +16,6 @@ def get_settings(db: Session) -> AppSettings:
     return settings
 
 
-def conflict_detail(code: str, message: str) -> dict[str, str]:
-    return {"code": code, "message": message}
-
-
 def effective_public_url(request: Request, db: Session) -> str:
     row = get_settings(db)
     stored_url = None if request.app.state.settings.demo_mode else row.public_base_url

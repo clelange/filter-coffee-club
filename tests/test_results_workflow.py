@@ -7,7 +7,8 @@ from threading import Barrier
 from app.models import Brew, Rating
 from app.schemas import BrewInput
 from fastapi.testclient import TestClient
-from test_api import bootstrap, build_client
+
+from tests.api_helpers import bootstrap, build_client
 
 
 def recipe(client: TestClient, headers: dict) -> dict:
