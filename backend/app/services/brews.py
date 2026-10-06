@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable
-from functools import wraps
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +25,7 @@ from ..schemas.brews import (
     BrewStatusChange,
     BrewUpdate,
 )
+from ._transactions import rollback_on_failure
 from .brew_errors import (
     BrewConflictError,
     BrewNotFoundError,
@@ -52,19 +52,7 @@ from .brew_store import (
 from .brew_types import BrewActor, BrewNotifications
 
 
-def _rollback_on_failure(workflow: Callable[..., Brew]) -> Callable[..., Brew]:
-    @wraps(workflow)
-    def run(db: Session, *args, **kwargs) -> Brew:
-        try:
-            return workflow(db, *args, **kwargs)
-        except BaseException:
-            db.rollback()
-            raise
-
-    return run
-
-
-@_rollback_on_failure
+@rollback_on_failure
 def create_brew(
     db: Session,
     payload: BrewCreate,
@@ -142,7 +130,7 @@ def create_brew(
     return result
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def update_brew(
     db: Session,
     brew_id: int,
@@ -190,7 +178,7 @@ def update_brew(
     return result
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def join_brew(db: Session, brew_id: int, actor: BrewActor) -> Brew:
     brew = load_brew(db, brew_id)
     if brew.status != "draft":
@@ -230,7 +218,7 @@ def join_brew(db: Session, brew_id: int, actor: BrewActor) -> Brew:
     return load_brew(db, brew.id)
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def update_brew_operator(
     db: Session, brew_id: int, payload: BrewOperatorUpdate, actor: BrewActor
 ) -> Brew:
@@ -254,7 +242,7 @@ def update_brew_operator(
     )
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def correct_completed_brew(
     db: Session,
     brew_id: int,
@@ -313,7 +301,7 @@ def correct_completed_brew(
     return result
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def finalize_brew(
     db: Session,
     brew_id: int,
@@ -383,7 +371,7 @@ def finalize_brew(
     return result
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def clone_brew(
     db: Session,
     brew_id: int,
@@ -456,7 +444,7 @@ def clone_brew(
     return load_brew(db, clone.id)
 
 
-@_rollback_on_failure
+@rollback_on_failure
 def _change_brew_status(
     db: Session, brew_id: int, action: str, payload: BrewStatusChange, actor: BrewActor
 ) -> Brew:

@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-import json
-
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request, UploadFile
-from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..catalog_photos import (
@@ -13,14 +9,14 @@ from ..catalog_photos import (
     save_catalog_photo,
     update_catalog_photo_framing,
 )
-from ..coffee_colors import next_coffee_color
-from ..db import session_dependency, utcnow
+from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Brew, Coffee, LoginSession, Profile, Rating
 from ..schemas.coffees import CoffeeInput, CoffeeResponse
 from ..schemas.photos import PhotoFramingUpdate
 from ..schemas.ratings import CoffeeRatingInsights, RatedBrewInsight
 from ..security import require_csrf, require_personal_csrf, require_user
+from ..services import coffees as coffee_service
 from ..tasting import MIN_RANKING_RATINGS, ranked_brew_ids, rating_aggregate
 from ._brew_support import brew_payload, load_brew
 from ._catalog_photos import (
@@ -29,44 +25,10 @@ from ._catalog_photos import (
     photo_framing_tuple,
     uploaded_photo_framing,
 )
-from ._common import get_settings
+from ._coffee_errors import coffee_http_errors
 from ._rating_support import load_flavor_tags
 
 router = APIRouter()
-
-
-def automatic_coffee_color(
-    db: Session, coffee_id: int | None = None, excluded: tuple[str, ...] = ()
-) -> str:
-    # Serialize automatic allocation until the surrounding coffee write commits.
-    # Explicit user-selected colours may still be shared between bags.
-    settings = get_settings(db)
-    db.execute(text("UPDATE app_settings SET id = id WHERE id = 1"))
-    query = select(Coffee.chart_color)
-    if coffee_id is not None:
-        query = query.where(Coffee.id != coffee_id)
-    return next_coffee_color(db.scalars(query), excluded=excluded, surface=settings.color_surface)
-
-
-def coffee_creation_fingerprint(payload: CoffeeInput) -> str:
-    canonical_payload = json.dumps(
-        payload.model_dump(mode="json"),
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(canonical_payload.encode()).hexdigest()
-
-
-def replay_idempotent_coffee_creation(
-    coffee: Coffee, request_fingerprint: str, profile_id: int
-) -> Coffee:
-    if coffee.created_by_id == profile_id and coffee.creation_request_hash == request_fingerprint:
-        return coffee
-    raise HTTPException(
-        status_code=409,
-        detail="Idempotency key was already used for a different coffee creation request",
-    )
 
 
 @router.get("/coffees", response_model=list[CoffeeResponse])
@@ -100,36 +62,14 @@ def create_coffee(
         pattern=r"^[A-Za-z0-9._:-]+$",
     ),
 ) -> Coffee:
-    request_fingerprint = coffee_creation_fingerprint(payload)
-    if idempotency_key is not None:
-        existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
-        if existing is not None:
-            return replay_idempotent_coffee_creation(
-                existing, request_fingerprint, login_session.profile_id
-            )
-    enforce_demo_capacity(request, db, Coffee)
-    coffee = Coffee(
-        **payload.model_dump(exclude={"chart_color"}),
-        chart_color=payload.chart_color or automatic_coffee_color(db),
-        created_by_id=login_session.profile_id,
-        creation_token=idempotency_key,
-        creation_request_hash=request_fingerprint if idempotency_key else None,
-    )
-    db.add(coffee)
-    try:
-        db.commit()
-    except IntegrityError:
-        if idempotency_key is None:
-            raise
-        db.rollback()
-        existing = db.scalar(select(Coffee).where(Coffee.creation_token == idempotency_key))
-        if existing is None:
-            raise
-        return replay_idempotent_coffee_creation(
-            existing, request_fingerprint, login_session.profile_id
+    with coffee_http_errors():
+        return coffee_service.create_coffee(
+            db,
+            payload,
+            login_session.profile_id,
+            idempotency_key=idempotency_key,
+            before_create=lambda: enforce_demo_capacity(request, db, Coffee),
         )
-    db.refresh(coffee)
-    return coffee
 
 
 @router.get("/coffees/{coffee_id}", response_model=CoffeeResponse)
@@ -227,16 +167,8 @@ def update_coffee(
     _session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
     enforce_demo_seed_protection(request, Coffee, coffee_id)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    for key, value in payload.model_dump(exclude={"chart_color"}).items():
-        setattr(coffee, key, value)
-    if "chart_color" in payload.model_fields_set:
-        coffee.chart_color = payload.chart_color or automatic_coffee_color(db, coffee_id=coffee.id)
-    db.commit()
-    db.refresh(coffee)
-    return coffee
+    with coffee_http_errors():
+        return coffee_service.update_coffee(db, coffee_id, payload)
 
 
 @router.put("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
@@ -304,13 +236,10 @@ def archive_coffee(
     if login_session.profile.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
     enforce_demo_seed_protection(request, Coffee, coffee_id)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    coffee.archived = True
-    db.commit()
-    db.refresh(coffee)
-    return coffee
+    with coffee_http_errors():
+        return coffee_service.archive_coffee(
+            db, coffee_id, is_admin=login_session.profile.role == "admin"
+        )
 
 
 @router.post("/coffees/{coffee_id}/finish", response_model=CoffeeResponse)
@@ -321,16 +250,8 @@ def finish_coffee(
     _session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
     enforce_demo_seed_protection(request, Coffee, coffee_id)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    if coffee.archived:
-        raise HTTPException(status_code=409, detail="Archived coffee cannot be marked finished")
-    if coffee.finished_at is None:
-        coffee.finished_at = utcnow()
-        db.commit()
-        db.refresh(coffee)
-    return coffee
+    with coffee_http_errors():
+        return coffee_service.finish_coffee(db, coffee_id)
 
 
 @router.post("/coffees/{coffee_id}/restore", response_model=CoffeeResponse)
@@ -341,16 +262,8 @@ def restore_coffee(
     _session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
     enforce_demo_seed_protection(request, Coffee, coffee_id)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    if coffee.archived:
-        raise HTTPException(status_code=409, detail="Archived coffee cannot be restored")
-    if coffee.finished_at is not None:
-        coffee.finished_at = None
-        db.commit()
-        db.refresh(coffee)
-    return coffee
+    with coffee_http_errors():
+        return coffee_service.restore_coffee(db, coffee_id)
 
 
 @router.post("/coffees/{coffee_id}/clone", response_model=CoffeeResponse)
@@ -360,26 +273,10 @@ def clone_coffee(
     db: Session = Depends(session_dependency),
     login_session: LoginSession = Depends(require_csrf),
 ) -> Coffee:
-    enforce_demo_capacity(request, db, Coffee)
-    source = db.get(Coffee, coffee_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    clone = Coffee(
-        roaster=source.roaster,
-        name=source.name,
-        country=source.country,
-        region=source.region,
-        producer=source.producer,
-        purchase_location=source.purchase_location,
-        process=source.process,
-        roast_level=source.roast_level,
-        variety=source.variety,
-        package_notes=source.package_notes,
-        chart_color=automatic_coffee_color(db, excluded=(source.chart_color,)),
-        cloned_from_id=source.id,
-        created_by_id=login_session.profile_id,
-    )
-    db.add(clone)
-    db.commit()
-    db.refresh(clone)
-    return clone
+    with coffee_http_errors():
+        return coffee_service.clone_coffee(
+            db,
+            coffee_id,
+            login_session.profile_id,
+            before_create=lambda: enforce_demo_capacity(request, db, Coffee),
+        )

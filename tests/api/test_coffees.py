@@ -120,6 +120,11 @@ def test_member_can_finish_restore_and_export_coffee(tmp_path: Path) -> None:
         finished_coffee = finished.json()
         assert finished_coffee["finished_at"] is not None
         assert finished_coffee["available"] is False
+        denied_archive = client.post(
+            f"/api/v1/coffees/{coffee['id']}/archive", headers=member_headers
+        )
+        assert denied_archive.status_code == 403
+        assert denied_archive.json()["detail"] == "Administrator access required"
         repeated_finish = client.post(
             f"/api/v1/coffees/{coffee['id']}/finish", headers=member_headers
         ).json()
@@ -392,3 +397,28 @@ def test_coffee_chart_colors_are_assigned_validated_and_exported(tmp_path: Path)
             coffees_csv = archive.read("coffees.csv").decode()
         assert "chart_color" in coffees_csv.splitlines()[0]
         assert "#D55E00" in coffees_csv
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix"),
+    [
+        ("PUT", ""),
+        ("POST", "/archive"),
+        ("POST", "/finish"),
+        ("POST", "/restore"),
+        ("POST", "/clone"),
+    ],
+)
+def test_coffee_commands_preserve_missing_resource_errors(
+    tmp_path: Path, method: str, suffix: str
+) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        response = client.request(
+            method,
+            f"/api/v1/coffees/999{suffix}",
+            headers=headers,
+            json={"roaster": "Orbit", "name": "Missing bag"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Coffee not found"
