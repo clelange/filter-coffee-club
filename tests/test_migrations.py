@@ -5,7 +5,10 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from app.config import Settings
+from app.models import Brew, Coffee, Grinder, PresetGrinderRange, Profile, RecipePreset
+from app.seeds import seed_database
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import Session
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -638,4 +641,83 @@ def test_palette_contrast_migration_downgrade_preserves_custom_color(tmp_path: P
         assert connection.execute(
             text("SELECT id, color_cyan FROM app_settings ORDER BY id")
         ).all() == [(1, "#00728F"), (2, "#00728F")]
+    engine.dispose()
+
+
+def test_c40_range_correction_preserves_custom_values_and_brews(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-c40-correction.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "e7b4c2d9a610")
+    engine = create_engine(database_url)
+    previous_ranges = [(28, 31), (29, 33), (30, 34), (31, 35), (32, 35), (33, 36), (30, 34)]
+    with Session(engine) as db:
+        seed_database(db)
+        for preset, (old_min, old_max) in zip(
+            db.query(RecipePreset).order_by(RecipePreset.id), previous_ranges, strict=True
+        ):
+            preset.reference_setting_min = old_min
+            preset.reference_setting_max = old_max
+            preset.grinder_ranges[0].setting_min = old_min
+            preset.grinder_ranges[0].setting_max = old_max
+        # Keep a customized endpoint, a previously corrected range, and a missing
+        # reference. Only the four remaining bundled ranges should change.
+        db.get(RecipePreset, 1).reference_setting_max = 32
+        db.get(RecipePreset, 2).reference_setting_min = 23
+        db.get(RecipePreset, 2).reference_setting_max = 27
+        db.get(RecipePreset, 3).reference_setting_min = None
+        db.get(RecipePreset, 3).reference_setting_max = None
+        custom = Grinder(manufacturer="Custom", model="Grinder")
+        profile = Profile(display_name="Ada", pin_hash="legacy-hash")
+        db.add_all([custom, profile])
+        db.flush()
+        db.add(
+            PresetGrinderRange(preset_id=4, grinder_id=custom.id, setting_min=31, setting_max=35)
+        )
+        coffee = Coffee(roaster="Test", name="Coffee", created_by_id=profile.id)
+        db.add(coffee)
+        db.flush()
+        db.add(
+            Brew(
+                coffee_id=coffee.id,
+                operator_id=profile.id,
+                grinder_id=1,
+                source_preset_id=4,
+                dose_g=15,
+                water_g=240,
+                target_ratio=16,
+                temperature_c=94,
+                grinder_setting=33,
+                status="completed",
+            )
+        )
+        db.commit()
+    engine.dispose()
+
+    def snapshot() -> tuple[list, list, list]:
+        with engine.connect() as connection:
+            return (
+                connection.execute(
+                    text(
+                        "SELECT reference_setting_min, reference_setting_max "
+                        "FROM recipe_presets ORDER BY id"
+                    )
+                ).all(),
+                connection.execute(
+                    text("SELECT setting_min, setting_max FROM preset_grinder_ranges ORDER BY id")
+                ).all(),
+                connection.execute(text("SELECT * FROM brews")).all(),
+            )
+
+    before_presets, before_ranges, before_brews = snapshot()
+    command.upgrade(config, "head")
+    after = snapshot()
+    assert after[0] == before_presets[:3] + [(25, 29), (26, 29), (27, 30), (24, 28)]
+    assert after[1] == before_ranges[:3] + [(25, 29), (26, 29), (27, 30), (24, 28), (31, 35)]
+    assert after[2] == before_brews
+
+    # Reapplying after a data-preserving downgrade must not subtract six twice.
+    command.downgrade(config, "e7b4c2d9a610")
+    assert snapshot() == after
+    command.upgrade(config, "head")
+    assert snapshot() == after
     engine.dispose()
