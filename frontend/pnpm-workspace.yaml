@@ -3,6 +3,11 @@ packages:
 
 overrides:
   '@redocly/openapi-core>js-yaml': 4.3.2
+  # The Redocly patch below adapts its import to minimatch's current API.
+  '@redocly/openapi-core>minimatch': 11.0.1
 
 allowBuilds:
   esbuild: true
+
+patchedDependencies:
+  '@redocly/openapi-core@1.34.19': patches/@redocly__openapi-core@1.34.19.patch

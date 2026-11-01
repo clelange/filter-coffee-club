@@ -3,6 +3,7 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 WORKDIR /src/frontend
 RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/patches/ ./patches/
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm exec svelte-kit sync && pnpm build
