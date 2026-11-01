@@ -72,7 +72,7 @@
     temperature_max_c: 96,
     active: true,
     sort_order: 0,
-    reference_grinder_range: { setting_min: 28, setting_max: 34 },
+    reference_grinder_range: { setting_min: 22, setting_max: 28 },
     custom_grinder_ranges: []
   });
   const activeTabLabel = $derived(
@@ -699,7 +699,7 @@
     );
   }
   function addReferenceRange(preset: Preset) {
-    preset.reference_grinder_range = { setting_min: 28, setting_max: 34 };
+    preset.reference_grinder_range = { setting_min: 22, setting_max: 28 };
   }
   function resetPresetForm() {
     presetForm = {
@@ -709,7 +709,7 @@
       temperature_max_c: 96,
       active: true,
       sort_order: Math.max(-1, ...presets.map((preset) => preset.sort_order)) + 1,
-      reference_grinder_range: { setting_min: 28, setting_max: 34 },
+      reference_grinder_range: { setting_min: 22, setting_max: 28 },
       custom_grinder_ranges: []
     };
   }

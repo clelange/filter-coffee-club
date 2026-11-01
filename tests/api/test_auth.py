@@ -41,6 +41,15 @@ def test_bootstrap_seeds_and_personal_session(tmp_path: Path) -> None:
         ]
         presets = client.get("/api/v1/presets").json()
         assert len(presets) == 7
+        assert [preset["reference_grinder_range"] for preset in presets] == [
+            {"setting_min": 22, "setting_max": 25},
+            {"setting_min": 23, "setting_max": 27},
+            {"setting_min": 24, "setting_max": 28},
+            {"setting_min": 25, "setting_max": 29},
+            {"setting_min": 26, "setting_max": 29},
+            {"setting_min": 27, "setting_max": 30},
+            {"setting_min": 24, "setting_max": 28},
+        ]
         tags = client.get("/api/v1/flavor-tags").json()
         assert any(item["name"] == "Fruity" and item["parent_id"] is None for item in tags)
 

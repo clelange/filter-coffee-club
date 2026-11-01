@@ -26,13 +26,13 @@ from .models import (
 from .security import hash_pin
 
 PRESETS = [
-    ("Light washed / floral / acidic", 16.5, 94, 96, 28, 31),
-    ("Light natural / fruity", 16, 93, 95, 29, 33),
-    ("Medium washed / balanced", 16, 92, 95, 30, 34),
-    ("Medium natural / anaerobic", 15.5, 91, 94, 31, 35),
-    ("Chocolate / nutty medium-dark", 15.5, 90, 93, 32, 35),
-    ("Dark roast", 15, 88, 91, 33, 36),
-    ("Old / faded beans", 15, 90, 93, 30, 34),
+    ("Light washed / floral / acidic", 16.5, 94, 96, 22, 25),
+    ("Light natural / fruity", 16, 93, 95, 23, 27),
+    ("Medium washed / balanced", 16, 92, 95, 24, 28),
+    ("Medium natural / anaerobic", 15.5, 91, 94, 25, 29),
+    ("Chocolate / nutty medium-dark", 15.5, 90, 93, 26, 29),
+    ("Dark roast", 15, 88, 91, 27, 30),
+    ("Old / faded beans", 15, 90, 93, 24, 28),
 ]
 
 FLAVORS = {
