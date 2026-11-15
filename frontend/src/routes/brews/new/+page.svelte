@@ -892,17 +892,19 @@
         />
         <div>
           {#if grinder}
-            <NumberStepper
-              label="Grinder setting"
-              bind:value={form.grinder_setting}
-              onchange={confirmGrinderSetting}
-              min={0}
-              max={1000}
-              step={clickGrinder ? 1 : grinder.setting_step}
-              unit={grinder.setting_unit}
-              inputmode={clickGrinder ? 'numeric' : 'decimal'}
-              nullable
-            />
+            {#key grinder.id}
+              <NumberStepper
+                label="Grinder setting"
+                bind:value={form.grinder_setting}
+                onchange={confirmGrinderSetting}
+                min={0}
+                max={1000}
+                step={clickGrinder ? 1 : grinder.setting_step}
+                unit={grinder.setting_unit}
+                inputmode={clickGrinder ? 'numeric' : 'decimal'}
+                nullable
+              />
+            {/key}
             {#if form.grinder_setting !== null && grinderDefinition?.clicks_per_rotation}
               <span class="setting-helper"
                 >{formatGrinderSetting(form.grinder_setting, grinder, grinderDefinition)}</span

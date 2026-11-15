@@ -380,20 +380,20 @@ test('correlated batch values stay synchronized and unusual creation requires co
   const servings = page.getByRole('spinbutton', { name: 'Servings', exact: true });
   await servings.fill('5');
   await servings.blur();
-  await expect(page.getByRole('spinbutton', { name: 'Total coffee dose' })).toHaveValue('40');
+  await expect(page.getByRole('textbox', { name: 'Total coffee dose' })).toHaveValue('40');
   await expect(page.getByRole('spinbutton', { name: 'Total water', exact: true })).toHaveValue(
     '640'
   );
   await expect(bloomWater).toHaveValue('80');
 
-  const totalDose = page.getByRole('spinbutton', { name: 'Total coffee dose' });
+  const totalDose = page.getByRole('textbox', { name: 'Total coffee dose' });
   await totalDose.fill('8');
   await totalDose.blur();
   await expect(page.getByRole('spinbutton', { name: 'Total water', exact: true })).toHaveValue(
     '128'
   );
   await expect(bloomWater).toHaveValue('16');
-  const targetRatio = page.getByRole('spinbutton', { name: 'Target ratio' });
+  const targetRatio = page.getByRole('textbox', { name: 'Target ratio' });
   await targetRatio.fill('80');
   await targetRatio.blur();
   await expect(page.getByText(/A 1:80 ratio is outside the normal/)).toBeVisible();
@@ -417,6 +417,97 @@ test('correlated batch values stay synchronized and unusual creation requires co
   expect(confirmationHeader).toBe('true');
 });
 
+test.describe('mobile decimal dose', () => {
+  test.use({
+    viewport: { width: 412, height: 839 },
+    isMobile: true,
+    hasTouch: true,
+    locale: 'de-CH'
+  });
+
+  for (const separator of ['.', ',']) {
+    test(`saves a coffee dose typed with "${separator}"`, async ({ page }) => {
+      let currentBrew: Brew | null = null;
+      let submitted: BrewInput | null = null;
+      await mockCommonApi(page, () => currentBrew);
+      await page.route('**/api/v1/brews', (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        submitted = route.request().postDataJSON() as BrewInput;
+        currentBrew = brewFromInput(152, submitted);
+        return fulfillJson(route, currentBrew);
+      });
+
+      await page.goto('/brews/new?kiosk=0');
+      await chooseReferenceGrinder(page);
+      await page.getByRole('button', { name: /Medium washed \/ balanced/ }).tap();
+      const dose = page.getByRole('textbox', { name: 'Total coffee dose' });
+      await dose.tap();
+      await expect(dose).toHaveAttribute('inputmode', 'decimal');
+      await dose.fill('');
+      await dose.pressSequentially(`18${separator}`);
+      await expect(dose).toHaveValue(`18${separator}`);
+      await dose.pressSequentially('5');
+
+      if (separator === '.') {
+        await page.getByRole('button', { name: 'Save and open brew mode' }).tap();
+      } else {
+        await dose.press('Enter');
+      }
+      await expect(page).toHaveURL(/\/brews\/152$/);
+      expect(submitted).toMatchObject({ dose_g: 18.5, water_g: 296, target_ratio: 16 });
+    });
+  }
+
+  test('rejects malformed and off-step doses and lets the stepper correct a valid dose', async ({
+    page
+  }) => {
+    await mockCommonApi(page, () => null);
+    let createRequests = 0;
+    await page.route('**/api/v1/brews', (route) => {
+      if (route.request().method() === 'POST') createRequests++;
+      return route.fallback();
+    });
+    await page.goto('/brews/new?kiosk=0');
+    await chooseReferenceGrinder(page);
+    await page.getByRole('button', { name: /Medium washed \/ balanced/ }).tap();
+    const dose = page.getByRole('textbox', { name: 'Total coffee dose' });
+    const save = page.getByRole('button', { name: 'Save and open brew mode' });
+    const water = page.getByRole('spinbutton', { name: 'Total water', exact: true });
+    await page.getByText('More pour details').tap();
+    const bloom = page.getByRole('spinbutton', { name: 'Bloom water' });
+    await bloom.fill('16');
+    await bloom.blur();
+
+    await dose.fill('18,.5');
+    await dose.blur();
+    await expect(dose).toHaveValue('18,.5');
+    await expect(dose).toHaveAccessibleDescription('Total coffee dose must be a number.');
+    await save.tap();
+    expect(createRequests).toBe(0);
+
+    await dose.fill('1,05');
+    await save.tap();
+    await expect(dose).toHaveAttribute('aria-invalid', 'true');
+    expect(createRequests).toBe(0);
+    await expect(water).toHaveValue('128');
+    await expect(bloom).toHaveValue('16');
+
+    await dose.fill('18,55');
+    await dose.press('ArrowDown');
+    await expect(dose).toHaveValue('18.5');
+    await expect(dose).not.toHaveAttribute('aria-invalid');
+    await expect(water).toHaveValue('296');
+    await expect(bloom).toHaveValue('37');
+
+    await page.getByRole('button', { name: 'Decrease Total coffee dose' }).tap();
+    await expect(dose).toHaveValue('18.4');
+    await dose.fill('1.85e1');
+    await dose.blur();
+    await expect(dose).toHaveValue('18.5');
+    await expect(water).toHaveValue('296');
+  });
+});
+
 test('water basis keeps water fixed while ratio and dose changes stay synchronized', async ({
   page
 }) => {
@@ -433,7 +524,7 @@ test('water basis keeps water fixed while ratio and dose changes stay synchroniz
   await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeDisabled();
   await bloomWater.fill('16');
   await bloomWater.blur();
-  const totalDose = page.getByRole('spinbutton', { name: 'Total coffee dose' });
+  const totalDose = page.getByRole('textbox', { name: 'Total coffee dose' });
   const totalWater = page.getByRole('spinbutton', { name: 'Total water', exact: true });
   await totalWater.fill('240');
   await totalWater.blur();
@@ -441,7 +532,7 @@ test('water basis keeps water fixed while ratio and dose changes stay synchroniz
   await expect(bloomWater).toHaveValue('30');
   await expect(page.getByText(/Ratio changes preserve\s+total water/)).toBeVisible();
 
-  const targetRatio = page.getByRole('spinbutton', { name: 'Target ratio' });
+  const targetRatio = page.getByRole('textbox', { name: 'Target ratio' });
   await targetRatio.fill('20');
   await targetRatio.blur();
   await expect(totalWater).toHaveValue('240');
@@ -505,7 +596,7 @@ test('preset conformance distinguishes deviations from missing grinder guidance'
   await expect(page.getByText('Customized · grind', { exact: true })).toBeVisible();
 
   await grinderSelect.selectOption(String(turnsGrinder.id));
-  await expect(grinderSetting).toHaveValue('5');
+  await expect(page.getByRole('textbox', { name: 'Grinder setting' })).toHaveValue('5');
   await expect(page.locator('aside section').filter({ hasText: 'Live recipe' })).toContainText(
     '5 turns'
   );
@@ -624,7 +715,7 @@ test('an inactive source preset remains visible while editing an existing brew',
   await expect(inactiveButton).toBeDisabled();
   await expect(inactiveButton).toHaveClass(/chosen/);
   await expect(inactiveButton).toContainText('Inactive starting point');
-  await expect(page.getByRole('spinbutton', { name: 'Target ratio' })).toHaveValue('16.3');
+  await expect(page.getByRole('textbox', { name: 'Target ratio' })).toHaveValue('16.3');
   await expect(page.getByText('Matches preset', { exact: true })).toBeVisible();
 });
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { decimalPlaces } from './decimal-places';
   import { deviceModeStore } from './device';
 
   let {
@@ -29,26 +30,81 @@
   let error = $state('');
   let dialog = $state<HTMLElement>();
   let valueButton = $state<HTMLButtonElement>();
+  let valueInput = $state<HTMLInputElement>();
 
+  const decimalErrorId = $props.id();
+  const decimal = $derived(inputmode === 'decimal');
   const precision = $derived(decimalPlaces(step));
 
-  function decimalPlaces(number: number): number {
-    const text = String(number);
-    if (text.includes('e-')) return Number(text.split('e-')[1]);
-    return text.includes('.') ? text.split('.')[1].length : 0;
-  }
+  $effect(() => {
+    if (decimal && valueInput) {
+      valueInput.value = String(value ?? '');
+      validateDecimal(valueInput);
+      error = '';
+    }
+  });
 
   function adjust(direction: number) {
-    const base = value ?? Math.max(min, 0);
-    const next = Math.min(max, Math.max(min, Number(base) + direction * step));
-    value = Number(next.toFixed(precision));
-    onchange?.(value);
+    if (decimal && valueInput) {
+      const number = decimalNumberInput(valueInput);
+      if (!number.value) number.value = String(Math.max(min, 0));
+      if (direction > 0) number.stepUp();
+      else number.stepDown();
+      valueInput.value = number.value;
+      commitDecimal();
+    } else {
+      const base = value ?? Math.max(min, 0);
+      const next = Math.min(max, Math.max(min, base + direction * step));
+      value = Number(next.toFixed(precision));
+      onchange?.(value);
+    }
   }
 
   function handleInput(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
-    value =
-      input.value === '' || !Number.isFinite(input.valueAsNumber) ? null : input.valueAsNumber;
+    if (decimal) {
+      error = '';
+      validateDecimal(input);
+    } else {
+      value = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : null;
+    }
+  }
+
+  function decimalNumberInput(input: HTMLInputElement) {
+    // Run native number validation on the normalized text, using the same constraints.
+    const number = input.cloneNode() as HTMLInputElement;
+    number.type = 'number';
+    number.value = input.value.trim().replace(',', '.').replace(/\.$/, '');
+    return number;
+  }
+
+  function validateDecimal(input: HTMLInputElement) {
+    const number = decimalNumberInput(input);
+    input.setCustomValidity(
+      input.value.trim() && !number.value ? `${label} must be a number.` : number.validationMessage
+    );
+    return number.valueAsNumber;
+  }
+
+  function commitDecimal() {
+    if (!valueInput) return;
+    const number = validateDecimal(valueInput);
+    error = valueInput.validationMessage;
+    if (error || valueInput.value === String(value ?? '')) return;
+    value = Number.isFinite(number) ? number : null;
+    valueInput.value = String(value ?? '');
+    onchange?.(value);
+  }
+
+  function handleDecimalKeydown(event: KeyboardEvent) {
+    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+      return;
+    if (event.key === 'Enter') {
+      commitDecimal();
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      adjust(event.key === 'ArrowUp' ? 1 : -1);
+    }
   }
 
   async function openPad() {
@@ -164,10 +220,17 @@
     {:else}
       <input
         aria-label={label}
-        type="number"
+        aria-invalid={decimal && error ? 'true' : undefined}
+        aria-describedby={decimal && error ? decimalErrorId : undefined}
+        type={decimal ? 'text' : 'number'}
+        spellcheck={false}
         value={value ?? ''}
+        bind:this={valueInput}
         oninput={handleInput}
-        onchange={() => onchange?.(value)}
+        onchange={decimal ? undefined : () => onchange?.(value)}
+        onblur={decimal ? commitDecimal : undefined}
+        onkeydown={decimal ? handleDecimalKeydown : undefined}
+        oninvalid={decimal ? commitDecimal : undefined}
         {min}
         {max}
         {step}
@@ -178,6 +241,9 @@
     {#if unit}<b>{unit}</b>{/if}
     <button type="button" aria-label={`Increase ${label}`} onclick={() => adjust(1)}>+</button>
   </div>
+  {#if decimal && error && valueInput}
+    <span class="error" id={decimalErrorId}>{error}</span>
+  {/if}
 </div>
 
 {#if padOpen}
