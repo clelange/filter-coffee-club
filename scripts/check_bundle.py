@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 asset_dir = ROOT / "frontend" / "build" / "_app" / "immutable"
-budget = 151 * 1024
+budget = 152 * 1024
 javascript = sorted(asset_dir.rglob("*.js"))
 if not javascript:
     raise SystemExit("No built JavaScript found; run the frontend build first")

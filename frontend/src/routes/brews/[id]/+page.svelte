@@ -13,7 +13,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
-  import PostBrewWaterFields, { invalidAddedWater } from '$lib/PostBrewWaterFields.svelte';
+  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
   import {
@@ -45,6 +45,7 @@
   let actualWater = $state(0);
   let postBrewWaterAdded: boolean | null = $state(false);
   let postBrewWaterAmount: number | null = $state(null);
+  let postBrewWaterInvalid = $state(false);
   let markCoffeeFinished = $state(false);
   let finalizing = $state(false);
   let finishIssue = $state<FinishIssue | null>(null);
@@ -72,9 +73,6 @@
     currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
   );
   const finalBloomWaterInvalid = $derived(bloomWaterExceeds(actualWater));
-  const postBrewWaterInvalid = $derived(
-    postBrewWaterAdded && invalidAddedWater(postBrewWaterAmount)
-  );
 
   $effect(() => {
     const dialog = finishDialog;
@@ -147,8 +145,6 @@
     try {
       brew = await api<Brew>(`/brews/${id}`);
       actualWater = brew.water_g;
-      postBrewWaterAdded = false;
-      postBrewWaterAmount = null;
       if (brew.total_brew_time_s) {
         finalMinutes = Math.floor(brew.total_brew_time_s / 60);
         finalSeconds = brew.total_brew_time_s % 60;
@@ -708,7 +704,11 @@
         {#if finalBloomWaterInvalid}<p class="error" role="alert">
             Brew water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
           </p>{/if}
-        <PostBrewWaterFields bind:added={postBrewWaterAdded} bind:amount={postBrewWaterAmount} />
+        <PostBrewWaterFields
+          bind:added={postBrewWaterAdded}
+          bind:amount={postBrewWaterAmount}
+          bind:invalid={postBrewWaterInvalid}
+        />
         {#if finishIssue}<p class="error finish-error" role="alert">{finishIssue.message}</p>{/if}
         {#if canControlDraft() && finishBrewersLoaded}
           <BrewerPicker

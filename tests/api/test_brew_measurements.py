@@ -146,6 +146,14 @@ def test_post_brew_water_is_recorded_separately_from_recipe_measurements(tmp_pat
         corrected = response.json()
         assert corrected["post_brew_water_g"] == 50
 
+        incomplete = client.put(
+            f"{path}/correction",
+            headers=headers,
+            json={**correction, "revision": corrected["revision"], "post_brew_water_g": None},
+        )
+        assert incomplete.status_code == 422, incomplete.text
+        assert client.get(path).json()["post_brew_water_g"] == 50
+
         response = client.put(
             f"{path}/correction",
             headers=headers,

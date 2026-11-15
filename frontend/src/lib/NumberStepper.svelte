@@ -12,6 +12,7 @@
     unit = '',
     inputmode = 'decimal',
     nullable = false,
+    onvaliditychange,
     onchange
   }: {
     label: string;
@@ -22,6 +23,7 @@
     unit?: string;
     inputmode?: 'numeric' | 'decimal';
     nullable?: boolean;
+    onvaliditychange?: (valid: boolean) => void;
     onchange?: (value: number | null) => void;
   } = $props();
 
@@ -37,10 +39,13 @@
   const precision = $derived(decimalPlaces(step));
 
   $effect(() => {
-    if (decimal && valueInput) {
+    if (!valueInput) return;
+    if (decimal) {
       valueInput.value = String(value ?? '');
       validateDecimal(valueInput);
       error = '';
+    } else if (onvaliditychange) {
+      validateNumeric(valueInput);
     }
   });
 
@@ -56,6 +61,8 @@
       const base = value ?? Math.max(min, 0);
       const next = Math.min(max, Math.max(min, base + direction * step));
       value = Number(next.toFixed(precision));
+      error = '';
+      onvaliditychange?.(true);
       onchange?.(value);
     }
   }
@@ -66,8 +73,14 @@
       error = '';
       validateDecimal(input);
     } else {
+      if (onvaliditychange) validateNumeric(input);
       value = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : null;
     }
+  }
+
+  function validateNumeric(input: HTMLInputElement) {
+    error = input.validationMessage;
+    onvaliditychange?.(input.validity.valid);
   }
 
   function decimalNumberInput(input: HTMLInputElement) {
@@ -220,8 +233,8 @@
     {:else}
       <input
         aria-label={label}
-        aria-invalid={decimal && error ? 'true' : undefined}
-        aria-describedby={decimal && error ? decimalErrorId : undefined}
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={error ? decimalErrorId : undefined}
         type={decimal ? 'text' : 'number'}
         spellcheck={false}
         value={value ?? ''}
@@ -241,7 +254,7 @@
     {#if unit}<b>{unit}</b>{/if}
     <button type="button" aria-label={`Increase ${label}`} onclick={() => adjust(1)}>+</button>
   </div>
-  {#if decimal && error && valueInput}
+  {#if error && valueInput}
     <span class="error" id={decimalErrorId}>{error}</span>
   {/if}
 </div>

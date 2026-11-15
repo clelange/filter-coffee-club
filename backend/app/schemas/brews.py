@@ -61,6 +61,11 @@ class PostBrewWater(BaseModel):
 
     @model_validator(mode="after")
     def validate_post_brew_water(self) -> PostBrewWater:
+        if (
+            "post_brew_water_g" in self.model_fields_set
+            and "post_brew_water_added" not in self.model_fields_set
+        ):
+            raise ValueError("An added water amount requires an explicit water-added status")
         if self.post_brew_water_g is not None and self.post_brew_water_added is not True:
             raise ValueError("An added water amount requires marking water as added after brewing")
         return self

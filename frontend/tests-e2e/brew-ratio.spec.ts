@@ -254,6 +254,35 @@ test('kiosk records an addition even if the brewer unsets the measured amount', 
   await expect(page.getByText('Water added after brewing · amount unrecorded')).toBeVisible();
 });
 
+test('a partial added-water number blocks finishing until it is corrected', async ({ page }) => {
+  let brew = brewFromInput(402, finishInput);
+  await mockCommonApi(page, () => brew);
+  await page.route('**/api/v1/brews/402/finalize', (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      post_brew_water_added: true,
+      post_brew_water_g: 50
+    });
+    brew = { ...brew, status: 'completed', post_brew_water_added: true, post_brew_water_g: 50 };
+    return fulfillJson(route, brew);
+  });
+
+  await page.goto('/brews/402?kiosk=0');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await dialog.getByRole('checkbox', { name: 'Water added after brewing' }).check();
+  const amount = dialog.getByRole('spinbutton', { name: 'Added water' });
+  const finalize = dialog.getByRole('button', { name: 'Finalize and invite tasters' });
+  await amount.press('-');
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(finalize).toBeDisabled();
+  await amount.fill('50.5');
+  await expect(finalize).toBeDisabled();
+  await amount.fill('50');
+  await expect(finalize).toBeEnabled();
+  await finalize.click();
+  await expect(page.getByText('50 g added after brewing', { exact: true })).toBeVisible();
+});
+
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,

@@ -1,24 +1,18 @@
-<script module lang="ts">
-  const MAX_ADDED_WATER_G = 5000;
-
-  export function invalidAddedWater(amount: number | null): boolean {
-    return (
-      amount !== null && (!Number.isInteger(amount) || amount < 1 || amount > MAX_ADDED_WATER_G)
-    );
-  }
-</script>
-
 <script lang="ts">
   import NumberStepper from './NumberStepper.svelte';
 
   let {
     added = $bindable(),
-    amount = $bindable()
-  }: { added: boolean | null; amount: number | null } = $props();
+    amount = $bindable(),
+    invalid = $bindable()
+  }: { added: boolean | null; amount: number | null; invalid: boolean } = $props();
 
   function toggleAdded(event: Event) {
     added = (event.currentTarget as HTMLInputElement).checked;
-    if (!added) amount = null;
+    if (!added) {
+      amount = null;
+      invalid = false;
+    }
   }
 </script>
 
@@ -31,16 +25,14 @@
     <NumberStepper
       label="Added water"
       bind:value={amount}
+      onvaliditychange={(valid) => (invalid = !valid)}
       min={1}
-      max={MAX_ADDED_WATER_G}
+      max={5000}
       unit="g"
       inputmode="numeric"
       nullable
     />
     <p class="hint">Leave blank if you didn’t weigh it.</p>
-    {#if invalidAddedWater(amount)}
-      <p class="error" role="alert">Enter a whole number from 1 to {MAX_ADDED_WATER_G} g.</p>
-    {/if}
   {/if}
 </div>
 

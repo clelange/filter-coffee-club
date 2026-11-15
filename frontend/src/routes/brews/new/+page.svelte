@@ -25,7 +25,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
-  import PostBrewWaterFields, { invalidAddedWater } from '$lib/PostBrewWaterFields.svelte';
+  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
   import { formatGrinderSetting } from '$lib/catalog';
   import type {
     ActiveBrews,
@@ -71,6 +71,7 @@
   let correctionSeconds = $state(0);
   let postBrewWaterAdded: boolean | null = $state(null);
   let postBrewWaterAmount: number | null = $state(null);
+  let postBrewWaterInvalid = $state(false);
   let correctionOperatorId = $state(0);
   let originalOperatorId = $state(0);
   let originalOperatorName = $state('');
@@ -166,9 +167,6 @@
     )
   );
   const editorDirty = $derived(ready && baseline !== '' && editorSnapshot() !== baseline);
-  const postBrewWaterInvalid = $derived(
-    postBrewWaterAdded && invalidAddedWater(postBrewWaterAmount)
-  );
 
   function editorSnapshot(): string {
     return JSON.stringify({
@@ -1060,7 +1058,11 @@
               /></label
             >
           </div>
-          <PostBrewWaterFields bind:added={postBrewWaterAdded} bind:amount={postBrewWaterAmount} />
+          <PostBrewWaterFields
+            bind:added={postBrewWaterAdded}
+            bind:amount={postBrewWaterAmount}
+            bind:invalid={postBrewWaterInvalid}
+          />
         </fieldset>
       {/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
