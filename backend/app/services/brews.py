@@ -265,8 +265,17 @@ def correct_completed_brew(
         brew_id=brew.id,
     )
     values: dict[str, object] = payload.model_dump(
-        exclude={"operator_id", "operator_ids", "revision"}
+        exclude={
+            "operator_id",
+            "operator_ids",
+            "revision",
+            "post_brew_water_added",
+            "post_brew_water_g",
+        }
     )
+    if {"post_brew_water_added", "post_brew_water_g"} & payload.model_fields_set:
+        values["post_brew_water_added"] = payload.post_brew_water_added
+        values["post_brew_water_g"] = payload.post_brew_water_g
     operators = changed_brewers(db, brew, payload.operator_ids, actor, payload.operator_id)
     if payload.operator_id is not None:
         operator = load_active_operator(db, payload.operator_id)
@@ -327,6 +336,8 @@ def finalize_brew(
     )
     values: dict[str, object] = {
         "total_brew_time_s": payload.total_brew_time_s,
+        "post_brew_water_added": payload.post_brew_water_added,
+        "post_brew_water_g": payload.post_brew_water_g,
         "status": "completed",
         "completed_at": utcnow(),
         "rating_token": secrets.token_urlsafe(24),

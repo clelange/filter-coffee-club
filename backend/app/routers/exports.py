@@ -51,6 +51,8 @@ def export_rows(db: Session) -> dict[str, list[dict]]:
                 "filter_id": item.filter_id,
                 "dose_g": item.dose_g,
                 "water_g": item.water_g,
+                "post_brew_water_added": item.post_brew_water_added,
+                "post_brew_water_g": item.post_brew_water_g,
                 "ratio": round(item.water_g / item.dose_g, 2),
                 "target_ratio": item.target_ratio,
                 "temperature_c": item.temperature_c,

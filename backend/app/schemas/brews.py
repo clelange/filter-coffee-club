@@ -55,7 +55,18 @@ class BrewUpdate(BrewCreate):
     revision: int = Field(ge=1)
 
 
-class BrewFinalize(BrewParticipants):
+class PostBrewWater(BaseModel):
+    post_brew_water_added: bool | None = None
+    post_brew_water_g: int | None = Field(default=None, strict=True, ge=1, le=5000)
+
+    @model_validator(mode="after")
+    def validate_post_brew_water(self) -> PostBrewWater:
+        if self.post_brew_water_g is not None and self.post_brew_water_added is not True:
+            raise ValueError("An added water amount requires marking water as added after brewing")
+        return self
+
+
+class BrewFinalize(BrewParticipants, PostBrewWater):
     water_g: float | None = Field(default=None, gt=0, le=5000)
     total_brew_time_s: int = Field(gt=0, le=3600)
     revision: int = Field(ge=1)
@@ -71,12 +82,12 @@ class BrewStatusChange(BaseModel):
     revision: int = Field(ge=1)
 
 
-class BrewCorrection(BrewUpdate):
+class BrewCorrection(BrewUpdate, PostBrewWater):
     operator_id: int | None = None
     total_brew_time_s: int = Field(gt=0, le=3600)
 
 
-class BrewResponse(BrewInput):
+class BrewResponse(BrewInput, PostBrewWater):
     target_ratio: float
     id: int
     operator_id: int
