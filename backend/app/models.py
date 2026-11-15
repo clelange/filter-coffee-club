@@ -210,6 +210,11 @@ class Brew(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("dose_g > 0", name="ck_brew_dose_positive"),
         CheckConstraint("water_g > 0", name="ck_brew_water_positive"),
+        CheckConstraint(
+            "post_brew_water_g IS NULL OR "
+            "(post_brew_water_added IS TRUE AND post_brew_water_g BETWEEN 1 AND 5000)",
+            name="ck_brew_post_brew_water",
+        ),
         CheckConstraint("target_ratio > 0", name="ck_brew_target_ratio_positive"),
         CheckConstraint("temperature_c BETWEEN 50 AND 100", name="ck_brew_temperature"),
         CheckConstraint("servings > 0", name="ck_brew_servings_positive"),
@@ -229,6 +234,8 @@ class Brew(TimestampMixin, Base):
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("brews.id"))
     dose_g: Mapped[float] = mapped_column(Float)
     water_g: Mapped[float] = mapped_column(Float)
+    post_brew_water_added: Mapped[bool | None] = mapped_column(Boolean)
+    post_brew_water_g: Mapped[int | None] = mapped_column(Integer)
     target_ratio: Mapped[float] = mapped_column(Float)
     temperature_c: Mapped[float] = mapped_column(Float)
     grinder_setting: Mapped[float] = mapped_column(Float)

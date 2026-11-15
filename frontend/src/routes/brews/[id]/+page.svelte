@@ -13,6 +13,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import FlavorRadar from '$lib/FlavorRadar.svelte';
   import NumberStepper from '$lib/NumberStepper.svelte';
+  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
   import ProfileLink from '$lib/ProfileLink.svelte';
   import RatingMetrics from '$lib/RatingMetrics.svelte';
   import {
@@ -42,6 +43,9 @@
   let finalMinutes = $state(3);
   let finalSeconds = $state(0);
   let actualWater = $state(0);
+  let postBrewWaterAdded: boolean | null = $state(false);
+  let postBrewWaterAmount: number | null = $state(null);
+  let postBrewWaterInvalid = $state(false);
   let markCoffeeFinished = $state(false);
   let finalizing = $state(false);
   let finishIssue = $state<FinishIssue | null>(null);
@@ -379,7 +383,7 @@
 
   async function finalize(confirmUnusualRatio = false) {
     if (!brew) return;
-    if (finalBloomWaterInvalid) return;
+    if (finalBloomWaterInvalid || postBrewWaterInvalid) return;
     if (finalRatioUnusual && !confirmUnusualRatio) {
       finalRatioConfirmationOpen = true;
       return;
@@ -395,6 +399,8 @@
         headers: confirmUnusualRatio ? { 'X-Confirm-Unusual-Ratio': 'true' } : undefined,
         body: jsonBody({
           water_g: actualWater,
+          post_brew_water_added: postBrewWaterAdded,
+          post_brew_water_g: postBrewWaterAmount,
           total_brew_time_s: finalMinutes * 60 + finalSeconds,
           revision: brew.revision,
           mark_coffee_finished: markCoffeeFinished,
@@ -594,7 +600,7 @@
       </article>
       <div class="arrow">→</div>
       <article class="hero-metric">
-        <strong>{brew.water_g}<i>g</i></strong><span>total water</span>
+        <strong>{brew.water_g}<i>g</i></strong><span>brew water</span>
       </article>
       <article class="recipe-cell"><strong>1:{brew.ratio}</strong><span>ratio</span></article>
       <article class="recipe-cell">
@@ -663,7 +669,7 @@
           <p class="eyebrow">Scale result</p>
           <h2 id="finish-title">Finish this brew</h2>
           <p class="muted" id="finish-description">
-            Enter the final TIMEMORE time and confirm the actual water weight.
+            Enter the final TIMEMORE time and confirm the brew water weight.
           </p>
         </div>
         <div class="field-grid">
@@ -682,7 +688,7 @@
             inputmode="numeric"
           />
           <NumberStepper
-            label="Actual water"
+            label="Brew water"
             bind:value={actualWater}
             min={1}
             max={5000}
@@ -696,8 +702,13 @@
           {/if}
         </p>
         {#if finalBloomWaterInvalid}<p class="error" role="alert">
-            Actual water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
+            Brew water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
           </p>{/if}
+        <PostBrewWaterFields
+          bind:added={postBrewWaterAdded}
+          bind:amount={postBrewWaterAmount}
+          bind:invalid={postBrewWaterInvalid}
+        />
         {#if finishIssue}<p class="error finish-error" role="alert">{finishIssue.message}</p>{/if}
         {#if canControlDraft() && finishBrewersLoaded}
           <BrewerPicker
@@ -735,6 +746,7 @@
               onclick={() => finalize()}
               disabled={finalizing ||
                 finalBloomWaterInvalid ||
+                postBrewWaterInvalid ||
                 finalMinutes * 60 + finalSeconds <= 0}
               >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
             ><button class="secondary" disabled={finalizing} onclick={closeFinishDialog}
@@ -761,10 +773,18 @@
         in {formatTime(brew.total_brew_time_s)}.
       </p>
       <div class="brew-summary">
+        <span>{brew.water_g} g brew water</span>
         <span>1:{brew.ratio}</span><span>{brew.grinder_setting} {brew.grinder_unit}</span><span
           >{brew.temperature_c} °C</span
         >
       </div>
+      {#if brew.post_brew_water_added}
+        <p>
+          {brew.post_brew_water_g === null
+            ? 'Water added after brewing · amount unrecorded'
+            : `${brew.post_brew_water_g} g added after brewing`}
+        </p>
+      {/if}
       <div class="actions">
         <a class="button" href={rateOnScreenHref()}>Rate on this screen</a>
         <button class="secondary" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>

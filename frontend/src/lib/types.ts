@@ -261,6 +261,8 @@ export interface BrewInput {
 }
 
 export interface Brew extends BrewInput {
+  post_brew_water_added: boolean | null;
+  post_brew_water_g: number | null;
   id: number;
   operator_id: number;
   operator_name: string;

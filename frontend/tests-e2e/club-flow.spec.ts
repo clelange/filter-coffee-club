@@ -1713,9 +1713,18 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
   await expect(page.getByRole('heading', { name: 'Correct the recorded brew.' })).toBeVisible();
   await page.getByRole('spinbutton', { name: 'Temperature' }).fill('93');
   await page.getByLabel('Seconds').fill('6');
+  await page.getByRole('checkbox', { name: 'Water added after brewing' }).check();
+  await page.getByRole('spinbutton', { name: 'Added water' }).fill('50');
   await page.getByRole('button', { name: 'Save correction' }).click();
   await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
   await expect(page.getByText('93 °C', { exact: true })).toBeVisible();
+  await expect(page.getByText('50 g added after brewing', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Correct brew' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Added water' })).toHaveValue('50');
+  await page.getByRole('checkbox', { name: 'Water added after brewing' }).uncheck();
+  await page.getByRole('button', { name: 'Save correction' }).click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  await expect(page.getByText('50 g added after brewing', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Void brew' }).click();
   const voidDialog = page.getByRole('dialog', { name: 'Void this completed brew?' });
   await expect(voidDialog).toBeVisible();

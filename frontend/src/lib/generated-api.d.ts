@@ -1477,6 +1477,10 @@ export interface components {
         };
         /** BrewCorrection */
         BrewCorrection: {
+            /** Post Brew Water Added */
+            post_brew_water_added?: boolean | null;
+            /** Post Brew Water G */
+            post_brew_water_g?: number | null;
             /** Operator Ids */
             operator_ids?: number[] | null;
             /** Coffee Id */
@@ -1563,6 +1567,10 @@ export interface components {
         };
         /** BrewFinalize */
         BrewFinalize: {
+            /** Post Brew Water Added */
+            post_brew_water_added?: boolean | null;
+            /** Post Brew Water G */
+            post_brew_water_g?: number | null;
             /** Operator Ids */
             operator_ids?: number[] | null;
             /** Water G */
@@ -1586,6 +1594,10 @@ export interface components {
         };
         /** BrewResponse */
         BrewResponse: {
+            /** Post Brew Water Added */
+            post_brew_water_added?: boolean | null;
+            /** Post Brew Water G */
+            post_brew_water_g?: number | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1712,6 +1724,10 @@ export interface components {
         };
         /** CatalogBrewResult */
         CatalogBrewResult: {
+            /** Post Brew Water Added */
+            post_brew_water_added?: boolean | null;
+            /** Post Brew Water G */
+            post_brew_water_g?: number | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */

@@ -676,8 +676,8 @@ def test_c40_range_correction_preserves_custom_values_and_brews(tmp_path: Path) 
         coffee = Coffee(roaster="Test", name="Coffee", created_by_id=profile.id)
         db.add(coffee)
         db.flush()
-        db.add(
-            Brew(
+        db.execute(
+            Brew.__table__.insert().values(
                 coffee_id=coffee.id,
                 operator_id=profile.id,
                 grinder_id=1,
@@ -709,7 +709,7 @@ def test_c40_range_correction_preserves_custom_values_and_brews(tmp_path: Path) 
             )
 
     before_presets, before_ranges, before_brews = snapshot()
-    command.upgrade(config, "head")
+    command.upgrade(config, "f8c1d4a6b920")
     after = snapshot()
     assert after[0] == before_presets[:3] + [(25, 29), (26, 29), (27, 30), (24, 28)]
     assert after[1] == before_ranges[:3] + [(25, 29), (26, 29), (27, 30), (24, 28), (31, 35)]
@@ -718,6 +718,54 @@ def test_c40_range_correction_preserves_custom_values_and_brews(tmp_path: Path) 
     # Reapplying after a data-preserving downgrade must not subtract six twice.
     command.downgrade(config, "e7b4c2d9a610")
     assert snapshot() == after
-    command.upgrade(config, "head")
+    command.upgrade(config, "f8c1d4a6b920")
     assert snapshot() == after
+    engine.dispose()
+
+
+def test_post_brew_water_migration_preserves_existing_brews(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pre-post-brew-water.sqlite3'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "f8c1d4a6b920")
+    engine = create_engine(database_url)
+    with Session(engine) as db:
+        seed_database(db)
+        profile = Profile(display_name="Ada", pin_hash="legacy-hash")
+        db.add(profile)
+        db.flush()
+        coffee = Coffee(roaster="Test", name="Coffee", created_by_id=profile.id)
+        db.add(coffee)
+        db.flush()
+        db.execute(
+            Brew.__table__.insert().values(
+                id=1,
+                coffee_id=coffee.id,
+                operator_id=profile.id,
+                grinder_id=1,
+                dose_g=30,
+                water_g=500,
+                target_ratio=16.67,
+                temperature_c=94,
+                grinder_setting=33,
+                status="completed",
+                total_brew_time_s=200,
+            )
+        )
+        db.commit()
+
+    command.upgrade(config, "d35c11a19f87")
+    with Session(engine) as db:
+        brew = db.get(Brew, 1)
+        assert brew is not None
+        assert (brew.status, brew.water_g, brew.total_brew_time_s) == ("completed", 500, 200)
+        assert (brew.post_brew_water_added, brew.post_brew_water_g) == (None, None)
+        brew.post_brew_water_added = True
+        brew.post_brew_water_g = 50
+        db.commit()
+
+    command.downgrade(config, "f8c1d4a6b920")
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("brews")}
+        assert {"post_brew_water_added", "post_brew_water_g"}.isdisjoint(columns)
+        assert connection.execute(text("SELECT id, water_g FROM brews")).all() == [(1, 500)]
     engine.dispose()

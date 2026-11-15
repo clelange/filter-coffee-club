@@ -47,6 +47,8 @@ const brew: Brew = {
   status: 'completed',
   dose_g: 20,
   water_g: 320,
+  post_brew_water_added: null,
+  post_brew_water_g: null,
   ratio: 16,
   target_ratio: 16,
   temperature_c: 94,

@@ -25,6 +25,7 @@
   import { deviceModeStore, loginPath } from '$lib/device';
   import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
   import NumberStepper from '$lib/NumberStepper.svelte';
+  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
   import { formatGrinderSetting } from '$lib/catalog';
   import type {
     ActiveBrews,
@@ -68,6 +69,9 @@
   let correctionId = $state<number | null>(null);
   let correctionMinutes = $state(3);
   let correctionSeconds = $state(0);
+  let postBrewWaterAdded: boolean | null = $state(null);
+  let postBrewWaterAmount: number | null = $state(null);
+  let postBrewWaterInvalid = $state(false);
   let correctionOperatorId = $state(0);
   let originalOperatorId = $state(0);
   let originalOperatorName = $state('');
@@ -169,6 +173,8 @@
       form,
       correctionMinutes,
       correctionSeconds,
+      postBrewWaterAdded,
+      postBrewWaterAmount,
       correctionOperatorId,
       selectedBrewerIds,
       showCoffeeForm,
@@ -297,6 +303,8 @@
         sourceRevision = source.revision;
         if (editId || correctionId) revisionTimer = setInterval(checkEditorRevision, 3000);
         if (correctionId) {
+          postBrewWaterAdded = source.post_brew_water_added ?? null;
+          postBrewWaterAmount = source.post_brew_water_g ?? null;
           correctionOperatorId = source.operator_id;
           originalOperatorId = source.operator_id;
           originalOperatorName = source.operator_name;
@@ -523,7 +531,7 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (recipeInvalid) return;
+    if (recipeInvalid || postBrewWaterInvalid) return;
     if (unusualRatio) {
       ratioConfirmationOpen = true;
       return;
@@ -532,7 +540,7 @@
   }
 
   async function saveBrew(confirmUnusualRatio: boolean) {
-    if (saving || form.grinder_setting === null) return;
+    if (saving || form.grinder_setting === null || postBrewWaterInvalid) return;
     const brewForm = {
       ...form,
       grinder_setting: form.grinder_setting,
@@ -566,7 +574,9 @@
                 operator_id:
                   correctionOperatorId !== originalOperatorId ? correctionOperatorId : undefined,
                 revision: sourceRevision,
-                total_brew_time_s: correctionMinutes * 60 + correctionSeconds
+                total_brew_time_s: correctionMinutes * 60 + correctionSeconds,
+                post_brew_water_added: postBrewWaterAdded ?? undefined,
+                post_brew_water_g: postBrewWaterAdded === null ? undefined : postBrewWaterAmount
               }
             : editId
               ? { ...brewForm, revision: sourceRevision }
@@ -1048,6 +1058,11 @@
               /></label
             >
           </div>
+          <PostBrewWaterFields
+            bind:added={postBrewWaterAdded}
+            bind:amount={postBrewWaterAmount}
+            bind:invalid={postBrewWaterInvalid}
+          />
         </fieldset>
       {/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -1064,6 +1079,7 @@
             !form.coffee_id ||
             !form.grinder_id ||
             recipeInvalid ||
+            postBrewWaterInvalid ||
             Boolean(correctionId && correctionMinutes * 60 + correctionSeconds <= 0)}
           >{saving
             ? 'Saving…'

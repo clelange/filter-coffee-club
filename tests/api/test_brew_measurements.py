@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -77,6 +80,99 @@ def test_target_ratio_is_persisted_cloned_and_exported(tmp_path: Path) -> None:
 
         exported = client.get("/api/v1/exports/json").json()["brews"]
         assert {brew["target_ratio"] for brew in exported} == {16.3}
+
+
+def test_post_brew_water_is_recorded_separately_from_recipe_measurements(tmp_path: Path) -> None:
+    with build_client(tmp_path) as client:
+        _session, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees",
+            headers=headers,
+            json={"roaster": "Brew Water", "name": "Dilution"},
+        ).json()
+        grinder = client.get("/api/v1/grinders").json()[0]
+        recipe = {
+            "coffee_id": coffee["id"],
+            "grinder_id": grinder["id"],
+            "dose_g": 30,
+            "water_g": 500,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+            "bloom_water_g": 75,
+        }
+        draft = client.post("/api/v1/brews", headers=headers, json=recipe).json()
+        path = f"/api/v1/brews/{draft['id']}"
+        finish = {"total_brew_time_s": 200, "revision": draft["revision"]}
+        measured = {"post_brew_water_added": True, "post_brew_water_g": 50}
+        for invalid in (
+            {"post_brew_water_g": 50},
+            {**measured, "post_brew_water_added": False},
+            {**measured, "post_brew_water_g": 0},
+            {**measured, "post_brew_water_g": 5001},
+            {**measured, "post_brew_water_g": 1.5},
+            {**measured, "water_g": 74},
+        ):
+            rejected = client.post(f"{path}/finalize", headers=headers, json={**finish, **invalid})
+            assert rejected.status_code == 422, rejected.text
+        assert client.get(path).json()["revision"] == draft["revision"]
+
+        response = client.post(f"{path}/finalize", headers=headers, json={**finish, **measured})
+        assert response.status_code == 200, response.text
+        completed = response.json()
+        assert completed["water_g"] == 500
+        assert completed["ratio"] == 16.67
+        assert completed["overall_throughput_g_s"] == 2.5
+        assert completed["post_brew_water_added"] is True
+        assert completed["post_brew_water_g"] == 50
+        assert client.get(path).json()["post_brew_water_g"] == 50
+
+        clone = client.post(f"{path}/clone", headers=headers).json()
+        assert clone["water_g"] == 500
+        assert clone["post_brew_water_added"] is None
+        assert clone["post_brew_water_g"] is None
+
+        exported = client.get("/api/v1/exports/json").json()["brews"]
+        assert [brew["post_brew_water_added"] for brew in exported] == [True, None]
+        assert [brew["post_brew_water_g"] for brew in exported] == [50, None]
+        csv_response = client.get("/api/v1/exports/csv")
+        with zipfile.ZipFile(io.BytesIO(csv_response.content)) as archive:
+            rows = list(csv.DictReader(archive.read("brews.csv").decode().splitlines()))
+        assert [row["post_brew_water_added"] for row in rows] == ["True", ""]
+        assert [row["post_brew_water_g"] for row in rows] == ["50", ""]
+
+        correction = {**recipe, "total_brew_time_s": 200, "revision": completed["revision"]}
+        response = client.put(f"{path}/correction", headers=headers, json=correction)
+        assert response.status_code == 200, response.text
+        corrected = response.json()
+        assert corrected["post_brew_water_g"] == 50
+
+        incomplete = client.put(
+            f"{path}/correction",
+            headers=headers,
+            json={**correction, "revision": corrected["revision"], "post_brew_water_g": None},
+        )
+        assert incomplete.status_code == 422, incomplete.text
+        assert client.get(path).json()["post_brew_water_g"] == 50
+
+        response = client.put(
+            f"{path}/correction",
+            headers=headers,
+            json={**correction, "post_brew_water_added": False},
+        )
+        assert response.status_code == 409, response.text
+
+        response = client.put(
+            f"{path}/correction",
+            headers=headers,
+            json={
+                **correction,
+                "revision": corrected["revision"],
+                "post_brew_water_added": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["post_brew_water_added"] is False
+        assert response.json()["post_brew_water_g"] is None
 
 
 def test_unusual_brew_ratio_requires_confirmation_for_every_measurement_mutation(

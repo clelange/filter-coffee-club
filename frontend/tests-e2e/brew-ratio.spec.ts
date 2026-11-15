@@ -209,6 +209,80 @@ const finishInput: BrewInput = {
   technique_note: null
 };
 
+test('kiosk records an addition even if the brewer unsets the measured amount', async ({
+  page
+}) => {
+  let currentBrew = brewFromInput(403, finishInput);
+  await mockCommonApi(page, () => currentBrew, 'kiosk');
+  await page.route('**/api/v1/brews/403/finalize', (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload).toMatchObject({
+      water_g: finishInput.water_g,
+      post_brew_water_added: true,
+      post_brew_water_g: null
+    });
+    currentBrew = {
+      ...currentBrew,
+      status: 'completed',
+      revision: 2,
+      total_brew_time_s: payload.total_brew_time_s,
+      post_brew_water_added: payload.post_brew_water_added,
+      post_brew_water_g: payload.post_brew_water_g
+    };
+    return fulfillJson(route, currentBrew);
+  });
+
+  await page.goto('/brews/403?kiosk=1');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const finishDialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  const added = finishDialog.getByRole('checkbox', { name: 'Water added after brewing' });
+  const amount = finishDialog.getByRole('button', { name: /^Set Added water;/ });
+  await expect(added).not.toBeChecked();
+  await expect(amount).toHaveCount(0);
+  await added.check();
+  const keypad = page.getByRole('dialog', { name: 'Added water', exact: true });
+  await amount.click();
+  await keypad.getByRole('button', { name: '5', exact: true }).click();
+  await keypad.getByRole('button', { name: '0', exact: true }).click();
+  await keypad.getByRole('button', { name: 'Apply' }).click();
+  await expect(amount).toHaveText('50');
+  await amount.click();
+  await keypad.getByRole('button', { name: 'Unset' }).click();
+  await keypad.getByRole('button', { name: 'Apply' }).click();
+  await expect(amount).toHaveText('—');
+  await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
+  await expect(page.getByText('Water added after brewing · amount unrecorded')).toBeVisible();
+});
+
+test('a partial added-water number blocks finishing until it is corrected', async ({ page }) => {
+  let brew = brewFromInput(402, finishInput);
+  await mockCommonApi(page, () => brew);
+  await page.route('**/api/v1/brews/402/finalize', (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      post_brew_water_added: true,
+      post_brew_water_g: 50
+    });
+    brew = { ...brew, status: 'completed', post_brew_water_added: true, post_brew_water_g: 50 };
+    return fulfillJson(route, brew);
+  });
+
+  await page.goto('/brews/402?kiosk=0');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish this brew' });
+  await dialog.getByRole('checkbox', { name: 'Water added after brewing' }).check();
+  const amount = dialog.getByRole('spinbutton', { name: 'Added water' });
+  const finalize = dialog.getByRole('button', { name: 'Finalize and invite tasters' });
+  await amount.press('-');
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(finalize).toBeDisabled();
+  await amount.fill('50.5');
+  await expect(finalize).toBeDisabled();
+  await amount.fill('50');
+  await expect(finalize).toBeEnabled();
+  await finalize.click();
+  await expect(page.getByText('50 g added after brewing', { exact: true })).toBeVisible();
+});
+
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -220,6 +294,8 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
 function brewFromInput(id: number, input: BrewInput, status: Brew['status'] = 'draft'): Brew {
   return {
     ...input,
+    post_brew_water_added: null,
+    post_brew_water_g: null,
     id,
     operator_id: 1,
     operator_name: 'Ada',
@@ -792,7 +868,7 @@ test('unusual actual water requires confirmation before finalization', async ({ 
 
   await page.goto('/brews/202?kiosk=0');
   await page.getByRole('button', { name: 'Finish brew' }).click();
-  const actualWater = page.getByRole('spinbutton', { name: 'Actual water', exact: true });
+  const actualWater = page.getByRole('spinbutton', { name: 'Brew water', exact: true });
   await actualWater.fill('40');
   await actualWater.blur();
   await expect(page.getByText(/cannot be lower than the recorded 45 g bloom/)).toBeVisible();
@@ -863,7 +939,9 @@ for (const [viewerLabel, viewerSession] of [
     await expect(minutes).toBeFocused();
     await minutes.fill('4');
     await finishDialog.getByRole('spinbutton', { name: 'Seconds' }).fill('12');
-    await finishDialog.getByRole('spinbutton', { name: 'Actual water' }).fill('126');
+    await finishDialog.getByRole('spinbutton', { name: 'Brew water' }).fill('126');
+    await finishDialog.getByRole('checkbox', { name: 'Water added after brewing' }).check();
+    await finishDialog.getByRole('spinbutton', { name: 'Added water' }).fill('20');
     await finishDialog.getByRole('checkbox', { name: /last brew from this bag/i }).check();
     await finishDialog.getByRole('button', { name: 'Finalize and invite tasters' }).click();
 
@@ -881,7 +959,8 @@ for (const [viewerLabel, viewerSession] of [
     await finishButton.click();
     await expect(finishDialog.getByRole('spinbutton', { name: 'Minutes' })).toHaveValue('4');
     await expect(finishDialog.getByRole('spinbutton', { name: 'Seconds' })).toHaveValue('12');
-    await expect(finishDialog.getByRole('spinbutton', { name: 'Actual water' })).toHaveValue('126');
+    await expect(finishDialog.getByRole('spinbutton', { name: 'Brew water' })).toHaveValue('126');
+    await expect(finishDialog.getByRole('spinbutton', { name: 'Added water' })).toHaveValue('20');
     await expect(
       finishDialog.getByRole('checkbox', { name: /last brew from this bag/i })
     ).toBeChecked();
@@ -891,6 +970,8 @@ for (const [viewerLabel, viewerSession] of [
     expect(finalizeAttempts).toBe(2);
     expect(finalPayload).toMatchObject({
       water_g: 126,
+      post_brew_water_added: true,
+      post_brew_water_g: 20,
       total_brew_time_s: 252,
       revision: 2,
       mark_coffee_finished: true
