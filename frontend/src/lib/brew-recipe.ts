@@ -1,3 +1,4 @@
+import { decimalPlaces } from './decimal-places';
 import type { Grinder, Preset } from './types';
 
 export type AmountBasis = 'coffee' | 'water';
@@ -128,12 +129,6 @@ export function presetDeviations(
 
 export function isClickGrinder(grinder: Pick<Grinder, 'setting_unit'> | undefined): boolean {
   return ['click', 'clicks'].includes(grinder?.setting_unit.trim().toLowerCase() ?? '');
-}
-
-function decimalPlaces(value: number): number {
-  const text = String(value);
-  if (text.includes('e-')) return Number(text.split('e-')[1]);
-  return text.includes('.') ? text.split('.')[1].length : 0;
 }
 
 export function snapGrinderSetting(
