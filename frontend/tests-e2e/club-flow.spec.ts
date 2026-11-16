@@ -1942,6 +1942,55 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .toBe('kiosk');
 });
 
+test('the activity rail opens each parallel draft from another brew detail', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Shared Coffee');
+
+  const drafts: Array<{ id: number; revision: number }> = [];
+  const headers = { 'X-CSRF-Token': session.csrf_token };
+  try {
+    for (const temperature of [91, 94]) {
+      await page.goto(`/brews/new?coffee=${coffee.id}`);
+      await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+      await page.getByRole('spinbutton', { name: 'Temperature' }).fill(String(temperature));
+      const draftResponse = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/v1/brews') &&
+          response.request().method() === 'POST' &&
+          response.ok()
+      );
+      await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+      const draft = await (await draftResponse).json();
+      drafts.push(draft);
+      await expect(
+        page.getByRole('main').getByText(`draft #${draft.id}`, { exact: true })
+      ).toBeVisible();
+    }
+    for (const [index, draft] of drafts.entries()) {
+      await page
+        .getByRole('link', {
+          name: `Brewing now: Shared Coffee. Open brew ${draft.id}.`,
+          exact: true
+        })
+        .click();
+      await expect(page).toHaveURL(`${e2eBaseURL}/brews/${draft.id}`);
+      await expect(
+        page.getByRole('main').getByText(`draft #${draft.id}`, { exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByRole('main').getByText(index === 0 ? '91 °C' : '94 °C', { exact: true })
+      ).toBeVisible();
+    }
+  } finally {
+    for (const draft of drafts) {
+      await page.request.post(`/api/v1/brews/${draft.id}/cancel`, {
+        headers,
+        data: { revision: draft.revision }
+      });
+    }
+  }
+});
+
 test('members can finish and restore coffee while kiosk details stay read-only', async ({
   page
 }) => {
