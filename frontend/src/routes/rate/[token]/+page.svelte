@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { loginPath } from '#lib/device.ts';
+  import { brewTitle, namedBrewDescription } from '#lib/brew-name.ts';
   import { api, ensureSession, jsonBody, logout } from '#lib/api.ts';
   import FlavorRadar from '#lib/FlavorRadar.svelte';
   import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '#lib/types.ts';
@@ -190,7 +191,9 @@
       <p class="eyebrow">Signal received</p>
       <h1>Thanks, {session?.profile.display_name}.</h1>
       <p class="lede">
-        Your rating is part of {summary.count} response{summary.count === 1 ? '' : 's'} for {brew.coffee_name}.
+        Your rating is part of {summary.count} response{summary.count === 1 ? '' : 's'} for {brewTitle(
+          brew
+        )}.
       </p>
       {#if session?.device_mode === 'kiosk'}<p class="return-note">
           Returning to the QR invitation in <strong>{countdown}</strong> seconds.
@@ -215,7 +218,7 @@
             <b>{summary.averages[key] ?? '—'}</b><span>{key}</span>
           </div>{/each}
       </div>
-      <FlavorRadar axes={summary.flavor_axes} subject={brew.coffee_name} />
+      <FlavorRadar axes={summary.flavor_axes} subject={brewTitle(brew)} />
       {#if Object.keys(summary.flavor_counts).length}<div class="tags">
           {#each Object.entries(summary.flavor_counts) as [name, count]}<span class="tag"
               >{name} · {count}</span
@@ -229,7 +232,8 @@
       <p class="eyebrow">Brew #{brew.id}</p>
       <h1>How did it land?</h1>
       <p class="lede">
-        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />1:{brew.ratio} · {brew.grinder_setting}
+        <strong>{namedBrewDescription(brew, `${brew.coffee_roaster} · ${brew.coffee_name}`)}</strong
+        ><br />1:{brew.ratio} · {brew.grinder_setting}
         {brew.grinder_unit} · {brew.temperature_c} °C
       </p>
       <p class="muted">Existing ratings stay hidden until you submit yours.</p>

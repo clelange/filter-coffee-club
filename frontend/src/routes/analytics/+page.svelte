@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { page } from '$app/state';
   import BestBrewCard from '#lib/BestBrewCard.svelte';
+  import { namedBrewDescription } from '#lib/brew-name.ts';
   import { goto } from '$app/navigation';
   import AnalyticsScatterPlot from '#lib/AnalyticsScatterPlot.svelte';
   import GrinderChartControls from '#lib/GrinderChartControls.svelte';
@@ -416,7 +417,9 @@
             {#each data.top_recipes as recipe}<li>
                 <a href={`/brews/${recipe.brew_id}`}
                   ><span
-                    >{recipe.name}<small>{recipe.recipe} · {recipe.ratings} ratings</small></span
+                    >{namedBrewDescription(recipe, recipe.name)}<small
+                      >{recipe.recipe} · {recipe.ratings} ratings</small
+                    ></span
                   ><strong>{recipe.average}</strong></a
                 >
               </li>{/each}

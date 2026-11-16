@@ -1991,6 +1991,44 @@ test('the activity rail opens each parallel draft from another brew detail', asy
   }
 });
 
+test('a draft name is shown in the activity rail and can be cleared', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Comparison Coffee');
+  let draftId: number | undefined;
+
+  try {
+    await page.goto(`/brews/new?coffee=${coffee.id}`);
+    const brewName = page.getByRole('textbox', { name: 'Brew name (optional)' });
+    await expect(brewName).toBeVisible();
+    await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+    await brewName.fill('  V60 control  ');
+    await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+    await expect(page).toHaveURL(/\/brews\/\d+$/);
+    draftId = Number(new URL(page.url()).pathname.split('/').at(-1));
+    const chip = page
+      .getByTestId('active-brew-chip')
+      .and(page.locator(`[href="/brews/${draftId}"]`));
+    await expect(page.getByRole('heading', { level: 1, name: 'V60 control' })).toBeVisible();
+    await expect(page.getByRole('main')).toContainText('Comparison Coffee');
+    await expect(chip).toContainText('V60 control');
+
+    await page.getByRole('link', { name: 'Edit recipe' }).click();
+    await expect(brewName).toHaveValue('V60 control');
+    await brewName.clear();
+    await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Comparison Coffee' })).toBeVisible();
+    await expect(chip).toContainText('Comparison Coffee');
+  } finally {
+    if (draftId !== undefined) {
+      const draft = await (await page.request.get(`/api/v1/brews/${draftId}`)).json();
+      await page.request.post(`/api/v1/brews/${draftId}/cancel`, {
+        headers: { 'X-CSRF-Token': session.csrf_token },
+        data: { revision: draft.revision }
+      });
+    }
+  }
+});
+
 test('members can finish and restore coffee while kiosk details stay read-only', async ({
   page
 }) => {

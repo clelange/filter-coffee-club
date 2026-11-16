@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { brewCoffeeSubtitle, brewTitle } from '#lib/brew-name.ts';
   import { formatTime } from '#lib/api.ts';
   import ProfileLink from '#lib/ProfileLink.svelte';
   import RatingComparison from '#lib/RatingComparison.svelte';
@@ -27,9 +28,9 @@
       >{new Date(brew.created_at).toLocaleDateString()}</small
     >
   </div>
-  <h3>{brew.coffee_name}</h3>
+  <h3>{brewTitle(brew)}</h3>
   <p class="muted">
-    {brew.coffee_roaster} · brewed by
+    {brewCoffeeSubtitle(brew)} · brewed by
     <ProfileLink profileId={brew.operator_id} displayName={brew.operator_name} />
   </p>
   <div class="mini-metrics">

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .brews import BrewNaming
 from .equipment import GrinderDefinitionKey, GrinderDefinitionResponse
 from .ratings import RatedBrewInsight
 
@@ -28,7 +29,7 @@ class AnalyticsCoffeeSummary(AnalyticsCoffeeRank):
     best_brew: RatedBrewInsight | None = None
 
 
-class AnalyticsRecipeRank(BaseModel):
+class AnalyticsRecipeRank(BrewNaming):
     brew_id: int
     name: str
     recipe: str
@@ -56,7 +57,7 @@ class AnalyticsRatingMetrics(BaseModel):
     body: AnalyticsRatingMetric
 
 
-class AnalyticsPoint(BaseModel):
+class AnalyticsPoint(BrewNaming):
     brew_id: int
     coffee_id: int
     coffee: str

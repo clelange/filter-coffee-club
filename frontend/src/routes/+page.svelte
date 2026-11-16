@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { brewCoffeeSubtitle, brewTitle } from '#lib/brew-name.ts';
   import { brewStatusStore, refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
   import { loginPath } from '#lib/device.ts';
   import { api, appSettingsStore, jsonBody, sessionStore } from '#lib/api.ts';
@@ -151,9 +152,9 @@
       {#each active.brews as brew}
         <article class="card active-card">
           <span class="status draft">active #{brew.id}</span>
-          <h3>{brew.coffee_name}</h3>
+          <h3>{brewTitle(brew)}</h3>
           <p class="muted">
-            {brew.coffee_roaster} · {brew.operators
+            {brewCoffeeSubtitle(brew)} · {brew.operators
               .map((operator) => operator.display_name)
               .join(', ')}
           </p>

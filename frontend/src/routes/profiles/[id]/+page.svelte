@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, ensureSession } from '#lib/api.ts';
+  import { brewCoffeeSubtitle, brewTitle } from '#lib/brew-name.ts';
   import { loginPath } from '#lib/device.ts';
   import RatingComparison from '#lib/RatingComparison.svelte';
   import type { ProfileRatings } from '#lib/types.ts';
@@ -190,9 +191,9 @@
                   ).toLocaleDateString()}
                   · brew #{result.brew.id}
                 </small>
-                <h3>{result.brew.coffee_name}</h3>
+                <h3>{brewTitle(result.brew)}</h3>
                 <p>
-                  {result.brew.coffee_roaster} · {result.total_rating_count} club {result.total_rating_count ===
+                  {brewCoffeeSubtitle(result.brew)} · {result.total_rating_count} club {result.total_rating_count ===
                   1
                     ? 'rating'
                     : 'ratings'}

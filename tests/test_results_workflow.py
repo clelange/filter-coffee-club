@@ -88,9 +88,10 @@ def test_pre_upgrade_creation_retries_preserve_the_original_draft(tmp_path: Path
         second = member(client, headers, "Co-brewer")
         creation_headers = {**headers, "Idempotency-Key": "pre-upgrade-draft"}
         draft = client.post("/api/v1/brews", headers=creation_headers, json=values).json()
-        # The previous release hashed BrewInput, before operator_ids existed.
+        # Legacy retries were hashed before operator_ids and brew_name existed.
+        legacy_payload = BrewInput(**values).model_dump(mode="json", exclude={"brew_name"})
         legacy_request = json.dumps(
-            {"payload": BrewInput(**values).model_dump(mode="json"), "profile_id": 1},
+            {"payload": legacy_payload, "profile_id": 1},
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
@@ -100,9 +101,9 @@ def test_pre_upgrade_creation_retries_preserve_the_original_draft(tmp_path: Path
                 legacy_request.encode()
             ).hexdigest()
             db.commit()
-        for crew in ({}, {"operator_ids": None}, {"operator_ids": [1]}):
+        for equivalent in ({}, {"operator_ids": None}, {"operator_ids": [1]}, {"brew_name": None}):
             retried = client.post(
-                "/api/v1/brews", headers=creation_headers, json={**values, **crew}
+                "/api/v1/brews", headers=creation_headers, json={**values, **equivalent}
             )
             assert retried.status_code == 200
             assert retried.json()["id"] == draft["id"]

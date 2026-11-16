@@ -86,6 +86,7 @@ def test_analytics_preserves_original_settings_and_adds_reference_scale(tmp_path
                     "water_g": 240,
                     "temperature_c": 92,
                     "grinder_setting": setting,
+                    "brew_name": "Control" if grinder == c40 else None,
                 },
             )
             assert created.status_code == 200, created.text
@@ -108,6 +109,8 @@ def test_analytics_preserves_original_settings_and_adds_reference_scale(tmp_path
         analytics = response.json()
         assert analytics["grinder_definitions"] == client.get("/api/v1/grinder-definitions").json()
         points = {point["grinder_definition_key"]: point for point in analytics["scatter"]}
+        assert points["comandante_c40"]["brew_name"] == "Control"
+        assert points["kingrinder_k6"]["brew_name"] is None
         assert points["comandante_c40"]["reference_grinder_setting"] == 28
         assert points["kingrinder_k6"]["reference_grinder_setting"] == 28.125
         assert points["kingrinder_k6"]["grinder_setting"] == 90

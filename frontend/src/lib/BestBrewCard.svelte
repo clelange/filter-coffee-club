@@ -25,8 +25,8 @@
   {#if result}
     {@const brew = result.brew}
     <p class="hint">
-      Brew #{brew.id} · {formatCatalogDate(brew.completed_at)} · {result.aggregate.count} ratings on one
-      brew.
+      {brew.brew_name ?? `Brew #${brew.id}`} · {formatCatalogDate(brew.completed_at)} · {result
+        .aggregate.count} ratings on one brew.
     </p>
     <dl>
       <div>

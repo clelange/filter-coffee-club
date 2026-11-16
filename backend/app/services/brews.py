@@ -130,6 +130,14 @@ def create_brew(
     return result
 
 
+def _brew_update_exclusions(payload: BrewUpdate) -> set[str]:
+    excluded = {"revision", "operator_ids"}
+    # Omission preserves the name for older clients; an explicit null clears it.
+    if "brew_name" not in payload.model_fields_set:
+        excluded.add("brew_name")
+    return excluded
+
+
 @rollback_on_failure
 def update_brew(
     db: Session,
@@ -159,7 +167,7 @@ def update_brew(
         brew.id,
         "draft",
         actor,
-        payload.model_dump(exclude={"revision", "operator_ids"}),
+        payload.model_dump(exclude=_brew_update_exclusions(payload)),
         "Only draft brews can be edited",
         "Only a brew operator may edit this draft",
         expected_revision=payload.revision,
@@ -264,7 +272,7 @@ def correct_completed_brew(
         confirmed=confirm_unusual_ratio,
         brew_id=brew.id,
     )
-    excluded = {"operator_id", "operator_ids", "revision"}
+    excluded = _brew_update_exclusions(payload) | {"operator_id"}
     if "post_brew_water_added" not in payload.model_fields_set:
         excluded.update(("post_brew_water_added", "post_brew_water_g"))
     values: dict[str, object] = payload.model_dump(exclude=excluded)

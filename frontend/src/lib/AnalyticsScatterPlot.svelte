@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { namedBrewDescription } from '#lib/brew-name.ts';
   import type { components } from '#lib/generated-api.d.ts';
   import type { AnalyticsAxisKey, AnalyticsRatingKey } from '#lib/types.ts';
   import { convertedGrind, grinderSetting, type GrinderScale } from '#lib/analytics-grind.ts';
@@ -190,12 +191,10 @@
     const coordinate = `${xLabel} ${formatNumber(value(point, xKey, grind))}; ${yLabel} ${formatNumber(value(point, yKey, grind))}`;
     const original = `Original grinder: ${point.grinder_name}, ${formatNumber(point.grinder_setting)} ${point.grinder_unit}.`;
     const conversion = convertedGrind(point, grind) ? ' Converted grind is approximate.' : '';
-    if (!colorKey) {
-      const metric = point.rating_metrics.liking;
-      return `${point.coffee}. ${coordinate}. ${original}${conversion} Liking average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
-    }
-    const metric = point.rating_metrics[colorKey];
-    return `${point.coffee}. ${coordinate}. ${original}${conversion} ${colorLabel} average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
+    const label = namedBrewDescription(point, point.coffee);
+    const metricLabel = colorKey ? colorLabel : 'Liking';
+    const metric = point.rating_metrics[colorKey ?? 'liking'];
+    return `${label}. ${coordinate}. ${original}${conversion} ${metricLabel} average ${metric.average}, range ${metric.minimum} to ${metric.maximum}, from ${point.ratings} ratings.`;
   }
 
   function select(point: AnalyticsScatterPoint): void {
@@ -386,7 +385,9 @@
 <div class="point-details" data-testid="point-details" aria-live="polite">
   {#if activePoint}
     <div>
-      <span>Selected brew</span><strong>{activePoint.coffee}</strong>
+      <span>Selected brew</span><strong
+        >{namedBrewDescription(activePoint, activePoint.coffee)}</strong
+      >
       <small
         >{xLabel}: {formatNumber(value(activePoint, xKey, grindScale))} · {yLabel}: {formatNumber(
           value(activePoint, yKey, grindScale)

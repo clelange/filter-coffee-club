@@ -45,6 +45,7 @@ def export_rows(db: Session) -> dict[str, list[dict]]:
             {
                 "id": item.id,
                 "coffee_id": item.coffee_id,
+                "brew_name": item.brew_name,
                 "operator_id": item.operator_id,
                 "grinder_id": item.grinder_id,
                 "dripper_id": item.dripper_id,
