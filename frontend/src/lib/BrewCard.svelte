@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { formatTime } from '$lib/api';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import RatingComparison from '$lib/RatingComparison.svelte';
-  import type { Brew, RatingComparison as RatingComparisonData } from '$lib/types';
+  import { formatTime } from '#lib/api.ts';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import RatingComparison from '#lib/RatingComparison.svelte';
+  import type { Brew, RatingComparison as RatingComparisonData } from '#lib/types.ts';
 
   let {
     brew,

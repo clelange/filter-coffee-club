@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sessionStore } from '$lib/api';
+  import { sessionStore } from '#lib/api.ts';
 
   export let profileId: number;
   export let displayName: string;

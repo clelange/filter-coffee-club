@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatTime } from '$lib/api';
-  import { formatCatalogDate, formatCatalogNumber as number } from '$lib/catalog';
-  import type { components } from '$lib/generated-api';
+  import { formatTime } from '#lib/api.ts';
+  import { formatCatalogDate, formatCatalogNumber as number } from '#lib/catalog.ts';
+  import type { components } from '#lib/generated-api.d.ts';
   type RatedBrewInsight = components['schemas']['RatedBrewInsight'];
 
   export let result: RatedBrewInsight | null = null;

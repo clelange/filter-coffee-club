@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { components } from '$lib/generated-api';
-  import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
-  import { convertedGrind, grinderSetting, type GrinderScale } from '$lib/analytics-grind';
-  import { snapGrinderSetting } from '$lib/brew-recipe';
+  import type { components } from '#lib/generated-api.d.ts';
+  import type { AnalyticsAxisKey, AnalyticsRatingKey } from '#lib/types.ts';
+  import { convertedGrind, grinderSetting, type GrinderScale } from '#lib/analytics-grind.ts';
+  import { snapGrinderSetting } from '#lib/brew-recipe.ts';
 
   type AnalyticsScatterPoint = components['schemas']['AnalyticsPoint'];
   type CoffeeSummary = components['schemas']['AnalyticsCoffeeSummary'];

@@ -1,4 +1,4 @@
-import type { AppSettings } from '$lib/types';
+import type { AppSettings } from '#lib/types.ts';
 
 export function applyTheme(value: AppSettings): void {
   const root = document.documentElement;

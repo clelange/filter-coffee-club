@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RatingComparison } from '$lib/types';
+  import type { RatingComparison } from '#lib/types.ts';
 
   type RatingField = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
 

@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import CatalogMetrics from '$lib/CatalogMetrics.svelte';
-  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
-  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-  import DripperFields from '$lib/DripperFields.svelte';
-  import FilterFields from '$lib/FilterFields.svelte';
-  import GrinderFields from '$lib/GrinderFields.svelte';
-  import PhotoPicker from '$lib/PhotoPicker.svelte';
-  import RecentBrews from '$lib/RecentBrews.svelte';
+  import { page } from '$app/state';
+  import CatalogMetrics from '#lib/CatalogMetrics.svelte';
+  import CatalogPhoto from '#lib/CatalogPhoto.svelte';
+  import ConfirmDialog from '#lib/ConfirmDialog.svelte';
+  import DripperFields from '#lib/DripperFields.svelte';
+  import FilterFields from '#lib/FilterFields.svelte';
+  import GrinderFields from '#lib/GrinderFields.svelte';
+  import PhotoPicker from '#lib/PhotoPicker.svelte';
+  import RecentBrews from '#lib/RecentBrews.svelte';
   import {
     ApiError,
     api,
@@ -19,7 +19,7 @@
     sessionStore,
     updateCatalogPhotoFraming,
     uploadCatalogPhoto
-  } from '$lib/api';
+  } from '#lib/api.ts';
   import {
     dripperPayload,
     dripperToForm,
@@ -31,8 +31,8 @@
     formatCatalogNumber,
     grinderUpdatePayload,
     grinderToForm
-  } from '$lib/catalog';
-  import { deviceModeStore, loginPath } from '$lib/device';
+  } from '#lib/catalog.ts';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
   import type {
     BrewFilter,
     CatalogInsights,
@@ -43,7 +43,7 @@
     Grinder,
     GrinderFormData,
     PhotoFraming
-  } from '$lib/types';
+  } from '#lib/types.ts';
 
   type EquipmentItem = Grinder | Dripper | BrewFilter;
   type RouteKind = 'grinders' | 'drippers' | 'filters';
@@ -69,7 +69,7 @@
   let archiveOpen = $state(false);
   let archiving = $state(false);
 
-  const routeKind = $derived($page.params.kind as RouteKind);
+  const routeKind = $derived(page.params.kind as RouteKind);
   const validKind = $derived(['grinders', 'drippers', 'filters'].includes(routeKind));
   const singularKind = $derived(
     (routeKind === 'grinders'
@@ -78,7 +78,7 @@
         ? 'dripper'
         : 'filter') as CatalogKind
   );
-  const id = $derived(Number($page.params.id));
+  const id = $derived(Number(page.params.id));
   const currentFormSnapshot = $derived(
     routeKind === 'grinders'
       ? JSON.stringify(grinderForm)
@@ -113,7 +113,7 @@
       return;
     }
     await load();
-    if (item && $page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
+    if (item && page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
   });
 
   async function load() {

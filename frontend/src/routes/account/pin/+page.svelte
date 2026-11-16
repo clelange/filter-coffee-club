@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import PinPad from '$lib/PinPad.svelte';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import { api, ensureSession, jsonBody, logout } from '$lib/api';
+  import { page } from '$app/state';
+  import PinPad from '#lib/PinPad.svelte';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import { api, ensureSession, jsonBody, logout } from '#lib/api.ts';
 
   let currentPin = $state('');
   let newPin = $state('');
@@ -17,7 +17,7 @@
   let kioskStep: 'current' | 'new' | 'confirm' = $state('current');
 
   function nextPath(): string {
-    const requested = $page.url.searchParams.get('next');
+    const requested = page.url.searchParams.get('next');
     if (
       !requested?.startsWith('/') ||
       requested.startsWith('//') ||
@@ -30,7 +30,7 @@
   onMount(async () => {
     const session = await ensureSession(true);
     if (!session) {
-      await goto(loginPath($page.url.pathname + $page.url.search));
+      await goto(loginPath(page.url.pathname + page.url.search));
       return;
     }
     required = session.profile.pin_change_required;

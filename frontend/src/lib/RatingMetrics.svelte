@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RatingAggregate } from '$lib/types';
+  import type { RatingAggregate } from '#lib/types.ts';
 
   export let aggregate: RatingAggregate;
   export let compact = false;

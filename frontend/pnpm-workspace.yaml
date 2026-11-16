@@ -2,6 +2,8 @@ packages:
   - .
 
 overrides:
+  # Keep the schema generator on its supported TypeScript version.
+  openapi-typescript@7.13.0>typescript: 5.9.3
   '@redocly/openapi-core>js-yaml': 4.3.2
   # The Redocly patch below adapts its import to minimatch's current API.
   '@redocly/openapi-core>minimatch': 11.0.1

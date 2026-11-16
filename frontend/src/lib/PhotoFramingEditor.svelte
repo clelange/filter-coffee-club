@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { photoFramingStyle } from '$lib/photo-framing';
-  import type { PhotoFraming } from '$lib/types';
+  import { photoFramingStyle } from '#lib/photo-framing.ts';
+  import type { PhotoFraming } from '#lib/types.ts';
 
   export let src: string;
   export let alt = 'Selected catalog item';

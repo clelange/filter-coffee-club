@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import PinPad from '$lib/PinPad.svelte';
-  import { selectedOption } from '$lib/selected-option';
-  import { deviceModeStore } from '$lib/device';
-  import { api, ApiError, jsonBody, setSession } from '$lib/api';
-  import type { AppSettings, ProfileIdentity, Session } from '$lib/types';
+  import { page } from '$app/state';
+  import PinPad from '#lib/PinPad.svelte';
+  import { selectedOption } from '#lib/selected-option.ts';
+  import { deviceModeStore } from '#lib/device.ts';
+  import { api, ApiError, jsonBody, setSession } from '#lib/api.ts';
+  import type { AppSettings, ProfileIdentity, Session } from '#lib/types.ts';
 
   let profiles: ProfileIdentity[] = $state([]);
   let settings: AppSettings | null = $state(null);
@@ -29,7 +29,7 @@
   }
 
   function safeNext(): string {
-    const requested = $page.url.searchParams.get('next');
+    const requested = page.url.searchParams.get('next');
     return requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/';
   }
 
@@ -41,7 +41,7 @@
         api<ProfileIdentity[]>('/auth/profiles'),
         api<AppSettings>('/settings')
       ]);
-      const requestedProfileId = Number($page.url.searchParams.get('profile')) || 0;
+      const requestedProfileId = Number(page.url.searchParams.get('profile')) || 0;
       profileId =
         profiles.find((profile) => profile.id === requestedProfileId)?.id || profiles[0]?.id || 0;
     } catch (caught) {

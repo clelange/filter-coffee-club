@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
-  import CoffeeTastingAnalysis from '$lib/CoffeeTastingAnalysis.svelte';
-  import CoffeeFields from '$lib/CoffeeFields.svelte';
-  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-  import PhotoPicker from '$lib/PhotoPicker.svelte';
-  import RecentBrews from '$lib/RecentBrews.svelte';
+  import { page } from '$app/state';
+  import CatalogPhoto from '#lib/CatalogPhoto.svelte';
+  import CoffeeTastingAnalysis from '#lib/CoffeeTastingAnalysis.svelte';
+  import CoffeeFields from '#lib/CoffeeFields.svelte';
+  import ConfirmDialog from '#lib/ConfirmDialog.svelte';
+  import PhotoPicker from '#lib/PhotoPicker.svelte';
+  import RecentBrews from '#lib/RecentBrews.svelte';
   import {
     ApiError,
     api,
@@ -17,10 +17,10 @@
     sessionStore,
     updateCatalogPhotoFraming,
     uploadCatalogPhoto
-  } from '$lib/api';
-  import { coffeePayload, coffeeToForm, emptyCoffeeForm, formatCatalogDate } from '$lib/catalog';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import type { CatalogInsights, Coffee, CoffeeRatingInsights, PhotoFraming } from '$lib/types';
+  } from '#lib/api.ts';
+  import { coffeePayload, coffeeToForm, emptyCoffeeForm, formatCatalogDate } from '#lib/catalog.ts';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import type { CatalogInsights, Coffee, CoffeeRatingInsights, PhotoFraming } from '#lib/types.ts';
 
   let coffee: Coffee | null = $state(null);
   let coffeePeers: Coffee[] = $state([]);
@@ -49,7 +49,7 @@
   let lifecycleBusy = $state(false);
   let loadingMore = $state(false);
 
-  const id = $derived(Number($page.params.id));
+  const id = $derived(Number(page.params.id));
   const dirty = $derived(
     editMode &&
       (JSON.stringify(form) !== baseline ||
@@ -69,8 +69,8 @@
   onMount(async () => {
     await ensureSession();
     await load();
-    if (coffee && $page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
-    if ($page.url.searchParams.get('photoError') === '1') {
+    if (coffee && page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
+    if (page.url.searchParams.get('photoError') === '1') {
       photoError =
         'The bag was created, but its photo could not be uploaded. Choose the photo again to retry.';
     }

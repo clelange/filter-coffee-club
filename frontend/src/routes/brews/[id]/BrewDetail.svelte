@@ -5,16 +5,16 @@
     brewRatioIsUnusual,
     calculateBrewRatio,
     unusualBrewRatioDescription
-  } from '$lib/brew-ratio';
-  import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
-  import BrewerPicker from '$lib/BrewerPicker.svelte';
-  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import FlavorRadar from '$lib/FlavorRadar.svelte';
-  import NumberStepper from '$lib/NumberStepper.svelte';
-  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import RatingMetrics from '$lib/RatingMetrics.svelte';
+  } from '#lib/brew-ratio.ts';
+  import { refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
+  import BrewerPicker from '#lib/BrewerPicker.svelte';
+  import ConfirmDialog from '#lib/ConfirmDialog.svelte';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import FlavorRadar from '#lib/FlavorRadar.svelte';
+  import NumberStepper from '#lib/NumberStepper.svelte';
+  import PostBrewWaterFields from '#lib/PostBrewWaterFields.svelte';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import RatingMetrics from '#lib/RatingMetrics.svelte';
   import {
     ApiError,
     api,
@@ -23,8 +23,8 @@
     jsonBody,
     sessionStore,
     logout
-  } from '$lib/api';
-  import type { Brew, ProfileIdentity, RatingAggregate } from '$lib/types';
+  } from '#lib/api.ts';
+  import type { Brew, ProfileIdentity, RatingAggregate } from '#lib/types.ts';
 
   type FinishIssue =
     | { kind: 'request'; message: string }

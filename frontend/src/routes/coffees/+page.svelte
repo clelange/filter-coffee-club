@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { deviceModeStore } from '$lib/device';
-  import CatalogCard from '$lib/CatalogCard.svelte';
-  import CoffeeFields from '$lib/CoffeeFields.svelte';
-  import PhotoPicker from '$lib/PhotoPicker.svelte';
+  import { deviceModeStore } from '#lib/device.ts';
+  import CatalogCard from '#lib/CatalogCard.svelte';
+  import CoffeeFields from '#lib/CoffeeFields.svelte';
+  import PhotoPicker from '#lib/PhotoPicker.svelte';
   import {
     ApiError,
     api,
@@ -13,9 +13,9 @@
     jsonBody,
     sessionStore,
     uploadCatalogPhoto
-  } from '$lib/api';
-  import { coffeePayload, emptyCoffeeForm, usageFor } from '$lib/catalog';
-  import type { CatalogUsageResponse, Coffee, PhotoFraming } from '$lib/types';
+  } from '#lib/api.ts';
+  import { coffeePayload, emptyCoffeeForm, usageFor } from '#lib/catalog.ts';
+  import type { CatalogUsageResponse, Coffee, PhotoFraming } from '#lib/types.ts';
 
   let coffees: Coffee[] = $state([]);
   let finishedCoffees: Coffee[] = $state([]);

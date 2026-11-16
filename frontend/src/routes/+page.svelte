@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { brewStatusStore, refreshBrewStatusAfterMutation } from '$lib/brew-status';
-  import { loginPath } from '$lib/device';
-  import { api, appSettingsStore, jsonBody, sessionStore } from '$lib/api';
-  import BrewCard from '$lib/BrewCard.svelte';
-  import Logo from '$lib/Logo.svelte';
+  import { brewStatusStore, refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
+  import { loginPath } from '#lib/device.ts';
+  import { api, appSettingsStore, jsonBody, sessionStore } from '#lib/api.ts';
+  import BrewCard from '#lib/BrewCard.svelte';
+  import Logo from '#lib/Logo.svelte';
   import type {
     Brew,
     BrewActivityItem,
     RatingComparison as RatingComparisonData
-  } from '$lib/types';
+  } from '#lib/types.ts';
 
   let brews: Brew[] = $state([]);
   let comparisons: RatingComparisonData[] = $state([]);

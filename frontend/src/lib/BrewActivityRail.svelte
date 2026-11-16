@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { loginPath } from '$lib/device';
-  import { sessionStore } from '$lib/api';
-  import { brewStatusStore, startBrewStatusPolling } from '$lib/brew-status';
+  import { loginPath } from '#lib/device.ts';
+  import { sessionStore } from '#lib/api.ts';
+  import { brewStatusStore, startBrewStatusPolling } from '#lib/brew-status.ts';
 
   const hasActivity = $derived(
     Boolean(

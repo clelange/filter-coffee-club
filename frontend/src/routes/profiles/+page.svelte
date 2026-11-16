@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { api, ensureSession } from '$lib/api';
-  import { loginPath } from '$lib/device';
-  import type { ProfileDirectoryItem } from '$lib/types';
+  import { api, ensureSession } from '#lib/api.ts';
+  import { loginPath } from '#lib/device.ts';
+  import type { ProfileDirectoryItem } from '#lib/types.ts';
 
   let members: ProfileDirectoryItem[] = $state([]);
   let loading = $state(true);

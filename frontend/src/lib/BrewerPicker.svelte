@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ProfileIdentity } from '$lib/types';
+  import type { ProfileIdentity } from '#lib/types.ts';
 
   export let profiles: ProfileIdentity[] = [];
   export let selected: number[] = [];

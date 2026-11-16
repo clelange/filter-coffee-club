@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DripperFormData } from '$lib/types';
+  import type { DripperFormData } from '#lib/types.ts';
 
   export let form: DripperFormData;
 </script>

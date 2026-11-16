@@ -1,11 +1,11 @@
 <script lang="ts">
-  import BestBrewCard from '$lib/BestBrewCard.svelte';
-  import FlavorRadar from '$lib/FlavorRadar.svelte';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import RatingMetrics from '$lib/RatingMetrics.svelte';
-  import { formatTime } from '$lib/api';
-  import { formatCatalogDate, formatCatalogNumber } from '$lib/catalog';
-  import type { Coffee, CoffeeRatingInsights } from '$lib/types';
+  import BestBrewCard from '#lib/BestBrewCard.svelte';
+  import FlavorRadar from '#lib/FlavorRadar.svelte';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import RatingMetrics from '#lib/RatingMetrics.svelte';
+  import { formatTime } from '#lib/api.ts';
+  import { formatCatalogDate, formatCatalogNumber } from '#lib/catalog.ts';
+  import type { Coffee, CoffeeRatingInsights } from '#lib/types.ts';
 
   export let coffee: Coffee;
   export let insights: CoffeeRatingInsights;

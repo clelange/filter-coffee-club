@@ -1,8 +1,8 @@
 <script lang="ts">
-  import CatalogPhoto from '$lib/CatalogPhoto.svelte';
-  import CatalogUsageSummary from '$lib/CatalogUsageSummary.svelte';
-  import type { CatalogUsageItem } from '$lib/types';
-  import type { PhotoFraming } from '$lib/types';
+  import CatalogPhoto from '#lib/CatalogPhoto.svelte';
+  import CatalogUsageSummary from '#lib/CatalogUsageSummary.svelte';
+  import type { CatalogUsageItem } from '#lib/types.ts';
+  import type { PhotoFraming } from '#lib/types.ts';
 
   export let href: string;
   export let photoPath: string | null;
