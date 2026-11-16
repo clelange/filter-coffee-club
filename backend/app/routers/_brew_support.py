@@ -18,6 +18,7 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
     throughput = overall_throughput(brew.water_g, brew.total_brew_time_s)
     return BrewResponse(
         id=brew.id,
+        brew_name=brew.brew_name,
         coffee_id=brew.coffee_id,
         operator_id=brew.operator_id,
         operators=[
@@ -73,6 +74,7 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
 def brew_activity_payload(brew: Brew, include_token: bool = False) -> BrewActivityItem:
     return BrewActivityItem(
         id=brew.id,
+        brew_name=brew.brew_name,
         coffee_name=brew.coffee.name,
         coffee_roaster=brew.coffee.roaster,
         operators=[

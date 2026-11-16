@@ -232,6 +232,7 @@ class Brew(TimestampMixin, Base):
     filter_id: Mapped[int | None] = mapped_column(ForeignKey("filters.id"))
     source_preset_id: Mapped[int | None] = mapped_column(ForeignKey("recipe_presets.id"))
     cloned_from_id: Mapped[int | None] = mapped_column(ForeignKey("brews.id"))
+    brew_name: Mapped[str | None] = mapped_column(String(80))
     dose_g: Mapped[float] = mapped_column(Float)
     water_g: Mapped[float] = mapped_column(Float)
     post_brew_water_added: Mapped[bool | None] = mapped_column(Boolean)

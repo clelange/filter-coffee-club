@@ -3,6 +3,7 @@
   import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
+  import { namedBrewDescription } from '#lib/brew-name.ts';
   import {
     brewRatioIsUnusual,
     calculateBrewRatio,
@@ -97,6 +98,7 @@
   });
   let form: BrewDraft = $state({
     coffee_id: 0,
+    brew_name: null,
     grinder_id: 0,
     dripper_id: null,
     filter_id: null,
@@ -276,6 +278,7 @@
         ]);
         copyBrew(source);
         if (editId || correctionId) {
+          form.brew_name = source.brew_name ?? null;
           selectedBrewerIds = source.operators.map((profile) => profile.id);
           originalBrewerIds = [...selectedBrewerIds].sort().join(',');
           originalOperatorId = source.operator_id;
@@ -669,7 +672,9 @@
       {#each active.brews as brew}
         <article>
           <div>
-            <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong>
+            <strong
+              >{namedBrewDescription(brew, `${brew.coffee_roaster} · ${brew.coffee_name}`)}</strong
+            >
             <small>{brew.operators.map((operator) => operator.display_name).join(', ')}</small>
           </div>
           <button class="secondary" onclick={() => join(brew)} disabled={joiningBrewId !== null}
@@ -725,6 +730,11 @@
           >
         {/if}
       </div>
+      {#if $deviceModeStore !== 'kiosk'}
+        <label>Brew name (optional)<input bind:value={form.brew_name} maxlength="80" /></label>
+      {:else if form.brew_name}
+        <p class="muted">Brew name: {form.brew_name}</p>
+      {/if}
       {#if selectedCoffee && !selectedCoffee.available}
         <p class="warning" role="status">
           This bag is no longer available for new brews, but it can remain on this existing brew.
@@ -1129,7 +1139,12 @@
           <div class="trial-list">
             {#each history as brew}<article>
                 <div>
-                  <strong>1:{brew.ratio} · {brew.temperature_c}°</strong><small>
+                  <strong
+                    >{namedBrewDescription(
+                      brew,
+                      `1:${brew.ratio} · ${brew.temperature_c}°`
+                    )}</strong
+                  ><small>
                     {brew.grinder_setting}
                     {brew.grinder_unit} · <ProfileLink
                       profileId={brew.operator_id}

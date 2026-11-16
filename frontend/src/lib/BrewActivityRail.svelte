@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { brewTitle } from '#lib/brew-name.ts';
   import { loginPath } from '#lib/device.ts';
   import { sessionStore } from '#lib/api.ts';
   import { brewStatusStore, startBrewStatusPolling } from '#lib/brew-status.ts';
@@ -28,10 +29,10 @@
           class="brew-activity-chip brewing"
           data-testid="active-brew-chip"
           href={`/brews/${brew.id}`}
-          aria-label={`Brewing now: ${brew.coffee_name}. Open brew ${brew.id}.`}
+          aria-label={`Brewing now: ${brewTitle(brew)}. Open brew ${brew.id}.`}
         >
           <span>Brewing now</span>
-          <strong>{brew.coffee_name}</strong>
+          <strong>{brewTitle(brew)}</strong>
         </a>
       {/each}
       {#each $brewStatusStore.recent_rating_brews as brew}
@@ -40,10 +41,10 @@
             class="brew-activity-chip rating"
             data-testid="rating-brew-chip"
             href={`/rate/${brew.rating_token}`}
-            aria-label={`Ready to rate: ${brew.coffee_name}.`}
+            aria-label={`Ready to rate: ${brewTitle(brew)}.`}
           >
             <span>Ready to rate</span>
-            <strong>{brew.coffee_name}</strong>
+            <strong>{brewTitle(brew)}</strong>
           </a>
         {/if}
       {/each}

@@ -7,7 +7,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .profiles import ProfileIdentity
 
 
-class BrewInput(BaseModel):
+class BrewNaming(BaseModel):
+    brew_name: str | None = Field(default=None, max_length=80)
+
+    @field_validator("brew_name", mode="before")
+    @classmethod
+    def normalize_brew_name(cls, value: object) -> object:
+        return (value.strip() or None) if isinstance(value, str) else value
+
+
+class BrewInput(BrewNaming):
     coffee_id: int
     grinder_id: int
     dripper_id: int | None = None
@@ -115,7 +124,7 @@ class BrewResponse(BrewInput, PostBrewWater):
     rating_token: str | None = None
 
 
-class BrewActivityItem(BaseModel):
+class BrewActivityItem(BrewNaming):
     id: int
     coffee_name: str
     coffee_roaster: str

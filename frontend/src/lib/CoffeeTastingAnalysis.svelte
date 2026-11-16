@@ -62,9 +62,11 @@
           <div class="brew-heading">
             <div>
               <p class="eyebrow">Brew #{result.brew.id}</p>
-              <h3>{formatCatalogDate(result.brew.completed_at)}</h3>
+              <h3>{result.brew.brew_name ?? formatCatalogDate(result.brew.completed_at)}</h3>
               <span
-                >by {#each result.brew.operators as brewer, index}{#if index},
+                >{result.brew.brew_name
+                  ? `${formatCatalogDate(result.brew.completed_at)} · `
+                  : ''}by {#each result.brew.operators as brewer, index}{#if index},
                   {/if}<ProfileLink
                     profileId={brewer.id}
                     displayName={brewer.display_name}

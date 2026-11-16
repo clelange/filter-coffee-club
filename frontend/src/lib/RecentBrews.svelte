@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { namedBrewDescription } from '#lib/brew-name.ts';
   import { formatTime } from '#lib/api.ts';
   import { formatCatalogDate, formatCatalogNumber } from '#lib/catalog.ts';
   import ProfileLink from '#lib/ProfileLink.svelte';
@@ -22,7 +23,7 @@
             <div>
               <strong
                 ><a class="brew-target" href={`/brews/${brew.id}`}
-                  >{brew.coffee_roaster} · {brew.coffee_name}</a
+                  >{namedBrewDescription(brew, `${brew.coffee_roaster} · ${brew.coffee_name}`)}</a
                 ></strong
               >
               <span

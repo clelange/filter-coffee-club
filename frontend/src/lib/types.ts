@@ -1,3 +1,5 @@
+import type { components } from './generated-api';
+
 export interface ProfileIdentity {
   id: number;
   display_name: string;
@@ -241,7 +243,9 @@ export interface Preset extends Omit<PresetInput, 'custom_grinder_ranges'> {
   grinder_ranges: PresetRange[];
 }
 
-export interface BrewInput {
+type BrewNaming = Pick<components['schemas']['BrewCreate'], 'brew_name'>;
+
+export interface BrewInput extends BrewNaming {
   coffee_id: number;
   grinder_id: number;
   dripper_id: number | null;
@@ -284,7 +288,7 @@ export interface Brew extends BrewInput {
   rating_token: string | null;
 }
 
-export interface BrewActivityItem {
+export interface BrewActivityItem extends BrewNaming {
   id: number;
   coffee_name: string;
   coffee_roaster: string;

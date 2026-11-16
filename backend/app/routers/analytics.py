@@ -99,6 +99,7 @@ def analytics(
         top_recipes.append(
             {
                 "brew_id": brew.id,
+                "brew_name": brew.brew_name,
                 "name": f"{coffee_names[brew.coffee_id]} · Bag #{brew.coffee_id}",
                 "recipe": (
                     f"1:{brew_ratio(brew.water_g, brew.dose_g)} · {brew.temperature_c:g} °C · "
@@ -131,6 +132,7 @@ def analytics(
         scatter.append(
             {
                 "brew_id": brew.id,
+                "brew_name": brew.brew_name,
                 "coffee_id": brew.coffee_id,
                 "coffee": coffee_names[brew.coffee_id],
                 "coffee_color": brew.coffee.chart_color,

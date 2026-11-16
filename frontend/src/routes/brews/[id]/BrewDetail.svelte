@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
+  import { brewCoffeeSubtitle, brewTitle, namedBrewDescription } from '#lib/brew-name.ts';
   import {
     brewRatioIsUnusual,
     calculateBrewRatio,
@@ -578,7 +579,7 @@
 <svelte:window onkeydown={handleDialogKeydown} />
 
 <svelte:head
-  ><title>{brew ? `${brew.coffee_name} · Brew` : 'Brew'} · Filter Coffee Club</title></svelte:head
+  ><title>{brew ? `${brewTitle(brew)} · Brew` : 'Brew'} · Filter Coffee Club</title></svelte:head
 >
 
 {#if error && !brew}
@@ -590,9 +591,9 @@
     <div class="brew-heading">
       <div>
         <p class="eyebrow">Brew mode · settings locked on screen</p>
-        <h1>{brew.coffee_name}</h1>
+        <h1>{brewTitle(brew)}</h1>
         <p class="lede">
-          {brew.coffee_roaster} · brewed by
+          {brewCoffeeSubtitle(brew)} · brewed by
           {#each brew.operators as operator, index}
             {index ? ', ' : ''}<ProfileLink
               profileId={operator.id}
@@ -772,7 +773,8 @@
       <p class="eyebrow">Brew #{brew.id} is ready</p>
       <h1>Taste. Scan. Rate.</h1>
       <p class="lede">
-        <strong>{brew.coffee_roaster} · {brew.coffee_name}</strong><br />Brewed by
+        <strong>{namedBrewDescription(brew, `${brew.coffee_roaster} · ${brew.coffee_name}`)}</strong
+        ><br />Brewed by
         {#each brew.operators as operator, index}
           {index ? ', ' : ''}<ProfileLink
             profileId={operator.id}
@@ -811,7 +813,7 @@
     <div class="qr-card">
       <img
         src={`/api/v1/brews/${brew.id}/qr.svg`}
-        alt={`QR code to rate ${brew.coffee_name}`}
+        alt={`QR code to rate ${brewTitle(brew)}`}
       /><strong>Open the camera on your phone</strong><span
         >Personal sessions stay signed in for 3.5 days.</span
       >

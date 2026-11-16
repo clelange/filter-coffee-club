@@ -172,6 +172,7 @@ def test_active_brews_include_recent_rating_prompts_for_thirty_minutes(
         ]
         activity_item_fields = {
             "id",
+            "brew_name",
             "coffee_name",
             "coffee_roaster",
             "operators",

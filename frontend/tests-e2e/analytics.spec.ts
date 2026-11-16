@@ -80,6 +80,7 @@ const analytics: AnalyticsResponse = {
     },
     {
       brew_id: 102,
+      brew_name: 'K6 trial',
       coffee_id: 11,
       coffee: 'Atlas · Alpha',
       coffee_color: '#0072B2',
@@ -278,7 +279,9 @@ test('recipe map exposes comparable axes, ratings, and brew details', async ({ p
   );
   expect(await overlapCircle.getAttribute('fill')).not.toBe(await firstCircle.getAttribute('fill'));
 
+  await expect(overlap).toHaveAccessibleName(/^K6 trial · Atlas · Alpha\b/);
   await overlap.focus();
+  await expect(recipeMap.getByTestId('point-details')).toContainText('K6 trial · Atlas · Alpha');
   await expect(recipeMap.getByTestId('point-details')).toContainText('8 average · 7–9 range');
   await expect(recipeMap.getByRole('link', { name: 'Open brew' })).toHaveAttribute(
     'href',

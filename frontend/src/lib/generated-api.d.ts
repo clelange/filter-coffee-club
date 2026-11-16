@@ -1228,6 +1228,8 @@ export interface components {
         };
         /** AnalyticsPoint */
         AnalyticsPoint: {
+            /** Brew Name */
+            brew_name?: string | null;
             /** Brew Id */
             brew_id: number;
             /** Coffee Id */
@@ -1286,6 +1288,8 @@ export interface components {
         };
         /** AnalyticsRecipeRank */
         AnalyticsRecipeRank: {
+            /** Brew Name */
+            brew_name?: string | null;
             /** Brew Id */
             brew_id: number;
             /** Name */
@@ -1462,6 +1466,8 @@ export interface components {
         };
         /** BrewActivityItem */
         BrewActivityItem: {
+            /** Brew Name */
+            brew_name?: string | null;
             /** Id */
             id: number;
             /** Coffee Name */
@@ -1483,6 +1489,8 @@ export interface components {
             post_brew_water_g?: number | null;
             /** Operator Ids */
             operator_ids?: number[] | null;
+            /** Brew Name */
+            brew_name?: string | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1529,6 +1537,8 @@ export interface components {
         BrewCreate: {
             /** Operator Ids */
             operator_ids?: number[] | null;
+            /** Brew Name */
+            brew_name?: string | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1598,6 +1608,8 @@ export interface components {
             post_brew_water_added?: boolean | null;
             /** Post Brew Water G */
             post_brew_water_g?: number | null;
+            /** Brew Name */
+            brew_name?: string | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1684,6 +1696,8 @@ export interface components {
         BrewUpdate: {
             /** Operator Ids */
             operator_ids?: number[] | null;
+            /** Brew Name */
+            brew_name?: string | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1728,6 +1742,8 @@ export interface components {
             post_brew_water_added?: boolean | null;
             /** Post Brew Water G */
             post_brew_water_g?: number | null;
+            /** Brew Name */
+            brew_name?: string | null;
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */

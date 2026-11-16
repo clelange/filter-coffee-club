@@ -723,7 +723,7 @@ def test_c40_range_correction_preserves_custom_values_and_brews(tmp_path: Path) 
     engine.dispose()
 
 
-def test_post_brew_water_migration_preserves_existing_brews(tmp_path: Path) -> None:
+def test_brew_metadata_migrations_preserve_existing_brews(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'pre-post-brew-water.sqlite3'}"
     config = alembic_config(database_url)
     command.upgrade(config, "f8c1d4a6b920")
@@ -753,15 +753,25 @@ def test_post_brew_water_migration_preserves_existing_brews(tmp_path: Path) -> N
         )
         db.commit()
 
-    command.upgrade(config, "d35c11a19f87")
+    command.upgrade(config, "head")
     with Session(engine) as db:
         brew = db.get(Brew, 1)
         assert brew is not None
         assert (brew.status, brew.water_g, brew.total_brew_time_s) == ("completed", 500, 200)
         assert (brew.post_brew_water_added, brew.post_brew_water_g) == (None, None)
+        assert brew.brew_name is None
+        brew.brew_name = "V60 control"
         brew.post_brew_water_added = True
         brew.post_brew_water_g = 50
         db.commit()
+
+    command.downgrade(config, "d35c11a19f87")
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("brews")}
+        assert "brew_name" not in columns
+        assert connection.execute(text("SELECT id, post_brew_water_g FROM brews")).all() == [
+            (1, 50)
+        ]
 
     command.downgrade(config, "f8c1d4a6b920")
     with engine.connect() as connection:
