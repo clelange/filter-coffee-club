@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { api, uploadCatalogPhoto } from '$lib/api';
-  import { photoFramingStyle } from '$lib/photo-framing';
-  import type { PhotoFraming } from '$lib/types';
+  import { api, uploadCatalogPhoto } from '#lib/api.ts';
+  import { photoFramingStyle } from '#lib/photo-framing.ts';
+  import type { PhotoFraming } from '#lib/types.ts';
 
   export let photoPath: string | null;
   export let photoFraming: PhotoFraming | null = null;

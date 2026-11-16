@@ -1,11 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import { api, ensureSession } from '$lib/api';
-  import { loginPath } from '$lib/device';
-  import RatingComparison from '$lib/RatingComparison.svelte';
-  import type { ProfileRatings } from '$lib/types';
+  import { page } from '$app/state';
+  import { api, ensureSession } from '#lib/api.ts';
+  import { loginPath } from '#lib/device.ts';
+  import RatingComparison from '#lib/RatingComparison.svelte';
+  import type { ProfileRatings } from '#lib/types.ts';
 
   let data: ProfileRatings | null = $state(null);
   let loading = $state(true);
@@ -16,7 +16,7 @@
 
   const PAGE_SIZE = 25;
 
-  const profileId = $derived(Number($page.params.id));
+  const profileId = $derived(Number(page.params.id));
   const metrics = [
     { key: 'liking', label: 'Liking', maximum: 9 },
     { key: 'acidity', label: 'Acidity', maximum: 5 },

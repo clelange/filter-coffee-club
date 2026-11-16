@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatCatalogDate, formatCatalogNumber } from '$lib/catalog';
-  import { formatTime } from '$lib/api';
-  import type { CatalogInsights } from '$lib/types';
+  import { formatCatalogDate, formatCatalogNumber } from '#lib/catalog.ts';
+  import { formatTime } from '#lib/api.ts';
+  import type { CatalogInsights } from '#lib/types.ts';
 
   export let insights: CatalogInsights;
 </script>

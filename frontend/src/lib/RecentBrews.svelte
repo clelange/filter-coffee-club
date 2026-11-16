@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { formatTime } from '$lib/api';
-  import { formatCatalogDate, formatCatalogNumber } from '$lib/catalog';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import type { CatalogInsights } from '$lib/types';
+  import { formatTime } from '#lib/api.ts';
+  import { formatCatalogDate, formatCatalogNumber } from '#lib/catalog.ts';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import type { CatalogInsights } from '#lib/types.ts';
 
   export let insights: CatalogInsights;
 </script>

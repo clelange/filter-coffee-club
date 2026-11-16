@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import { refreshBrewStatusAfterMutation } from '$lib/brew-status';
+  import { page } from '$app/state';
+  import { refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
   import {
     brewRatioIsUnusual,
     calculateBrewRatio,
     unusualBrewRatioDescription
-  } from '$lib/brew-ratio';
+  } from '#lib/brew-ratio.ts';
   import {
     applyRecipeCalculation,
     isClickGrinder,
@@ -16,17 +16,17 @@
     recipeAmountError,
     type RecipeCalculationAction,
     type RecipeCalculationState
-  } from '$lib/brew-recipe';
-  import BrewerPicker from '$lib/BrewerPicker.svelte';
-  import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
-  import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import { selectedOption } from '$lib/selected-option';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
-  import NumberStepper from '$lib/NumberStepper.svelte';
-  import PostBrewWaterFields from '$lib/PostBrewWaterFields.svelte';
-  import { formatGrinderSetting } from '$lib/catalog';
+  } from '#lib/brew-recipe.ts';
+  import BrewerPicker from '#lib/BrewerPicker.svelte';
+  import CoffeeColorPicker from '#lib/CoffeeColorPicker.svelte';
+  import ConfirmDialog from '#lib/ConfirmDialog.svelte';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import { selectedOption } from '#lib/selected-option.ts';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '#lib/api.ts';
+  import NumberStepper from '#lib/NumberStepper.svelte';
+  import PostBrewWaterFields from '#lib/PostBrewWaterFields.svelte';
+  import { formatGrinderSetting } from '#lib/catalog.ts';
   import type {
     ActiveBrews,
     Brew,
@@ -39,7 +39,7 @@
     GrinderDefinition,
     Preset,
     ProfileIdentity
-  } from '$lib/types';
+  } from '#lib/types.ts';
 
   type BrewDraft = Omit<BrewInput, 'grinder_setting'> & { grinder_setting: number | null };
 
@@ -203,16 +203,16 @@
   onMount(async () => {
     const session = await ensureSession();
     if (!session) {
-      await goto(loginPath($page.url.pathname + $page.url.search));
+      await goto(loginPath(page.url.pathname + page.url.search));
       return;
     }
     selectedBrewerIds = [session.profile.id];
     originalOperatorId = session.profile.id;
     originalBrewerIds = String(session.profile.id);
     canManageBrewers = true;
-    correctionId = Number($page.url.searchParams.get('correct')) || null;
-    editId = Number($page.url.searchParams.get('edit')) || null;
-    const repeatId = Number($page.url.searchParams.get('repeat')) || null;
+    correctionId = Number(page.url.searchParams.get('correct')) || null;
+    editId = Number(page.url.searchParams.get('edit')) || null;
+    const repeatId = Number(page.url.searchParams.get('repeat')) || null;
     if (correctionId) {
       if ($deviceModeStore === 'kiosk') {
         await goto(`/brews/${correctionId}`);
@@ -252,7 +252,7 @@
       filters = filterItems;
       presets = presetItems;
       operators = operatorItems;
-      const requestedCoffeeId = Number($page.url.searchParams.get('coffee')) || 0;
+      const requestedCoffeeId = Number(page.url.searchParams.get('coffee')) || 0;
       form.coffee_id =
         coffees.find((coffee) => coffee.id === requestedCoffeeId)?.id || coffees[0]?.id || 0;
       if (requestedCoffeeId && form.coffee_id !== requestedCoffeeId) {

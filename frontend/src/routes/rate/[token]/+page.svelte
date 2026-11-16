@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import { loginPath } from '$lib/device';
-  import { api, ensureSession, jsonBody, logout } from '$lib/api';
-  import FlavorRadar from '$lib/FlavorRadar.svelte';
-  import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '$lib/types';
+  import { page } from '$app/state';
+  import { loginPath } from '#lib/device.ts';
+  import { api, ensureSession, jsonBody, logout } from '#lib/api.ts';
+  import FlavorRadar from '#lib/FlavorRadar.svelte';
+  import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '#lib/types.ts';
 
   type RatingScaleKey = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
   type RatingDraft = Record<RatingScaleKey, number | null> & { flavor_tag_ids: number[] };
@@ -44,7 +44,7 @@
     flavor_tag_ids: []
   });
 
-  const token = $derived($page.params.token);
+  const token = $derived(page.params.token);
   const activeTagIds = $derived(new Set(tags.map((tag) => tag.id)));
   const ratingComplete = $derived(requiredScaleKeys.every((key) => rating[key] !== null));
   const parents = $derived(

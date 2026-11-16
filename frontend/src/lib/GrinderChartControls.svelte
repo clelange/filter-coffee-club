@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { selectedOption } from '$lib/selected-option';
-  import type { GrinderScale } from '$lib/analytics-grind';
+  import { selectedOption } from '#lib/selected-option.ts';
+  import type { GrinderScale } from '#lib/analytics-grind.ts';
 
   export let scales: GrinderScale[];
   export let grinders: { id: number; name: string }[];

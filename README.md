@@ -312,7 +312,7 @@ Docker Compose also reads `FCC_IMAGE` and `FCC_IMAGE_TAG` from `.env` to select 
 
 ## Local development
 
-Python 3.11+, Node 22, [uv](https://docs.astral.sh/uv/), pnpm, and Git LFS are expected. Git LFS stores the bundled demo WebP assets; `make install` fetches them for the current checkout.
+Python 3.11+, Node 22.17+, [uv](https://docs.astral.sh/uv/), pnpm, and Git LFS are expected. Git LFS stores the bundled demo WebP assets; `make install` fetches them for the current checkout.
 
 ```sh
 uv sync

@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { browser } from '$app/environment';
+  import { browser } from '$app/env';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import BrewActivityRail from '$lib/BrewActivityRail.svelte';
-  import Logo from '$lib/Logo.svelte';
-  import Navigation from '$lib/Navigation.svelte';
-  import { brewStatusStore } from '$lib/brew-status';
-  import { adoptSessionDeviceMode, deviceModeStore, initializeDeviceMode } from '$lib/device';
-  import { api, appSettingsStore, ensureSession, logout, sessionStore } from '$lib/api';
-  import { applyTheme } from '$lib/theme';
-  import type { AppSettings } from '$lib/types';
+  import { page } from '$app/state';
+  import BrewActivityRail from '#lib/BrewActivityRail.svelte';
+  import Logo from '#lib/Logo.svelte';
+  import Navigation from '#lib/Navigation.svelte';
+  import { brewStatusStore } from '#lib/brew-status.ts';
+  import { adoptSessionDeviceMode, deviceModeStore, initializeDeviceMode } from '#lib/device.ts';
+  import { api, appSettingsStore, ensureSession, logout, sessionStore } from '#lib/api.ts';
+  import { applyTheme } from '#lib/theme.ts';
+  import type { AppSettings } from '#lib/types.ts';
   import '../styles.css';
 
   const repositoryUrl = 'https://github.com/clelange/filter-coffee-club';
@@ -65,7 +65,7 @@
     return `${repositoryUrl}/issues/new?body=${body}`;
   }
 
-  function pinChangePath(url: URL): string {
+  function pinChangePath(url: Pick<URL, 'pathname' | 'search' | 'hash'>): string {
     const next = `${url.pathname}${url.search}${url.hash}`;
     return `/account/pin?next=${encodeURIComponent(next)}`;
   }
@@ -79,12 +79,12 @@
     appBootstrapped = false;
     bootstrapError = '';
     try {
-      const device = initializeDeviceMode($page.url);
+      const device = initializeDeviceMode(new URL(page.url.href));
       const loadedSettings = await api<AppSettings>('/settings');
       settingsLoaded = true;
       appSettingsStore.set(loadedSettings);
       const bootstrap = await api<{ required: boolean }>('/auth/bootstrap-status');
-      if (bootstrap.required && $page.url.pathname !== '/setup') {
+      if (bootstrap.required && page.url.pathname !== '/setup') {
         await goto('/setup');
       } else {
         const session = await ensureSession();
@@ -98,9 +98,9 @@
         if (
           session?.device_mode === activeMode &&
           session?.profile.pin_change_required &&
-          !allowsRequiredPinChange($page.url.pathname)
+          !allowsRequiredPinChange(page.url.pathname)
         ) {
-          await goto(pinChangePath($page.url));
+          await goto(pinChangePath(page.url));
         }
       }
       appBootstrapped = true;
@@ -119,7 +119,7 @@
   });
 
   $effect(() => {
-    const currentUrl = $page.url;
+    const currentUrl = page.url;
     if (
       ready &&
       $sessionStore?.profile.pin_change_required &&
@@ -153,7 +153,7 @@
     </a>
     <Navigation {ready} demoMode={settings.demo_mode} />
   </div>
-  {#if ready && appBootstrapped && $page.url.pathname !== '/setup'}
+  {#if ready && appBootstrapped && page.url.pathname !== '/setup'}
     <BrewActivityRail />
   {/if}
 </header>

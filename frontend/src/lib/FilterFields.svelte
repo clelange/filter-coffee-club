@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { FilterFormData } from '$lib/types';
+  import type { FilterFormData } from '#lib/types.ts';
 
   export let form: FilterFormData;
 </script>

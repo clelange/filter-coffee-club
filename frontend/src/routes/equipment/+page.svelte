@@ -2,13 +2,13 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import CatalogCard from '$lib/CatalogCard.svelte';
-  import DripperFields from '$lib/DripperFields.svelte';
-  import FilterFields from '$lib/FilterFields.svelte';
-  import GrinderFields from '$lib/GrinderFields.svelte';
-  import PhotoPicker from '$lib/PhotoPicker.svelte';
-  import { api, appSettingsStore, ensureSession, jsonBody, uploadCatalogPhoto } from '$lib/api';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import CatalogCard from '#lib/CatalogCard.svelte';
+  import DripperFields from '#lib/DripperFields.svelte';
+  import FilterFields from '#lib/FilterFields.svelte';
+  import GrinderFields from '#lib/GrinderFields.svelte';
+  import PhotoPicker from '#lib/PhotoPicker.svelte';
+  import { api, appSettingsStore, ensureSession, jsonBody, uploadCatalogPhoto } from '#lib/api.ts';
   import {
     dripperPayload,
     emptyDripperForm,
@@ -17,7 +17,7 @@
     filterPayload,
     grinderPayload,
     usageFor
-  } from '$lib/catalog';
+  } from '#lib/catalog.ts';
   import type {
     BrewFilter,
     CatalogUsageResponse,
@@ -26,7 +26,7 @@
     GrinderDefinition,
     Preset,
     PhotoFraming
-  } from '$lib/types';
+  } from '#lib/types.ts';
 
   type EquipmentKind = 'grinder' | 'dripper' | 'filter';
 

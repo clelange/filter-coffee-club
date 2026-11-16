@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { FlavorAxisSummary } from '$lib/types';
+  import type { FlavorAxisSummary } from '#lib/types.ts';
 
   export let axes: FlavorAxisSummary[] = [];
   export let subject = 'this tasting';

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto, replaceState } from '$app/navigation';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import GrinderFields from '$lib/GrinderFields.svelte';
-  import { emptyGrinderForm, grinderPayload } from '$lib/catalog';
-  import { contrastRatio } from '$lib/coffee-colors';
-  import { deviceModeStore, loginPath } from '$lib/device';
-  import { api, appSettingsStore, ensureSession, jsonBody } from '$lib/api';
+  import GrinderFields from '#lib/GrinderFields.svelte';
+  import { emptyGrinderForm, grinderPayload } from '#lib/catalog.ts';
+  import { contrastRatio } from '#lib/coffee-colors.ts';
+  import { deviceModeStore, loginPath } from '#lib/device.ts';
+  import { api, appSettingsStore, ensureSession, jsonBody } from '#lib/api.ts';
   import type {
     AppSettings,
     BrewFilter,
@@ -21,7 +21,7 @@
     Preset,
     PresetInput,
     Profile
-  } from '$lib/types';
+  } from '#lib/types.ts';
 
   type AdminTab = 'people' | 'equipment' | 'presets' | 'settings' | 'data';
   const adminSections: { id: AdminTab; label: string }[] = [
@@ -34,11 +34,6 @@
 
   function isAdminTab(value: string | null): value is AdminTab {
     return adminSections.some((section) => section.id === value);
-  }
-
-  function adminTabFromUrl(url: URL): AdminTab {
-    const requested = url.searchParams.get('tab');
-    return isAdminTab(requested) ? requested : 'people';
   }
 
   let people: Profile[] = $state([]);
@@ -55,7 +50,9 @@
   let mattermostBusy = $state(false);
   let savedMattermostDestination = $state('');
   let savedMattermostServer = $state('');
-  let activeTab: AdminTab = $state(adminTabFromUrl(page.url));
+  const tabUrl = $derived(page.shallow?.url ?? page.url);
+  const requestedTab = $derived(tabUrl.searchParams.get('tab'));
+  const activeTab = $derived(isAdminTab(requestedTab) ? requestedTab : 'people');
   let tabButtons: Partial<Record<AdminTab, HTMLButtonElement>> = {};
   let message = $state('');
   let error = $state('');
@@ -104,12 +101,8 @@
   const paletteWarnings = $derived(settings ? paletteContrastWarnings(settings) : []);
 
   $effect(() => {
-    const requestedTab = page.url.searchParams.get('tab');
-    activeTab = adminTabFromUrl(page.url);
     if (requestedTab && (!isAdminTab(requestedTab) || requestedTab === 'people')) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('tab');
-      replaceState(url, page.state);
+      replaceTabUrl('people');
     }
   });
 
@@ -714,13 +707,15 @@
     };
   }
 
-  function selectTab(tab: AdminTab) {
-    activeTab = tab;
+  function replaceTabUrl(tab: AdminTab) {
     const url = new URL(window.location.href);
     if (tab === 'people') url.searchParams.delete('tab');
     else url.searchParams.set('tab', tab);
-    replaceState(url, page.state);
+    if (url.href !== window.location.href) {
+      void goto(url, { shallow: true, replace: true, state: page.state });
+    }
   }
+
   function handleTabKeydown(event: KeyboardEvent, index: number) {
     let nextIndex: number | null = null;
     if (event.key === 'ArrowRight') nextIndex = (index + 1) % adminSections.length;
@@ -731,7 +726,7 @@
     if (nextIndex === null) return;
     event.preventDefault();
     const nextTab = adminSections[nextIndex].id;
-    selectTab(nextTab);
+    replaceTabUrl(nextTab);
     requestAnimationFrame(() => tabButtons[nextTab]?.focus());
   }
 </script>
@@ -765,7 +760,7 @@
     <select
       id="admin-section-select"
       value={activeTab}
-      onchange={(event) => selectTab(event.currentTarget.value as AdminTab)}
+      onchange={(event) => replaceTabUrl(event.currentTarget.value as AdminTab)}
     >
       {#each adminSections as section}<option value={section.id}>{section.label}</option>{/each}
     </select>
@@ -781,7 +776,7 @@
         aria-selected={activeTab === section.id}
         aria-controls="admin-panel"
         tabindex={activeTab === section.id ? 0 : -1}
-        onclick={() => selectTab(section.id)}
+        onclick={() => replaceTabUrl(section.id)}
         onkeydown={(event) => handleTabKeydown(event, index)}>{section.label}</button
       >
     {/each}

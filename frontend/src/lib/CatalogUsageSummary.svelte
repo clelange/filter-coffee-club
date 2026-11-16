@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { formatCatalogDate } from '$lib/catalog';
-  import type { CatalogUsageItem } from '$lib/types';
+  import { formatCatalogDate } from '#lib/catalog.ts';
+  import type { CatalogUsageItem } from '#lib/types.ts';
 
   export let usage: CatalogUsageItem | null = null;
 </script>

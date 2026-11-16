@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { COFFEE_COLOR_PALETTE, contrastRatio, nextCoffeeColor } from '$lib/coffee-colors';
-  import type { Coffee } from '$lib/types';
+  import { COFFEE_COLOR_PALETTE, contrastRatio, nextCoffeeColor } from '#lib/coffee-colors.ts';
+  import type { Coffee } from '#lib/types.ts';
 
   export let value: string;
   export let coffees: Coffee[] = [];

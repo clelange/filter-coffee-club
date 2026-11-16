@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
-  import PhotoFramingEditor from '$lib/PhotoFramingEditor.svelte';
-  import { photoFramingStyle } from '$lib/photo-framing';
-  import type { PhotoFraming } from '$lib/types';
+  import PhotoFramingEditor from '#lib/PhotoFramingEditor.svelte';
+  import { photoFramingStyle } from '#lib/photo-framing.ts';
+  import type { PhotoFraming } from '#lib/types.ts';
 
   export let file: File | null = null;
   export let photoPath: string | null = null;

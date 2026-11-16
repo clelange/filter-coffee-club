@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { deviceModeStore } from '$lib/device';
-  import { api, jsonBody, setSession } from '$lib/api';
-  import type { Session } from '$lib/types';
+  import { deviceModeStore } from '#lib/device.ts';
+  import { api, jsonBody, setSession } from '#lib/api.ts';
+  import type { Session } from '#lib/types.ts';
 
   let displayName = $state('');
   let pin = $state('');

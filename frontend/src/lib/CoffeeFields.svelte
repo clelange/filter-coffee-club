@@ -1,6 +1,6 @@
 <script lang="ts">
-  import CoffeeColorPicker from '$lib/CoffeeColorPicker.svelte';
-  import type { Coffee, CoffeeFormData } from '$lib/types';
+  import CoffeeColorPicker from '#lib/CoffeeColorPicker.svelte';
+  import type { Coffee, CoffeeFormData } from '#lib/types.ts';
 
   export let form: CoffeeFormData;
   export let coffees: Coffee[] = [];

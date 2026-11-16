@@ -1,18 +1,18 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { page } from '$app/stores';
-  import BestBrewCard from '$lib/BestBrewCard.svelte';
+  import { page } from '$app/state';
+  import BestBrewCard from '#lib/BestBrewCard.svelte';
   import { goto } from '$app/navigation';
-  import AnalyticsScatterPlot from '$lib/AnalyticsScatterPlot.svelte';
-  import GrinderChartControls from '$lib/GrinderChartControls.svelte';
-  import GrinderConversionNote from '$lib/GrinderConversionNote.svelte';
-  import { chartMeasurements, grinderScales, type GrinderScale } from '$lib/analytics-grind';
-  import { loginPath } from '$lib/device';
-  import { api, ensureSession } from '$lib/api';
-  import ProfileLink from '$lib/ProfileLink.svelte';
-  import { selectedOption } from '$lib/selected-option';
-  import type { components } from '$lib/generated-api';
-  import type { AnalyticsAxisKey, AnalyticsRatingKey } from '$lib/types';
+  import AnalyticsScatterPlot from '#lib/AnalyticsScatterPlot.svelte';
+  import GrinderChartControls from '#lib/GrinderChartControls.svelte';
+  import GrinderConversionNote from '#lib/GrinderConversionNote.svelte';
+  import { chartMeasurements, grinderScales, type GrinderScale } from '#lib/analytics-grind.ts';
+  import { loginPath } from '#lib/device.ts';
+  import { api, ensureSession } from '#lib/api.ts';
+  import ProfileLink from '#lib/ProfileLink.svelte';
+  import { selectedOption } from '#lib/selected-option.ts';
+  import type { components } from '#lib/generated-api.d.ts';
+  import type { AnalyticsAxisKey, AnalyticsRatingKey } from '#lib/types.ts';
 
   type AnalyticsResponse = components['schemas']['AnalyticsResponse'];
 
@@ -158,12 +158,12 @@
 
   onMount(async () => {
     if (!(await ensureSession())) {
-      await goto(loginPath($page.url.pathname + $page.url.search));
+      await goto(loginPath(page.url.pathname + page.url.search));
       return;
     }
     try {
       data = await api<AnalyticsResponse>('/analytics');
-      const requested = $page.url.searchParams.get('coffee');
+      const requested = page.url.searchParams.get('coffee');
       if (requested && coffees().some((coffee) => String(coffee.id) === requested))
         selectCoffee(requested);
       else if (coffees().length === 1) selectCoffee(String(coffees()[0].id));

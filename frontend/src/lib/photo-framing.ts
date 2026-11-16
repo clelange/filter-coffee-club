@@ -1,4 +1,4 @@
-import type { PhotoFraming } from '$lib/types';
+import type { PhotoFraming } from '#lib/types.ts';
 
 export function photoFramingStyle(framing: PhotoFraming): string {
   const x = framing.focus_x * 100;

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { isClickUnit } from '$lib/catalog';
-  import type { GrinderDefinition, GrinderFormData, Preset } from '$lib/types';
+  import { isClickUnit } from '#lib/catalog.ts';
+  import type { GrinderDefinition, GrinderFormData, Preset } from '#lib/types.ts';
 
   export let form: GrinderFormData;
   export let definitions: GrinderDefinition[] = [];
