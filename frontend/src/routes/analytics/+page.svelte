@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/state';
   import BestBrewCard from '#lib/BestBrewCard.svelte';
   import { namedBrewDescription } from '#lib/brew-name.ts';
@@ -157,8 +157,15 @@
     changeCoffee(event);
   }
 
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   onMount(async () => {
-    if (!(await ensureSession())) {
+    const session = await ensureSession();
+    if (destroyed) return;
+    if (!session) {
       await goto(loginPath(page.url.pathname + page.url.search));
       return;
     }
