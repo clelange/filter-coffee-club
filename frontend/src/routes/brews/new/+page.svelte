@@ -203,18 +203,20 @@
   }
 
   onMount(async () => {
+    const url = page.url;
     const session = await ensureSession();
+    if (destroyed) return;
     if (!session) {
-      await goto(loginPath(page.url.pathname + page.url.search));
+      await goto(loginPath(url.pathname + url.search));
       return;
     }
     selectedBrewerIds = [session.profile.id];
     originalOperatorId = session.profile.id;
     originalBrewerIds = String(session.profile.id);
     canManageBrewers = true;
-    correctionId = Number(page.url.searchParams.get('correct')) || null;
-    editId = Number(page.url.searchParams.get('edit')) || null;
-    const repeatId = Number(page.url.searchParams.get('repeat')) || null;
+    correctionId = Number(url.searchParams.get('correct')) || null;
+    editId = Number(url.searchParams.get('edit')) || null;
+    const repeatId = Number(url.searchParams.get('repeat')) || null;
     if (correctionId) {
       if ($deviceModeStore === 'kiosk') {
         await goto(`/brews/${correctionId}`);
@@ -254,7 +256,7 @@
       filters = filterItems;
       presets = presetItems;
       operators = operatorItems;
-      const requestedCoffeeId = Number(page.url.searchParams.get('coffee')) || 0;
+      const requestedCoffeeId = Number(url.searchParams.get('coffee')) || 0;
       form.coffee_id =
         coffees.find((coffee) => coffee.id === requestedCoffeeId)?.id || coffees[0]?.id || 0;
       if (requestedCoffeeId && form.coffee_id !== requestedCoffeeId) {
@@ -268,7 +270,7 @@
           session.profile.role !== 'admin' &&
           session.profile.id !== source.operator_id
         ) {
-          await goto(`/brews/${correctionId}`);
+          if (!destroyed) await goto(`/brews/${correctionId}`);
           return;
         }
         [grinders, drippers, filters] = await Promise.all([
@@ -304,6 +306,7 @@
             'The coffee from that recipe is no longer available. Choose an available bag before saving.';
         }
         sourceRevision = source.revision;
+        if (destroyed) return;
         if (editId || correctionId) revisionTimer = setInterval(checkEditorRevision, 3000);
         if (correctionId) {
           postBrewWaterAdded = source.post_brew_water_added ?? null;
@@ -346,7 +349,7 @@
     checkingCapacity = true;
     try {
       active = await api<ActiveBrews>('/brews/active');
-      if (active.can_start) location.reload();
+      if (!destroyed && active.can_start) location.reload();
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not refresh brew capacity.';
     } finally {
@@ -587,7 +590,7 @@
         )
       });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
-      await goto(`/brews/${brew.id}`);
+      if (!destroyed) await goto(`/brews/${brew.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save the brew.';
       if (!editId && !correctionId && caught instanceof ApiError && caught.status === 409) {
@@ -619,7 +622,7 @@
         body: jsonBody({})
       });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
-      await goto(`/brews/${brew.id}`);
+      if (!destroyed) await goto(`/brews/${brew.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not repeat this brew.';
     } finally {
@@ -632,7 +635,7 @@
     joiningBrewId = source.id;
     try {
       await api<Brew>(`/brews/${source.id}/join`, { method: 'POST', body: jsonBody({}) });
-      await goto(`/brews/${source.id}`);
+      if (!destroyed) await goto(`/brews/${source.id}`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not join this brew.';
     } finally {

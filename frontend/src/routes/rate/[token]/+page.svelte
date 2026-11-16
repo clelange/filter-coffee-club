@@ -34,6 +34,7 @@
   let saving = $state(false);
   let error = $state('');
   let countdown = $state(10);
+  let destroyed = false;
   let timer: ReturnType<typeof setInterval> | null = null;
   let openFlavorGroupIds: number[] = $state([]);
   let rating: RatingDraft = $state({
@@ -64,7 +65,9 @@
         return;
       }
       brew = link.brew;
+      if (destroyed) return;
       session = await ensureSession();
+      if (destroyed) return;
       if (!session) {
         await goto(loginPath(`/rate/${token}`));
         return;
@@ -92,6 +95,7 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
     if (timer) clearInterval(timer);
   });
 
@@ -146,7 +150,7 @@
         method: 'POST',
         body: jsonBody(input)
       });
-      if (session?.device_mode === 'kiosk') {
+      if (!destroyed && session?.device_mode === 'kiosk') {
         countdown = 10;
         timer = setInterval(async () => {
           countdown -= 1;
@@ -164,7 +168,7 @@
     if (timer) clearInterval(timer);
     timer = null;
     await logout();
-    await goto(`/brews/${brew?.id}`);
+    if (!destroyed) await goto(`/brews/${brew?.id}`);
   }
 
   function children(parentId: number): FlavorTag[] {

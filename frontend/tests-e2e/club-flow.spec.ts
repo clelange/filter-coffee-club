@@ -2018,6 +2018,12 @@ test('a draft name is shown in the activity rail and can be cleared', async ({ p
     await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Comparison Coffee' })).toBeVisible();
     await expect(chip).toContainText('Comparison Coffee');
+
+    await page.getByRole('link', { name: 'Edit recipe' }).click();
+    await expect(page.getByRole('button', { name: 'Save and return to brew mode' })).toBeVisible();
+    await page.getByTestId('start-brew-chip').click();
+    await expect(page).toHaveURL(`${e2eBaseURL}/brews/new`);
+    await expect(page.getByRole('button', { name: 'Save and open brew mode' })).toBeVisible();
   } finally {
     if (draftId !== undefined) {
       const draft = await (await page.request.get(`/api/v1/brews/${draftId}`)).json();
@@ -2027,6 +2033,82 @@ test('a draft name is shown in the activity rail and can be cleared', async ({ p
       });
     }
   }
+});
+
+test('switching tasting invitations starts a separate rating', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Tasting navigation coffee');
+  const headers = { 'X-CSRF-Token': session.csrf_token };
+  const grinders = await (await page.request.get('/api/v1/grinders')).json();
+  const invitations: { brewId: number; path: string }[] = [];
+  for (const name of ['Tasting control', 'Tasting trial']) {
+    const created = await page.request.post('/api/v1/brews', {
+      headers,
+      data: {
+        coffee_id: coffee.id,
+        grinder_id: grinders[0].id,
+        brew_name: name,
+        dose_g: 15,
+        water_g: 240,
+        temperature_c: 94,
+        grinder_setting: 30
+      }
+    });
+    expect(created.ok()).toBeTruthy();
+    const draft = await created.json();
+    const finished = await page.request.post(`/api/v1/brews/${draft.id}/finalize`, {
+      headers,
+      data: { revision: draft.revision, total_brew_time_s: 180 }
+    });
+    expect(finished.ok()).toBeTruthy();
+    invitations.push({ brewId: draft.id, path: `/rate/${(await finished.json()).rating_token}` });
+  }
+
+  const [control, trial] = invitations;
+  await page.goto(control.path);
+  await expect(page.getByRole('main')).toContainText('Tasting control');
+  await completeRequiredRatingScales(page);
+  await page
+    .getByTestId('rating-brew-chip')
+    .and(page.locator(`[href="${trial.path}"]`))
+    .click();
+  await expect(page).toHaveURL(`${e2eBaseURL}${trial.path}`);
+  await expect(page.getByRole('main')).toContainText('Tasting trial');
+  await expect(page.getByText('Not set · 5 shown')).toBeVisible();
+  await completeRequiredRatingScales(page);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1/brews/${trial.brewId}/ratings`) &&
+      response.request().method() === 'POST' &&
+      response.ok()
+  );
+  await page.getByRole('button', { name: 'Submit rating' }).click();
+  await saved;
+  await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('main')).toContainText('Tasting control');
+});
+
+test('browser Back after cloning a bag restores the original coffee', async ({ page }) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Original navigation bag');
+  await page.goto(`/coffees/${coffee.id}`);
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Clone bag' }).click();
+  await expect(page.getByRole('heading', { name: 'Update bag details.' })).toBeVisible();
+  const clonedPath = new URL(page.url()).pathname;
+  expect(clonedPath).not.toBe(`/coffees/${coffee.id}`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${e2eBaseURL}/coffees/${coffee.id}`);
+  await expect(page.getByRole('heading', { name: 'About this bag.' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Brew this' })).toHaveAttribute(
+    'href',
+    `/brews/new?coffee=${coffee.id}`
+  );
+  // Keep the copied bag out of lists used by the rest of the suite.
+  await page.request.post(`/api/v1${clonedPath}/archive`, {
+    headers: { 'X-CSRF-Token': session.csrf_token }
+  });
 });
 
 test('members can finish and restore coffee while kiosk details stay read-only', async ({

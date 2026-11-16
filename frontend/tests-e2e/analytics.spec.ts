@@ -204,7 +204,15 @@ test('a coffee results link keeps its selection through sign-in', async ({ page 
 
 test('recipe map exposes comparable axes, ratings, and brew details', async ({ page }) => {
   await mockAnalyticsPage(page);
-  await page.goto('/analytics?kiosk=0');
+  await page.goto('/analytics?coffee=11&kiosk=0');
+  const coffeeComparison = page.getByRole('combobox', { name: 'Coffee', exact: true });
+  await expect(coffeeComparison).toHaveValue('11');
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Analytics' })
+    .click();
+  await expect(page).toHaveURL(`${e2eBaseURL}/analytics`);
+  await expect(coffeeComparison).toHaveValue('all');
 
   const settingsChart = page.locator('.chart-panel').filter({
     has: page.getByRole('heading', { name: 'Settings versus liking' })

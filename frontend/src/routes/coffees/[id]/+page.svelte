@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import CatalogPhoto from '#lib/CatalogPhoto.svelte';
@@ -66,9 +66,17 @@
     if (willUnload || !window.confirm('Discard your unsaved coffee changes?')) cancel();
   });
 
+  let destroyed = false;
+
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   onMount(async () => {
     await ensureSession();
-    await load();
+    if (destroyed) return;
+    await load(id);
+    if (destroyed) return;
     if (coffee && page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
     if (page.url.searchParams.get('photoError') === '1') {
       photoError =
@@ -76,7 +84,7 @@
     }
   });
 
-  async function load() {
+  async function load(id: number) {
     loading = true;
     error = '';
     loadMoreError = '';
@@ -133,6 +141,7 @@
   }
 
   function clearEditQuery() {
+    if (destroyed) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('edit');
     url.searchParams.delete('photoError');
@@ -209,9 +218,7 @@
         method: 'POST',
         body: jsonBody({})
       });
-      await goto(`/coffees/${clone.id}?edit=1`);
-      await load();
-      startEdit();
+      if (!destroyed) await goto(`/coffees/${clone.id}?edit=1`);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not clone this bag.';
     } finally {
@@ -229,7 +236,7 @@
         body: jsonBody({})
       });
       editMode = false;
-      await goto('/coffees?message=Coffee%20archived.');
+      if (!destroyed) await goto('/coffees?message=Coffee%20archived.');
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not archive this coffee.';
       archiveOpen = false;

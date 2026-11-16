@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import CatalogMetrics from '#lib/CatalogMetrics.svelte';
@@ -102,17 +102,26 @@
     if (willUnload || !window.confirm('Discard your unsaved equipment changes?')) cancel();
   });
 
+  let destroyed = false;
+
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   onMount(async () => {
     if (!validKind) {
       notFound = true;
       loading = false;
       return;
     }
-    if (!(await ensureSession())) {
+    const session = await ensureSession();
+    if (destroyed) return;
+    if (!session) {
       await goto(loginPath(`/equipment/${routeKind}/${id}`));
       return;
     }
     await load();
+    if (destroyed) return;
     if (item && page.url.searchParams.get('edit') === '1' && canManage()) startEdit();
   });
 
@@ -120,11 +129,13 @@
     loading = true;
     error = '';
     notFound = false;
+    const insightsPath = `/catalog/${singularKind}/${id}/insights?limit=12`;
     try {
       item = await api<EquipmentItem>(`/${routeKind}/${id}`);
+      if (destroyed) return;
       resetForm();
       try {
-        insights = await api<CatalogInsights>(`/catalog/${singularKind}/${id}/insights?limit=12`);
+        insights = await api<CatalogInsights>(insightsPath);
         insightsError = '';
       } catch (caught) {
         insightsError =
@@ -164,6 +175,7 @@
   }
 
   function clearEditQuery() {
+    if (destroyed) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('edit');
     history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
@@ -184,6 +196,7 @@
   async function save(event: SubmitEvent) {
     event.preventDefault();
     if (!item) return;
+    const itemPath = `/${routeKind}/${item.id}`;
     saving = true;
     error = '';
     success = '';
@@ -199,24 +212,24 @@
             : routeKind === 'drippers'
               ? dripperPayload(dripperForm)
               : filterPayload(filterForm);
-        item = await api<EquipmentItem>(`/${routeKind}/${item.id}`, {
+        item = await api<EquipmentItem>(itemPath, {
           method: 'PUT',
           body: jsonBody(body)
         });
       }
-      resetForm();
+      if (!destroyed) resetForm();
       try {
         if (photoFile) {
           item = await uploadCatalogPhoto<EquipmentItem>(
-            `/${routeKind}/${item.id}/photo`,
+            `${itemPath}/photo`,
             photoFile,
             photoFramingDraft
           );
         } else if (removePhotoDraft && item.photo_path) {
-          item = await api<EquipmentItem>(`/${routeKind}/${item.id}/photo`, { method: 'DELETE' });
+          item = await api<EquipmentItem>(`${itemPath}/photo`, { method: 'DELETE' });
         } else if (framingChanged) {
           item = await updateCatalogPhotoFraming<EquipmentItem>(
-            `/${routeKind}/${item.id}/photo`,
+            `${itemPath}/photo`,
             photoFramingDraft
           );
         }
@@ -248,7 +261,7 @@
         body: jsonBody({})
       });
       editMode = false;
-      await goto('/equipment?message=Equipment%20archived.');
+      if (!destroyed) await goto('/equipment?message=Equipment%20archived.');
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not archive this equipment.';
       archiveOpen = false;
