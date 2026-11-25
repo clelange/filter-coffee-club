@@ -38,29 +38,42 @@ export function isValidWaterProfile(draft: WaterDraft): draft is WaterProfile {
   );
 }
 
-// Display calculations only. The brew API normalises the submitted batch for storage.
-function gramsPerLitre(water: MineralWater): number[] {
-  const weights = [water.buffer_g, water.magnesium_g, water.distilled_g];
-  const largest = Math.max(...weights);
-  const parts = weights.map((weight) => weight / largest);
-  const total = parts.reduce((a, b) => a + b, 0);
-  return parts.map((part) => (part / total) * 1000);
+// Allocate whole units by largest remainder. Ingredient order breaks exact ties.
+function apportion(weights: bigint[], units: bigint): bigint[] {
+  const total = weights.reduce((a, b) => a + b);
+  const numerators = weights.map((weight) => weight * units);
+  const shares = numerators.map((n) => n / total);
+  const remainders = numerators.map((n) => n % total);
+  const order = [0, 1, 2].sort((a, b) => Number(remainders[b] - remainders[a]));
+  const remaining = units - shares.reduce((a, b) => a + b);
+  for (const i of order.slice(0, Number(remaining))) shares[i]++;
+  return shares;
+}
+
+function microgramsPerLitre(water: MineralWater): bigint[] {
+  // Use the same decimal weights as the JSON request, including scientific notation.
+  const parts = [water.buffer_g, water.magnesium_g, water.distilled_g].map((weight) => {
+    const [mantissa, exponent = '0'] = String(weight).split('e');
+    const [whole, fraction = ''] = mantissa.split('.');
+    return { digits: BigInt(whole + fraction), power: Number(exponent) - fraction.length };
+  });
+  const commonPower = Math.min(...parts.map((part) => part.power));
+  const weights = parts.map(({ digits, power }) => digits * 10n ** BigInt(power - commonPower));
+  return apportion(weights, 1_000_000_000n);
 }
 
 export function waterMixDescription(water: MineralWater): string {
-  const portions = gramsPerLitre(water).map((grams) => grams * 10);
-  const tenths = portions.map(Math.floor);
-  const order = [0, 1, 2].sort((a, b) => portions[b] - tenths[b] - (portions[a] - tenths[a]));
-  const remaining = 10_000 - tenths.reduce((a, b) => a + b, 0);
-  for (const i of order.slice(0, remaining)) tenths[i]++;
-  const [buffer, magnesium, distilled] = tenths.map((value) => (value / 10).toFixed(1));
+  // Round the saved one-litre profile to display precision, even in the unsaved preview.
+  const tenths = apportion(microgramsPerLitre(water), 10_000n);
+  const [buffer, magnesium, distilled] = tenths.map((value) => (Number(value) / 10).toFixed(1));
   return `Per litre · ${buffer} g buffer concentrate · ${magnesium} g magnesium concentrate · ${distilled} g distilled water`;
 }
 
 export function waterLabel(water: WaterProfile): string {
   if (water.preset === 'Tap water') return water.preset;
   const recipe = recipes[water.preset];
-  // Compare ratios within the microgram resolution of a saved profile.
-  const matches = gramsPerLitre(water).every((grams, i) => Math.abs(grams - recipe[i]) < 0.000001);
+  const matches = microgramsPerLitre(water).every(
+    (micrograms, i) => Number(micrograms) === Math.round(recipe[i] * 1_000_000)
+  );
   return matches ? water.preset : `${water.preset} (adjusted)`;
 }

@@ -312,6 +312,32 @@ test('finishing validates both time fields before combining them', async ({ page
   expect(submitted).toEqual([239]);
 });
 
+test('a blank final water weight blocks finishing even without a bloom', async ({ page }) => {
+  let brew = brewFromInput(411, { ...finishInput, bloom_water_g: null });
+  const submitted: number[] = [];
+  await mockCommonApi(page, () => brew);
+  await page.route('**/api/v1/brews/411/finalize', (route) => {
+    const { water_g } = route.request().postDataJSON();
+    submitted.push(water_g);
+    brew = { ...brew, status: 'completed', water_g };
+    return fulfillJson(route, brew);
+  });
+  await page.goto('/brews/411');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const water = page.getByRole('spinbutton', { name: 'Brew water', exact: true });
+  const finish = page.getByRole('button', { name: 'Finalize and invite tasters' });
+  for (const invalid of ['', '0', '5001']) {
+    await water.fill(invalid);
+    await expect(finish).toBeDisabled();
+    await expect(water).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText(/Final ratio:/)).toBeHidden();
+  }
+  await water.fill('132.5');
+  await finish.click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  expect(submitted).toEqual([132.5]);
+});
+
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -417,6 +443,38 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 async function chooseReferenceGrinder(page: Page) {
   await page.getByRole('combobox', { name: 'Choose a grinder' }).selectOption(String(grinder.id));
 }
+
+test('saving reveals and focuses an invalid ingredient in a collapsed water recipe', async ({
+  page
+}) => {
+  const brew = brewFromInput(420, finishInput);
+  await mockCommonApi(page, () => brew);
+  const saved: BrewInput[] = [];
+  await page.route('**/api/v1/brews/420', (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    saved.push(route.request().postDataJSON());
+    return fulfillJson(route, brew);
+  });
+  await page.goto('/brews/new?edit=420');
+  await page.getByRole('combobox', { name: 'Brewing water' }).selectOption('SCA');
+  const toggle = page.getByText('Adjust water recipe', { exact: true });
+  const ingredient = page.getByRole('textbox', { name: 'Buffer concentrate' });
+  const save = page.getByRole('button', { name: 'Save and return to brew mode' });
+  await toggle.click();
+  await ingredient.fill('-1');
+  await toggle.click();
+  await expect(ingredient).toBeHidden();
+  await save.click();
+  await expect(ingredient).toBeFocused();
+  await expect(ingredient).toHaveAttribute('aria-invalid', 'true');
+  expect(saved).toHaveLength(0);
+  await ingredient.fill('10');
+  await toggle.click();
+  await save.click();
+  await expect(page).toHaveURL(/\/brews\/420$/);
+  expect(saved).toHaveLength(1);
+  expect(saved[0].water_profile).toMatchObject({ preset: 'SCA', buffer_g: 10 });
+});
 
 test('the kiosk restores one ingredient at full precision and keeps the other changes', async ({
   page
@@ -848,6 +906,40 @@ test('editing a brew name preserves an exact stored ratio between input steps', 
   await page.getByLabel('Brew name (optional)').fill('House recipe');
   await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
   await expect(page.getByRole('heading', { name: 'House recipe' })).toBeVisible();
+});
+
+test('the kiosk restores an exact recorded ratio while keeping other recipe edits', async ({
+  page
+}) => {
+  const targetRatio = 250 / 15;
+  let brew = brewFromInput(305, {
+    ...finishInput,
+    dose_g: 15,
+    water_g: 250,
+    target_ratio: targetRatio
+  });
+  await mockCommonApi(page, () => brew, 'kiosk');
+  await page.route('**/api/v1/brews/305', (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    brew = brewFromInput(305, route.request().postDataJSON());
+    return fulfillJson(route, brew);
+  });
+  await page.goto('/brews/new?edit=305&kiosk=1');
+  await page.getByRole('button', { name: 'Increase Temperature' }).click();
+  await page.getByRole('button', { name: 'Increase Target ratio' }).click();
+  const ratioControl = page.getByRole('button', { name: /^Set Target ratio;/ });
+  await expect(ratioControl).not.toHaveText(String(targetRatio));
+  await page.getByRole('button', { name: `Restore Target ratio to ${targetRatio}` }).click();
+  await expect(ratioControl).toBeFocused();
+  await expect(ratioControl).toHaveText(String(targetRatio));
+  await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
+  await expect(page).toHaveURL(/\/brews\/305$/);
+  expect(brew).toMatchObject({
+    target_ratio: targetRatio,
+    dose_g: 15,
+    water_g: 250,
+    temperature_c: 95
+  });
 });
 
 test('an inactive source preset remains visible while editing an existing brew', async ({

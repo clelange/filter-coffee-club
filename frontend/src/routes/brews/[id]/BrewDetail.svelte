@@ -47,7 +47,8 @@
   let finalSeconds = $state(0);
   let minutesValid = $state(true);
   let secondsValid = $state(true);
-  let actualWater = $state(0);
+  let actualWater = $state<number | null>(null);
+  let waterValid = $state(true);
   let postBrewWaterAdded: boolean | null = $state(false);
   let postBrewWaterAmount: number | null = $state(null);
   let postBrewWaterInvalid = $state(false);
@@ -72,14 +73,19 @@
   let joining = $state(false);
   let destroyed = false;
 
-  const finalRatio = $derived(calculateBrewRatio(actualWater, currentBrewDose()));
-  const finalRatioUnusual = $derived(
-    currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
+  const finalRatio = $derived(
+    waterValid && actualWater !== null ? calculateBrewRatio(actualWater, currentBrewDose()) : null
   );
-  const finalBloomWaterInvalid = $derived(bloomWaterExceeds(actualWater));
+  const finalRatioUnusual = $derived(
+    actualWater !== null &&
+      currentBrewDose() > 0 &&
+      brewRatioIsUnusual(actualWater, currentBrewDose())
+  );
+  const finalBloomWaterInvalid = $derived(actualWater !== null && bloomWaterExceeds(actualWater));
   const finishInvalid = $derived(
     !minutesValid ||
       !secondsValid ||
+      finalRatio === null ||
       finalMinutes * 60 + finalSeconds <= 0 ||
       finalBloomWaterInvalid ||
       postBrewWaterInvalid
@@ -719,20 +725,24 @@
           <NumberStepper
             label="Brew water"
             bind:value={actualWater}
+            onvaliditychange={(valid) => (waterValid = valid)}
             min={1}
             max={5000}
+            numericInputStep="any"
             unit="g"
             inputmode="numeric"
           />
         </div>
-        <p class:warning={finalRatioUnusual} class="finish-ratio" role="status">
-          Final ratio: <strong>1:{finalRatio}</strong>{#if finalRatioUnusual}
-            — outside the normal 1:10–1:25 range. Check that both amounts are whole-batch totals.
-          {/if}
-        </p>
-        {#if finalBloomWaterInvalid}<p class="error" role="alert">
-            Brew water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
-          </p>{/if}
+        {#if finalRatio !== null}
+          <p class:warning={finalRatioUnusual} class="finish-ratio" role="status">
+            Final ratio: <strong>1:{finalRatio}</strong>{#if finalRatioUnusual}
+              — outside the normal 1:10–1:25 range. Check that both amounts are whole-batch totals.
+            {/if}
+          </p>
+          {#if finalBloomWaterInvalid}<p class="error" role="alert">
+              Brew water cannot be lower than the recorded {brew.bloom_water_g} g bloom.
+            </p>{/if}
+        {/if}
         <PostBrewWaterFields
           bind:added={postBrewWaterAdded}
           bind:amount={postBrewWaterAmount}
@@ -973,7 +983,7 @@
   </div>
 {/if}
 
-{#if brew}
+{#if brew && actualWater !== null}
   <ConfirmDialog
     open={finalRatioConfirmationOpen}
     title={`Save unusual 1:${finalRatio} ratio?`}

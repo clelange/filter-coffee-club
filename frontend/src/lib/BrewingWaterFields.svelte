@@ -40,7 +40,7 @@
   </label>
   {#if draft.preset !== 'Tap water' && original.preset !== 'Tap water'}
     {#key draft.preset}
-      <details>
+      <details oninvalidcapture={(event) => (event.currentTarget.open = true)}>
         <summary>Adjust water recipe</summary>
         <div class="mix">
           <p class="hint">
@@ -52,28 +52,14 @@
           </p>
           <div class="field-grid">
             {#each ingredients as [field, label]}
-              {@const originalWeight = original[field]}
-              <div class="ingredient">
-                <NumberStepper
-                  {label}
-                  bind:value={draft[field]}
-                  step={0.000001}
-                  buttonIncrement={0.01}
-                  unit="g"
-                />
-                {#if originalWeight !== null && originalWeight !== draft[field]}
-                  <button
-                    class="secondary"
-                    type="button"
-                    aria-label={`Restore ${label} to ${originalWeight} g`}
-                    onclick={() => {
-                      if (draft.preset !== 'Tap water') draft[field] = originalWeight;
-                    }}
-                  >
-                    Restore {originalWeight} g
-                  </button>
-                {/if}
-              </div>
+              <NumberStepper
+                {label}
+                bind:value={draft[field]}
+                recordedValue={original[field] ?? undefined}
+                step={0.000001}
+                buttonIncrement={0.01}
+                unit="g"
+              />
             {/each}
           </div>
           {#if profile && profile.preset !== 'Tap water'}
@@ -111,12 +97,6 @@
     display: grid;
     gap: 0.75rem;
     margin: 0.25rem 0 0;
-  }
-  .ingredient {
-    min-width: 0;
-  }
-  .ingredient button {
-    margin-top: 0.5rem;
   }
   p {
     margin: 0;
