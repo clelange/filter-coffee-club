@@ -7,6 +7,7 @@
     label,
     value = $bindable(),
     step = 1,
+    numericInputStep,
     buttonIncrement,
     min = 0,
     max = Number.POSITIVE_INFINITY,
@@ -20,6 +21,7 @@
     label: string;
     value: number | null;
     step?: number;
+    numericInputStep?: number | 'any';
     buttonIncrement?: number;
     min?: number;
     max?: number;
@@ -71,6 +73,13 @@
       onvaliditychange?.(true);
       onchange?.(value);
     }
+  }
+
+  function restoreRecordedValue() {
+    if (recordedValue === undefined) return;
+    value = recordedValue;
+    onchange?.(value);
+    (valueButton ?? valueInput)?.focus();
   }
 
   function handleInput(event: Event) {
@@ -261,7 +270,7 @@
         oninvalid={decimal ? commitDecimal : undefined}
         {min}
         {max}
-        {step}
+        step={decimal ? step : (numericInputStep ?? step)}
         {inputmode}
         required={!nullable}
       />
@@ -271,6 +280,14 @@
   </div>
   {#if error && valueInput}
     <span class="error" id={decimalErrorId}>{error}</span>
+  {/if}
+  {#if recordedValue !== undefined && value !== recordedValue}
+    <button
+      class="secondary restore"
+      type="button"
+      aria-label={`Restore ${label} to ${recordedValue}${unit ? ` ${unit}` : ''}`}
+      onclick={restoreRecordedValue}>Restore {recordedValue} {unit}</button
+    >
   {/if}
 </div>
 
@@ -326,6 +343,7 @@
 <style>
   .stepper-field {
     display: grid;
+    align-content: start;
     gap: 7px;
     min-width: 0;
   }
@@ -341,7 +359,7 @@
     border-radius: 12px;
     background: var(--surface);
   }
-  button {
+  button:where(:not(.restore)) {
     min-width: 48px;
     min-height: 52px;
     border: 0;
@@ -350,6 +368,9 @@
     cursor: pointer;
     font-size: 1.45rem;
     font-weight: 800;
+  }
+  .restore {
+    justify-self: start;
   }
   input {
     min-width: 0;
