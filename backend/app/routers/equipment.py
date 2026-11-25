@@ -4,11 +4,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..catalog_photos import (
-    remove_catalog_photo,
-    save_catalog_photo,
-    update_catalog_photo_framing,
-)
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..grinders import grinder_definition
@@ -25,12 +20,7 @@ from ..schemas.equipment import (
 )
 from ..schemas.photos import PhotoFramingUpdate
 from ..security import require_csrf, require_login_session, require_personal_csrf
-from ._catalog_photos import (
-    catalog_photo_http_errors,
-    ensure_catalog_photo_writes_allowed,
-    photo_framing_tuple,
-    uploaded_photo_framing,
-)
+from ._catalog_photos import delete_item_photo, reframe_item_photo, upload_item_photo
 from ._equipment import grinder_definition_payloads
 
 router = APIRouter()
@@ -145,16 +135,7 @@ async def put_grinder_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Grinder:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Grinder, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Grinder not found")
-    framing = uploaded_photo_framing(focus_x, focus_y, zoom)
-    settings = request.app.state.settings
-    content = await photo.read(settings.max_catalog_photo_bytes + 1)
-    with catalog_photo_http_errors():
-        await save_catalog_photo(content, settings, db, item, framing)
-    return item
+    return await upload_item_photo(request, db, Grinder, item_id, photo, focus_x, focus_y, zoom)
 
 
 @router.patch("/grinders/{item_id}/photo", response_model=GrinderResponse)
@@ -165,13 +146,7 @@ def patch_grinder_photo_framing(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Grinder:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Grinder, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Grinder not found")
-    with catalog_photo_http_errors():
-        update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
-    return item
+    return reframe_item_photo(request, db, Grinder, item_id, payload.photo_framing)
 
 
 @router.delete("/grinders/{item_id}/photo", response_model=GrinderResponse)
@@ -181,12 +156,7 @@ def delete_grinder_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Grinder:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Grinder, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Grinder not found")
-    remove_catalog_photo(request.app.state.settings, db, item)
-    return item
+    return delete_item_photo(request, db, Grinder, item_id)
 
 
 @router.post("/grinders/{item_id}/archive", response_model=GrinderResponse)
@@ -272,16 +242,7 @@ async def put_dripper_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Dripper:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Dripper, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Dripper not found")
-    framing = uploaded_photo_framing(focus_x, focus_y, zoom)
-    settings = request.app.state.settings
-    content = await photo.read(settings.max_catalog_photo_bytes + 1)
-    with catalog_photo_http_errors():
-        await save_catalog_photo(content, settings, db, item, framing)
-    return item
+    return await upload_item_photo(request, db, Dripper, item_id, photo, focus_x, focus_y, zoom)
 
 
 @router.patch("/drippers/{item_id}/photo", response_model=DripperResponse)
@@ -292,13 +253,7 @@ def patch_dripper_photo_framing(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Dripper:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Dripper, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Dripper not found")
-    with catalog_photo_http_errors():
-        update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
-    return item
+    return reframe_item_photo(request, db, Dripper, item_id, payload.photo_framing)
 
 
 @router.delete("/drippers/{item_id}/photo", response_model=DripperResponse)
@@ -308,12 +263,7 @@ def delete_dripper_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Dripper:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(Dripper, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Dripper not found")
-    remove_catalog_photo(request.app.state.settings, db, item)
-    return item
+    return delete_item_photo(request, db, Dripper, item_id)
 
 
 @router.post("/drippers/{item_id}/archive", response_model=DripperResponse)
@@ -401,16 +351,7 @@ async def put_filter_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> BrewFilter:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(BrewFilter, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Filter not found")
-    framing = uploaded_photo_framing(focus_x, focus_y, zoom)
-    settings = request.app.state.settings
-    content = await photo.read(settings.max_catalog_photo_bytes + 1)
-    with catalog_photo_http_errors():
-        await save_catalog_photo(content, settings, db, item, framing)
-    return item
+    return await upload_item_photo(request, db, BrewFilter, item_id, photo, focus_x, focus_y, zoom)
 
 
 @router.patch("/filters/{item_id}/photo", response_model=FilterResponse)
@@ -421,13 +362,7 @@ def patch_filter_photo_framing(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> BrewFilter:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(BrewFilter, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Filter not found")
-    with catalog_photo_http_errors():
-        update_catalog_photo_framing(db, item, photo_framing_tuple(payload.photo_framing))
-    return item
+    return reframe_item_photo(request, db, BrewFilter, item_id, payload.photo_framing)
 
 
 @router.delete("/filters/{item_id}/photo", response_model=FilterResponse)
@@ -437,12 +372,7 @@ def delete_filter_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> BrewFilter:
-    ensure_catalog_photo_writes_allowed(request)
-    item = db.get(BrewFilter, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Filter not found")
-    remove_catalog_photo(request.app.state.settings, db, item)
-    return item
+    return delete_item_photo(request, db, BrewFilter, item_id)
 
 
 @router.post("/filters/{item_id}/archive", response_model=FilterResponse)

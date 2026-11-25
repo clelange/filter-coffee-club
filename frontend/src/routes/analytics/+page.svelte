@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ratingScales } from '#lib/rating-scales.ts';
   import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/state';
   import BestBrewCard from '#lib/BestBrewCard.svelte';
@@ -24,13 +25,6 @@
     { key: 'total_brew_time_s', label: 'Brew time' },
     { key: 'target_flow_g_s', label: 'Target flow' },
     { key: 'overall_throughput_g_s', label: 'Overall throughput' }
-  ];
-  const ratingOptions: { key: AnalyticsRatingKey; label: string }[] = [
-    { key: 'liking', label: 'Liking' },
-    { key: 'acidity', label: 'Acidity' },
-    { key: 'bitterness', label: 'Bitterness' },
-    { key: 'sweetness', label: 'Sweetness' },
-    { key: 'body', label: 'Body' }
   ];
 
   let data = $state<AnalyticsResponse | null>(null);
@@ -150,7 +144,7 @@
   }
 
   function ratingLabel(key: AnalyticsRatingKey): string {
-    return ratingOptions.find((option) => option.key === key)?.label ?? key;
+    return ratingScales.find((option) => option.key === key)?.label ?? key;
   }
 
   function changeMapCoffee(event: Event): void {
@@ -351,7 +345,7 @@
               ></label
             ><label
               >Colour<select bind:value={mapColor}
-                >{#each ratingOptions as option}<option value={option.key}>{option.label}</option
+                >{#each ratingScales as option}<option value={option.key}>{option.label}</option
                   >{/each}</select
               ></label
             >{#if mapNeedsGrinder()}

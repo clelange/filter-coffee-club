@@ -8,6 +8,7 @@
   import DripperFields from '#lib/DripperFields.svelte';
   import FilterFields from '#lib/FilterFields.svelte';
   import GrinderFields from '#lib/GrinderFields.svelte';
+  import { CatalogPhotoDraft } from '#lib/catalog-photo-draft.svelte.ts';
   import PhotoPicker from '#lib/PhotoPicker.svelte';
   import RecentBrews from '#lib/RecentBrews.svelte';
   import {
@@ -16,9 +17,7 @@
     appSettingsStore,
     ensureSession,
     jsonBody,
-    sessionStore,
-    updateCatalogPhotoFraming,
-    uploadCatalogPhoto
+    sessionStore
   } from '#lib/api.ts';
   import {
     dripperPayload,
@@ -41,8 +40,7 @@
     DripperFormData,
     FilterFormData,
     Grinder,
-    GrinderFormData,
-    PhotoFraming
+    GrinderFormData
   } from '#lib/types.ts';
 
   type EquipmentItem = Grinder | Dripper | BrewFilter;
@@ -61,10 +59,7 @@
   let insightsError = $state('');
   let success = $state('');
   let photoError = $state('');
-  let photoFile: File | null = $state(null);
-  let photoFramingDraft: PhotoFraming | null = $state(null);
-  let photoFramingBaseline = $state('null');
-  let removePhotoDraft = $state(false);
+  const photo = new CatalogPhotoDraft();
   let saving = $state(false);
   let archiveOpen = $state(false);
   let archiving = $state(false);
@@ -86,13 +81,7 @@
         ? JSON.stringify(dripperForm)
         : JSON.stringify(filterForm)
   );
-  const dirty = $derived(
-    editMode &&
-      (currentFormSnapshot !== baseline ||
-        photoFile !== null ||
-        removePhotoDraft ||
-        JSON.stringify(photoFramingDraft) !== photoFramingBaseline)
-  );
+  const dirty = $derived(editMode && (currentFormSnapshot !== baseline || photo.dirty));
   function canManage(): boolean {
     return Boolean($sessionStore && $deviceModeStore !== 'kiosk' && item && !item.archived);
   }
@@ -154,21 +143,13 @@
     if (routeKind === 'grinders') grinderForm = grinderToForm(item as Grinder);
     else if (routeKind === 'drippers') dripperForm = dripperToForm(item as Dripper);
     else filterForm = filterToForm(item as BrewFilter);
-    baseline =
-      routeKind === 'grinders'
-        ? JSON.stringify(grinderForm)
-        : routeKind === 'drippers'
-          ? JSON.stringify(dripperForm)
-          : JSON.stringify(filterForm);
+    baseline = currentFormSnapshot;
   }
 
   function startEdit() {
     if (!item || !canManage()) return;
     resetForm();
-    photoFile = null;
-    photoFramingDraft = item.photo_framing;
-    photoFramingBaseline = JSON.stringify(item.photo_framing);
-    removePhotoDraft = false;
+    photo.reset(item);
     photoError = '';
     success = '';
     editMode = true;
@@ -184,10 +165,7 @@
   function cancelEdit() {
     if (!item) return;
     resetForm();
-    photoFile = null;
-    photoFramingDraft = item.photo_framing;
-    photoFramingBaseline = JSON.stringify(item.photo_framing);
-    removePhotoDraft = false;
+    photo.reset(item);
     photoError = '';
     editMode = false;
     clearEditQuery();
@@ -195,14 +173,13 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!item) return;
+    if (!item || saving) return;
     const itemPath = `/${routeKind}/${item.id}`;
     saving = true;
     error = '';
     success = '';
     photoError = '';
     try {
-      const framingChanged = JSON.stringify(photoFramingDraft) !== photoFramingBaseline;
       const predefinedGrinder =
         routeKind === 'grinders' && (item as Grinder).definition_key !== 'custom';
       if (!predefinedGrinder) {
@@ -219,28 +196,12 @@
       }
       if (!destroyed) resetForm();
       try {
-        if (photoFile) {
-          item = await uploadCatalogPhoto<EquipmentItem>(
-            `${itemPath}/photo`,
-            photoFile,
-            photoFramingDraft
-          );
-        } else if (removePhotoDraft && item.photo_path) {
-          item = await api<EquipmentItem>(`${itemPath}/photo`, { method: 'DELETE' });
-        } else if (framingChanged) {
-          item = await updateCatalogPhotoFraming<EquipmentItem>(
-            `${itemPath}/photo`,
-            photoFramingDraft
-          );
-        }
+        item = await photo.save(`${itemPath}/photo`, item);
       } catch (caught) {
         photoError = `Equipment details were saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not update the photo.'}`;
         return;
       }
-      photoFile = null;
-      photoFramingDraft = item.photo_framing;
-      photoFramingBaseline = JSON.stringify(item.photo_framing);
-      removePhotoDraft = false;
+      photo.reset(item);
       editMode = false;
       clearEditQuery();
       success = 'Equipment updated.';
@@ -320,10 +281,9 @@
     <section class="detail-hero">
       <div class="detail-photo" data-testid="detail-photo">
         <CatalogPhoto
-          photoPath={editMode && removePhotoDraft ? null : item.photo_path}
-          photoFraming={editMode ? photoFramingDraft : item.photo_framing}
+          photoPath={editMode && photo.removeOnSave ? null : item.photo_path}
+          photoFraming={editMode ? photo.framing : item.photo_framing}
           alt={title()}
-          endpoint={`/${routeKind}/${item.id}/photo`}
         />
       </div>
       <div class="detail-identity" data-testid="detail-identity">
@@ -351,56 +311,50 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     {#if editMode}
-      <form class="panel edit-panel" onsubmit={save}>
-        <div class="section-heading">
-          <p class="eyebrow">Edit mode</p>
-          <h2>Update {eyebrow().toLowerCase()} details.</h2>
-          <p class="muted">Changes stay local until you press Save changes.</p>
-        </div>
-        {#if routeKind === 'grinders'}
-          {#if (item as Grinder).definition_key === 'custom'}
-            <GrinderFields bind:form={grinderForm} editing />
-          {:else}
-            <div class="predefined-note" role="note">
-              <strong>{title()}</strong>
-              <span>{summary()}</span>
-              <span>
-                This predefined grinder’s identity and adjustment specifications are managed by FCC.
-                You can still update its photo.
-              </span>
+      <form class="panel" onsubmit={save}>
+        <fieldset class="edit-panel" aria-labelledby="catalog-edit-title" disabled={saving}>
+          <div class="section-heading">
+            <p class="eyebrow">Edit mode</p>
+            <h2 id="catalog-edit-title">Update {eyebrow().toLowerCase()} details.</h2>
+            <p class="muted">Changes stay local until you press Save changes.</p>
+          </div>
+          {#if routeKind === 'grinders'}
+            {#if (item as Grinder).definition_key === 'custom'}
+              <GrinderFields bind:form={grinderForm} editing />
+            {:else}
+              <div class="predefined-note" role="note">
+                <strong>{title()}</strong>
+                <span>{summary()}</span>
+                <span>
+                  This predefined grinder’s identity and adjustment specifications are managed by
+                  FCC. You can still update its photo.
+                </span>
+              </div>
+            {/if}
+          {:else if routeKind === 'drippers'}<DripperFields
+              bind:form={dripperForm}
+            />{:else}<FilterFields bind:form={filterForm} />{/if}
+          {#if !$appSettingsStore?.demo_mode}
+            <div class="photo-edit">
+              <PhotoPicker
+                bind:file={photo.file}
+                bind:framing={photo.framing}
+                photoPath={item.photo_path}
+                allowRemoval
+                bind:removeOnSave={photo.removeOnSave}
+                label={item.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
+              />
             </div>
           {/if}
-        {:else if routeKind === 'drippers'}<DripperFields
-            bind:form={dripperForm}
-          />{:else}<FilterFields bind:form={filterForm} />{/if}
-        {#if !$appSettingsStore?.demo_mode}
-          <div class="photo-edit">
-            <PhotoPicker
-              bind:file={photoFile}
-              bind:framing={photoFramingDraft}
-              photoPath={removePhotoDraft ? null : item.photo_path}
-              label={item.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
-            />
-            {#if item.photo_path && !photoFile}
-              {#if removePhotoDraft}<button
-                  class="secondary"
-                  type="button"
-                  onclick={() => (removePhotoDraft = false)}>Keep current photo</button
-                >{:else}<button
-                  class="secondary"
-                  type="button"
-                  onclick={() => (removePhotoDraft = true)}>Remove current photo on save</button
-                >{/if}
-            {/if}
+          {#if photoError}<p class="error" role="alert">{photoError}</p>{/if}
+          <div class="actions">
+            <button class="primary">{saving ? 'Saving…' : 'Save changes'}</button><button
+              class="secondary"
+              type="button"
+              onclick={cancelEdit}>Cancel</button
+            >
           </div>
-        {/if}
-        {#if photoError}<p class="error" role="alert">{photoError}</p>{/if}
-        <div class="actions">
-          <button class="primary" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button
-          ><button class="secondary" type="button" disabled={saving} onclick={cancelEdit}
-            >Cancel</button
-          >
-        </div>
+        </fieldset>
       </form>
     {:else}
       <section class="metadata-section" aria-labelledby="metadata-heading">

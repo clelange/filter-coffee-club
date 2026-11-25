@@ -400,7 +400,7 @@ export type AnalyticsAxisKey =
   | 'target_flow_g_s'
   | 'overall_throughput_g_s';
 
-export type AnalyticsRatingKey = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
+export type { RatingScaleKey as AnalyticsRatingKey } from './rating-scales';
 
 export interface RatingSummary {
   can_view: boolean;

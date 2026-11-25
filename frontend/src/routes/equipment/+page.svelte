@@ -288,7 +288,6 @@
                 href={`/equipment/grinders/${item.id}`}
                 photoPath={item.photo_path}
                 photoFraming={item.photo_framing}
-                photoEndpoint={`/grinders/${item.id}/photo`}
                 alt={`${item.manufacturer} ${item.model}`}
                 eyebrow={item.manufacturer}
                 title={item.model}
@@ -312,7 +311,6 @@
                 href={`/equipment/drippers/${item.id}`}
                 photoPath={item.photo_path}
                 photoFraming={item.photo_framing}
-                photoEndpoint={`/drippers/${item.id}/photo`}
                 alt={`${item.manufacturer ?? ''} ${item.model}`.trim()}
                 eyebrow={item.manufacturer ?? 'Dripper'}
                 title={item.model}
@@ -335,7 +333,6 @@
                 href={`/equipment/filters/${item.id}`}
                 photoPath={item.photo_path}
                 photoFraming={item.photo_framing}
-                photoEndpoint={`/filters/${item.id}/photo`}
                 alt={item.name}
                 eyebrow="Filter"
                 title={item.name}

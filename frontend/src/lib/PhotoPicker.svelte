@@ -8,13 +8,15 @@
   export let photoPath: string | null = null;
   export let framing: PhotoFraming | null = null;
   export let label = 'Photo';
+  export let allowRemoval = false;
+  export let removeOnSave = false;
 
   let previewUrl: string | null = null;
   let previewFile: File | null = null;
   let editorOpen = false;
   let editorButton: HTMLButtonElement;
 
-  $: source = previewUrl ?? photoPath;
+  $: source = previewUrl ?? (removeOnSave ? null : photoPath);
 
   $: if (file !== previewFile) {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -73,6 +75,12 @@
     </div>
   {/if}
 </div>
+
+{#if allowRemoval && photoPath && !file}
+  <button class="secondary" type="button" onclick={() => (removeOnSave = !removeOnSave)}>
+    {removeOnSave ? 'Keep current photo' : 'Remove current photo on save'}
+  </button>
+{/if}
 
 {#if editorOpen && source}
   <PhotoFramingEditor

@@ -4,7 +4,6 @@ from collections import Counter, defaultdict
 from statistics import mean
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..calculations import brew_ratio, overall_throughput
@@ -14,6 +13,7 @@ from ..models import Brew, Profile, Rating
 from ..schemas.analytics import AnalyticsCoffeeSummary, AnalyticsRatingMetric, AnalyticsResponse
 from ..schemas.ratings import RatedBrewInsight
 from ..security import require_user
+from ..services.brew_store import brew_detail_query
 from ..tasting import MIN_RANKING_RATINGS, RATING_FIELDS, ranked_brew_ids, rating_aggregate
 from ._brew_support import brew_payload
 from ._equipment import grinder_definition_payloads
@@ -28,14 +28,8 @@ def analytics(
 ) -> AnalyticsResponse:
     brews = list(
         db.scalars(
-            select(Brew)
+            brew_detail_query()
             .options(
-                selectinload(Brew.coffee),
-                selectinload(Brew.operator),
-                selectinload(Brew.operators),
-                selectinload(Brew.grinder),
-                selectinload(Brew.dripper),
-                selectinload(Brew.brew_filter),
                 selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
             )
             .where(Brew.status == "completed")
