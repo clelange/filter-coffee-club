@@ -760,6 +760,7 @@ def test_brew_metadata_migrations_preserve_existing_brews(tmp_path: Path) -> Non
         assert (brew.status, brew.water_g, brew.total_brew_time_s) == ("completed", 500, 200)
         assert (brew.post_brew_water_added, brew.post_brew_water_g) == (None, None)
         assert brew.brew_name is None
+        assert brew.water_profile == {"preset": "Tap water"}
         brew.brew_name = "V60 control"
         brew.post_brew_water_added = True
         brew.post_brew_water_g = 50

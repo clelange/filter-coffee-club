@@ -77,6 +77,7 @@ const brews = coffees.slice(0, 4).map((coffee) => ({
   status: 'completed',
   dose_g: 20,
   water_g: 320,
+  water_profile: { preset: 'Tap water' },
   ratio: 16,
   target_ratio: 16,
   temperature_c: 94,

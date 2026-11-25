@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -235,6 +236,7 @@ class Brew(TimestampMixin, Base):
     brew_name: Mapped[str | None] = mapped_column(String(80))
     dose_g: Mapped[float] = mapped_column(Float)
     water_g: Mapped[float] = mapped_column(Float)
+    water_profile: Mapped[dict] = mapped_column(JSON, server_default='{"preset":"Tap water"}')
     post_brew_water_added: Mapped[bool | None] = mapped_column(Boolean)
     post_brew_water_g: Mapped[int | None] = mapped_column(Integer)
     target_ratio: Mapped[float] = mapped_column(Float)

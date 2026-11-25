@@ -10,6 +10,94 @@ import pytest
 from tests.api_helpers import bootstrap, build_client
 
 
+def test_water_profile_is_normalised_and_preserved_through_the_brew_lifecycle(tmp_path: Path):
+    with build_client(tmp_path) as client:
+        _, headers = bootstrap(client)
+        coffee = client.post(
+            "/api/v1/coffees", headers=headers, json={"roaster": "Test", "name": "Water trial"}
+        ).json()
+        recipe = {
+            "coffee_id": coffee["id"],
+            "grinder_id": client.get("/api/v1/grinders").json()[0]["id"],
+            "dose_g": 15,
+            "water_g": 240,
+            "temperature_c": 94,
+            "grinder_setting": 30,
+        }
+        tap = {"preset": "Tap water"}
+        batch = {"preset": "SCA", "buffer_g": 20.01, "magnesium_g": 35, "distilled_g": 444.99}
+        per_litre = {"preset": "SCA", "buffer_g": 40.02, "magnesium_g": 70, "distilled_g": 889.98}
+        url = "/api/v1/brews"
+        for invalid in (
+            {**batch, "preset": "My mix"},
+            {**batch, "preset": "Tap water"},
+            {**batch, "buffer_g": -1},
+            {"preset": "SCA"},
+            {**batch, "buffer_g": 0, "magnesium_g": 0, "distilled_g": 0},
+        ):
+            assert (
+                client.post(
+                    url, headers=headers, json={**recipe, "water_profile": invalid}
+                ).status_code
+                == 422
+            )
+
+        create_headers = {**headers, "Idempotency-Key": "water-profile-retry"}
+        draft = client.post(
+            url, headers=create_headers, json={**recipe, "water_profile": batch}
+        ).json()
+        assert draft["water_profile"] == per_litre
+        assert (
+            client.post(
+                url, headers=create_headers, json={**recipe, "water_profile": per_litre}
+            ).json()["id"]
+            == draft["id"]
+        )
+        assert client.post(url, headers=create_headers, json=recipe).status_code == 409
+        path = f"{url}/{draft['id']}"
+        edit = client.put(
+            path, headers=headers, json={**recipe, "revision": draft["revision"]}
+        ).json()
+        assert edit["water_profile"] == per_litre
+        completed = client.post(
+            f"{path}/finalize",
+            headers=headers,
+            json={"total_brew_time_s": 180, "revision": edit["revision"]},
+        ).json()
+        assert completed["water_profile"] == per_litre
+        clone = client.post(f"{path}/clone", headers=headers).json()
+        assert clone["water_profile"] == per_litre
+        corrected = client.put(
+            f"{path}/correction",
+            headers=headers,
+            json={
+                **recipe,
+                "revision": completed["revision"],
+                "total_brew_time_s": 180,
+                "water_profile": tap,
+            },
+        ).json()
+        assert corrected["water_profile"] == tap
+        assert client.post(url, headers=headers, json=recipe).json()["water_profile"] == tap
+
+        rows = client.get("/api/v1/exports/json").json()["brews"]
+        exported = next(row for row in rows if row["id"] == clone["id"])
+        assert (
+            exported["water_preset"],
+            exported["water_buffer_g_per_litre"],
+            exported["water_magnesium_g_per_litre"],
+            exported["water_distilled_g_per_litre"],
+        ) == ("SCA", 40.02, 70, 889.98)
+        with zipfile.ZipFile(io.BytesIO(client.get("/api/v1/exports/csv").content)) as archive:
+            rows = list(csv.DictReader(io.StringIO(archive.read("brews.csv").decode())))
+            assert (
+                next(row for row in rows if row["id"] == str(clone["id"]))[
+                    "water_buffer_g_per_litre"
+                ]
+                == "40.02"
+            )
+
+
 def test_final_water_cannot_be_lower_than_recorded_bloom_water(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)

@@ -1491,6 +1491,8 @@ export interface components {
             operator_ids?: number[] | null;
             /** Brew Name */
             brew_name?: string | null;
+            /** Water Profile */
+            water_profile?: components["schemas"]["TapWater"] | components["schemas"]["MineralWater"];
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1539,6 +1541,8 @@ export interface components {
             operator_ids?: number[] | null;
             /** Brew Name */
             brew_name?: string | null;
+            /** Water Profile */
+            water_profile?: components["schemas"]["TapWater"] | components["schemas"]["MineralWater"];
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1610,6 +1614,8 @@ export interface components {
             post_brew_water_g?: number | null;
             /** Brew Name */
             brew_name?: string | null;
+            /** Water Profile */
+            water_profile: components["schemas"]["TapWater"] | components["schemas"]["MineralWater"];
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1698,6 +1704,8 @@ export interface components {
             operator_ids?: number[] | null;
             /** Brew Name */
             brew_name?: string | null;
+            /** Water Profile */
+            water_profile?: components["schemas"]["TapWater"] | components["schemas"]["MineralWater"];
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -1744,6 +1752,8 @@ export interface components {
             post_brew_water_g?: number | null;
             /** Brew Name */
             brew_name?: string | null;
+            /** Water Profile */
+            water_profile: components["schemas"]["TapWater"] | components["schemas"]["MineralWater"];
             /** Coffee Id */
             coffee_id: number;
             /** Grinder Id */
@@ -2380,6 +2390,23 @@ export interface components {
             /** Channels */
             channels: components["schemas"]["MattermostChannelOption"][];
         };
+        /**
+         * MineralWater
+         * @description Weights of prepared concentrates and distilled water, stored per litre.
+         */
+        MineralWater: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            preset: "Barista Hustle Water Recipe" | "Hard dot AF" | "Hendon Water" | "Melbourne" | "Pretty Hard" | "Rao Water" | "SCA" | "WOC Budapest";
+            /** Buffer G */
+            buffer_g: number;
+            /** Magnesium G */
+            magnesium_g: number;
+            /** Distilled G */
+            distilled_g: number;
+        };
         /** PhotoFraming */
         PhotoFraming: {
             /** Focus X */
@@ -2697,6 +2724,14 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /** TapWater */
+        TapWater: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            preset: "Tap water";
         };
         /** ValidationError */
         ValidationError: {

@@ -1945,6 +1945,91 @@ test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, brow
     .toBe('kiosk');
 });
 
+test('browser and API save the same water profile when ingredient rounding ties', async ({
+  page
+}) => {
+  const session = await loginAda(page);
+  const coffee = await createTestCoffee(page, session, 'Water rounding');
+  const headers = { 'X-CSRF-Token': session.csrf_token };
+  await page.goto(`/brews/new?coffee=${coffee.id}&kiosk=0`);
+  await page
+    .getByRole('combobox', { name: 'Choose a grinder' })
+    .selectOption({ label: 'Comandante C40' });
+  await page.getByRole('button', { name: /Medium washed \/ balanced/ }).click();
+  const selector = page.getByRole('combobox', { name: 'Brewing water' });
+  const adjustWater = page.getByText('Adjust water recipe', { exact: true });
+  await expect(selector).toHaveValue('Tap water');
+  await expect(adjustWater).toBeHidden();
+  await expect(selector.locator('option')).toHaveCount(9);
+  await selector.selectOption('Pretty Hard');
+  await expect(page.getByRole('textbox', { name: 'Buffer concentrate' })).toBeHidden();
+  await adjustWater.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Pretty Hard' })).toContainText(
+    '838.8 g distilled water'
+  );
+  await selector.selectOption('SCA');
+  await expect(page.getByRole('textbox', { name: 'Buffer concentrate' })).toBeHidden();
+  await adjustWater.click();
+  for (const [label, grams] of [
+    ['Buffer concentrate', '5'],
+    ['Magnesium concentrate', '15'],
+    ['Distilled water', '260']
+  ]) {
+    const input = page.getByRole('textbox', { name: label });
+    await input.fill(grams);
+    await input.blur();
+  }
+  await expect(page.getByRole('status').filter({ hasText: 'SCA (adjusted)' })).toContainText(
+    '53.6 g magnesium concentrate'
+  );
+  await adjustWater.click();
+  await expect(page.getByRole('textbox', { name: 'Magnesium concentrate' })).toBeHidden();
+  await expect(selector.locator('option:checked')).toHaveText('SCA (adjusted)');
+  const created = page.waitForResponse(
+    (res) => res.url().endsWith('/api/v1/brews') && res.request().method() === 'POST'
+  );
+  await page.getByRole('button', { name: 'Save and open brew mode' }).click();
+  const response = await created;
+  expect(response.ok()).toBeTruthy();
+  const brew = await response.json();
+  try {
+    const request = response.request();
+    const raw = { preset: 'SCA', buffer_g: 5, magnesium_g: 15, distilled_g: 260 };
+    expect(request.postDataJSON().water_profile).toEqual(raw);
+    expect(brew.water_profile).toEqual({
+      preset: 'SCA',
+      buffer_g: 17.857143,
+      magnesium_g: 53.571429,
+      distilled_g: 928.571428
+    });
+    const retry = await page.request.post('/api/v1/brews', {
+      headers: { ...headers, 'Idempotency-Key': request.headers()['idempotency-key'] },
+      data: {
+        ...request.postDataJSON(),
+        water_profile: { ...raw, buffer_g: 10, magnesium_g: 30, distilled_g: 520 }
+      }
+    });
+    expect(retry.ok()).toBeTruthy();
+    expect(await retry.json()).toMatchObject({ id: brew.id, water_profile: brew.water_profile });
+    await expect(page).toHaveURL(`${e2eBaseURL}/brews/${brew.id}`);
+    await expect(page.getByText('SCA (adjusted)', { exact: true })).toBeVisible();
+    await page.goto(`/brews/new?repeat=${brew.id}`);
+    await expect(selector).toHaveValue('SCA');
+    await expect(page.getByRole('textbox', { name: 'Magnesium concentrate' })).toBeHidden();
+    await adjustWater.click();
+    await expect(page.getByRole('textbox', { name: 'Magnesium concentrate' })).toHaveValue(
+      '53.571429'
+    );
+    await selector.selectOption('Tap water');
+    await expect(page.getByRole('textbox', { name: 'Magnesium concentrate' })).toHaveCount(0);
+  } finally {
+    await page.request.post(`/api/v1/brews/${brew.id}/cancel`, {
+      headers,
+      data: { revision: brew.revision }
+    });
+  }
+});
+
 test('the activity rail opens each parallel draft from another brew detail', async ({ page }) => {
   const session = await loginAda(page);
   const coffee = await createTestCoffee(page, session, 'Shared Coffee');
