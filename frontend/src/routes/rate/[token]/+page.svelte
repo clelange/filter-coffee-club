@@ -35,7 +35,7 @@
   let error = $state('');
   let countdown = $state(10);
   let destroyed = false;
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let signingOut = $state(false);
   let openFlavorGroupIds: number[] = $state([]);
   let rating: RatingDraft = $state({
     liking: null,
@@ -96,7 +96,16 @@
 
   onDestroy(() => {
     destroyed = true;
-    if (timer) clearInterval(timer);
+  });
+
+  $effect(() => {
+    if (session?.device_mode !== 'kiosk' || !summary?.own_rating || signingOut) return;
+    countdown = 10;
+    const timer = setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) void finishKiosk();
+    }, 1000);
+    return () => clearInterval(timer);
   });
 
   function toggleTag(id: number) {
@@ -150,13 +159,6 @@
         method: 'POST',
         body: jsonBody(input)
       });
-      if (!destroyed && session?.device_mode === 'kiosk') {
-        countdown = 10;
-        timer = setInterval(async () => {
-          countdown -= 1;
-          if (countdown <= 0) await finishKiosk();
-        }, 1000);
-      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not save your rating.';
     } finally {
@@ -165,10 +167,15 @@
   }
 
   async function finishKiosk() {
-    if (timer) clearInterval(timer);
-    timer = null;
-    await logout();
-    if (!destroyed) await goto(`/brews/${brew?.id}`);
+    if (signingOut) return;
+    signingOut = true;
+    try {
+      await logout();
+      if (!destroyed) await goto(`/brews/${brew?.id}`);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not return to the invitation.';
+      signingOut = false;
+    }
   }
 
   function children(parentId: number): FlavorTag[] {
@@ -199,12 +206,15 @@
           brew
         )}.
       </p>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
       {#if session?.device_mode === 'kiosk'}<p class="return-note">
           Returning to the QR invitation in <strong>{countdown}</strong> seconds.
         </p>{/if}
       <div class="actions">
-        {#if session?.device_mode === 'kiosk'}<button class="primary" onclick={finishKiosk}
-            >Done</button
+        {#if session?.device_mode === 'kiosk'}<button
+            class="primary"
+            disabled={signingOut}
+            onclick={finishKiosk}>Done</button
           >{:else}<button
             class="secondary"
             onclick={() => (summary = { ...summary!, own_rating: null, can_view: false })}

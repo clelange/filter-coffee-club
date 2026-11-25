@@ -11,6 +11,7 @@
     api,
     appSettingsStore,
     jsonBody,
+    newIdempotencyKey,
     sessionStore,
     uploadCatalogPhoto
   } from '#lib/api.ts';
@@ -56,12 +57,11 @@
     if (creating) return;
     creating = true;
     error = '';
-    const idempotencyKey = creationKey || crypto.randomUUID();
-    creationKey = idempotencyKey;
     try {
+      creationKey ||= newIdempotencyKey();
       const coffee = await api<Coffee>('/coffees', {
         method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
+        headers: { 'Idempotency-Key': creationKey },
         body: jsonBody(coffeePayload(form))
       });
       if (photoFile) {
@@ -79,7 +79,7 @@
       creationKey = '';
       await load();
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status < 500) creationKey = crypto.randomUUID();
+      if (caught instanceof ApiError && caught.status < 500) creationKey = '';
       error = caught instanceof Error ? caught.message : 'Could not add coffee.';
     } finally {
       creating = false;
@@ -96,7 +96,6 @@
   }
 
   function openForm() {
-    creationKey = crypto.randomUUID();
     showForm = true;
   }
 </script>

@@ -44,6 +44,8 @@
   let finishBrewersError = $state('');
   let finalMinutes = $state(3);
   let finalSeconds = $state(0);
+  let minutesValid = $state(true);
+  let secondsValid = $state(true);
   let actualWater = $state(0);
   let postBrewWaterAdded: boolean | null = $state(false);
   let postBrewWaterAmount: number | null = $state(null);
@@ -74,6 +76,13 @@
     currentBrewDose() > 0 && brewRatioIsUnusual(actualWater, currentBrewDose())
   );
   const finalBloomWaterInvalid = $derived(bloomWaterExceeds(actualWater));
+  const finishInvalid = $derived(
+    !minutesValid ||
+      !secondsValid ||
+      finalMinutes * 60 + finalSeconds <= 0 ||
+      finalBloomWaterInvalid ||
+      postBrewWaterInvalid
+  );
 
   $effect(() => {
     const dialog = finishDialog;
@@ -392,8 +401,7 @@
   }
 
   async function finalize(confirmUnusualRatio = false) {
-    if (!brew) return;
-    if (finalBloomWaterInvalid || postBrewWaterInvalid) return;
+    if (!brew || finalizing || finishInvalid) return;
     if (finalRatioUnusual && !confirmUnusualRatio) {
       finalRatioConfirmationOpen = true;
       return;
@@ -686,6 +694,7 @@
           <NumberStepper
             label="Minutes"
             bind:value={finalMinutes}
+            onvaliditychange={(valid) => (minutesValid = valid)}
             min={0}
             max={59}
             inputmode="numeric"
@@ -693,6 +702,7 @@
           <NumberStepper
             label="Seconds"
             bind:value={finalSeconds}
+            onvaliditychange={(valid) => (secondsValid = valid)}
             min={0}
             max={59}
             inputmode="numeric"
@@ -754,10 +764,7 @@
             <button
               class="primary"
               onclick={() => finalize()}
-              disabled={finalizing ||
-                finalBloomWaterInvalid ||
-                postBrewWaterInvalid ||
-                finalMinutes * 60 + finalSeconds <= 0}
+              disabled={finalizing || finishInvalid}
               >{finalizing ? 'Finalizing…' : 'Finalize and invite tasters'}</button
             ><button class="secondary" disabled={finalizing} onclick={closeFinishDialog}
               >Back</button

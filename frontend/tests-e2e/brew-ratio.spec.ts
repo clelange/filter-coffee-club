@@ -283,6 +283,34 @@ test('a partial added-water number blocks finishing until it is corrected', asyn
   await expect(page.getByText('50 g added after brewing', { exact: true })).toBeVisible();
 });
 
+test('finishing validates both time fields before combining them', async ({ page }) => {
+  let brew = brewFromInput(410, finishInput);
+  const submitted: number[] = [];
+  await mockCommonApi(page, () => brew);
+  await page.route('**/api/v1/brews/410/finalize', (route) => {
+    const { total_brew_time_s } = route.request().postDataJSON();
+    submitted.push(total_brew_time_s);
+    brew = { ...brew, status: 'completed', total_brew_time_s };
+    return fulfillJson(route, brew);
+  });
+  await page.goto('/brews/410');
+  await page.getByRole('button', { name: 'Finish brew' }).click();
+  const finish = page.getByRole('button', { name: 'Finalize and invite tasters' });
+  const minutes = page.getByRole('spinbutton', { name: 'Minutes' });
+  const seconds = page.getByRole('spinbutton', { name: 'Seconds' });
+  for (const invalid of ['-1', '60', '1.5', '']) {
+    await seconds.fill(invalid);
+    await expect(finish).toBeDisabled();
+  }
+  await seconds.fill('59');
+  await minutes.fill('0.5');
+  await expect(finish).toBeDisabled();
+  await minutes.fill('3');
+  await finish.click();
+  await expect(page.getByRole('heading', { name: 'Taste. Scan. Rate.' })).toBeVisible();
+  expect(submitted).toEqual([239]);
+});
+
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -761,6 +789,41 @@ for (const [flow, query, status] of [
     ).toBeAttached();
   });
 }
+
+test('editing a brew name preserves an exact stored ratio between input steps', async ({
+  page
+}) => {
+  const targetRatio = 250 / 15;
+  let brew = brewFromInput(304, {
+    ...finishInput,
+    dose_g: 15,
+    water_g: 250,
+    target_ratio: targetRatio
+  });
+  await mockCommonApi(page, () => brew);
+  await page.route('**/api/v1/brews/304', (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    const recipe = route.request().postDataJSON() as BrewInput;
+    expect(recipe).toMatchObject({
+      brew_name: 'House recipe',
+      target_ratio: targetRatio,
+      dose_g: 15,
+      water_g: 250
+    });
+    brew = brewFromInput(304, recipe);
+    return fulfillJson(route, brew);
+  });
+  await page.goto('/brews/new?edit=304');
+  const ratio = page.getByRole('textbox', { name: 'Target ratio' });
+  await expect(ratio).toHaveValue(String(targetRatio));
+  await ratio.fill('16.67');
+  await ratio.blur();
+  await expect(ratio).toHaveAttribute('aria-invalid', 'true');
+  await ratio.fill(String(targetRatio));
+  await page.getByLabel('Brew name (optional)').fill('House recipe');
+  await page.getByRole('button', { name: 'Save and return to brew mode' }).click();
+  await expect(page.getByRole('heading', { name: 'House recipe' })).toBeVisible();
+});
 
 test('an inactive source preset remains visible while editing an existing brew', async ({
   page

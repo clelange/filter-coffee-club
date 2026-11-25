@@ -107,9 +107,9 @@ def seed_database(db: Session) -> None:
     elif grinder.definition_key != "comandante_c40":
         grinder.definition_key = "comandante_c40"
 
-    for index, (name, ratio, temp_min, temp_max, click_min, click_max) in enumerate(PRESETS):
-        preset = db.scalar(select(RecipePreset).where(RecipePreset.name == name))
-        if preset is None:
+    # These are editable starting points. Install the set atomically on first use.
+    if db.scalar(select(RecipePreset.id).limit(1)) is None:
+        for index, (name, ratio, temp_min, temp_max, click_min, click_max) in enumerate(PRESETS):
             preset = RecipePreset(
                 name=name,
                 ratio=ratio,
@@ -129,9 +129,6 @@ def seed_database(db: Session) -> None:
                     setting_max=click_max,
                 )
             )
-        elif preset.reference_setting_min is None or preset.reference_setting_max is None:
-            preset.reference_setting_min = click_min
-            preset.reference_setting_max = click_max
 
     for parent_index, (parent_name, children) in enumerate(FLAVORS.items()):
         parent = db.scalar(

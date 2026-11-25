@@ -215,6 +215,7 @@ test('a failed repeat keeps the log, focus, and idempotency key available for re
 }) => {
   const pending: Route[] = [];
   const keys: string[] = [];
+  await page.addInitScript(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined }));
   await mockHome(page, {
     onclone: async (route) => {
       keys.push(route.request().headers()['idempotency-key']);
@@ -271,6 +272,42 @@ test('a failed join preserves the brew log and an accessible retry button', asyn
   await expect(join).toBeFocused();
   await expect(page.locator('.brew-card')).toHaveCount(4);
 });
+
+for (const action of ['Repeat', 'Join brew'] as const) {
+  test(`a delayed ${action} response keeps the page chosen after leaving home`, async ({
+    page
+  }) => {
+    const pending: Route[] = [];
+    function holdResponse(route: Route) {
+      pending.push(route);
+    }
+    await mockHome(page, { onclone: holdResponse, onjoin: holdResponse });
+    await page.route('**/api/v1/coffees?*', (route) => route.fulfill({ json: [] }));
+    await page.route('**/api/v1/catalog/usage', (route) => route.fulfill({ json: { items: [] } }));
+    await page.getByRole('button', { name: action, exact: true }).first().click();
+    await expect.poll(() => pending.length).toBe(1);
+    await page.getByRole('link', { name: 'Browse coffees' }).click();
+    await expect(page.getByRole('heading', { name: 'Coffees in orbit.' })).toBeVisible();
+
+    // Wait for the mutation's activity refresh to reach the destination page.
+    await page.route('**/api/v1/brews/active', (route) =>
+      route.fulfill({
+        json: {
+          brews: [],
+          recent_rating_brews: [],
+          active_count: 0,
+          max_active_brews: 2,
+          can_start: true
+        }
+      })
+    );
+    await pending[0].fulfill({ json: { id: 10 } });
+    await expect(page.getByTestId('active-brew-chip')).toHaveCount(0);
+    await page.getByRole('button', { name: '+ Add coffee' }).click();
+    await expect(page.getByRole('heading', { name: 'Register a bag.' })).toBeVisible();
+    await expect(page).toHaveURL(/\/coffees$/);
+  });
+}
 
 test('session expiry keeps public brews visible while removing cached personal comparisons', async ({
   page

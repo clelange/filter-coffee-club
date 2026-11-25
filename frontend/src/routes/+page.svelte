@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { brewCoffeeSubtitle, brewTitle } from '#lib/brew-name.ts';
   import { brewStatusStore, refreshBrewStatusAfterMutation } from '#lib/brew-status.ts';
   import { loginPath } from '#lib/device.ts';
-  import { api, appSettingsStore, jsonBody, sessionStore } from '#lib/api.ts';
+  import { api, appSettingsStore, jsonBody, newIdempotencyKey, sessionStore } from '#lib/api.ts';
   import BrewCard from '#lib/BrewCard.svelte';
   import Logo from '#lib/Logo.svelte';
   import type {
@@ -23,9 +24,13 @@
   const repeatKeys = new Map<number, string>();
   let joiningBrewId = $state<number | null>(null);
   const active = $derived($brewStatusStore);
+  let destroyed = false;
 
   onMount(() => {
     void load();
+    return () => {
+      destroyed = true;
+    };
   });
 
   async function load() {
@@ -60,16 +65,16 @@
     if (repeatingBrewId !== null) return;
     repeatError = null;
     repeatingBrewId = brew.id;
-    const key = repeatKeys.get(brew.id) ?? crypto.randomUUID();
-    repeatKeys.set(brew.id, key);
     try {
+      const key = repeatKeys.get(brew.id) ?? newIdempotencyKey();
+      repeatKeys.set(brew.id, key);
       const clone = await api<Brew>(`/brews/${brew.id}/clone`, {
         headers: { 'Idempotency-Key': key },
         method: 'POST',
         body: jsonBody({})
       });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
-      location.href = `/brews/${clone.id}`;
+      if (!destroyed) await goto(`/brews/${clone.id}`);
     } catch (caught) {
       repeatError = {
         brewId: brew.id,
@@ -88,7 +93,7 @@
     try {
       await api<Brew>(`/brews/${brew.id}/join`, { method: 'POST', body: jsonBody({}) });
       await refreshBrewStatusAfterMutation().catch(() => undefined);
-      location.href = `/brews/${brew.id}`;
+      if (!destroyed) await goto(`/brews/${brew.id}`);
     } catch (caught) {
       joinError = caught instanceof Error ? caught.message : 'Could not join this brew.';
     } finally {
