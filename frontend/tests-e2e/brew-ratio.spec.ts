@@ -191,6 +191,7 @@ const inactivePreset = {
 };
 
 const finishInput: BrewInput = {
+  water_profile: { preset: 'Tap water' },
   coffee_id: coffee.id,
   grinder_id: grinder.id,
   dripper_id: null,
@@ -416,6 +417,30 @@ async function setKioskNumber(page: Page, label: string, value: string) {
 async function chooseReferenceGrinder(page: Page) {
   await page.getByRole('combobox', { name: 'Choose a grinder' }).selectOption(String(grinder.id));
 }
+
+test('the kiosk restores one ingredient at full precision and keeps the other changes', async ({
+  page
+}) => {
+  await mockCommonApi(page, () => null, 'kiosk');
+  await page.goto('/brews/new?kiosk=1');
+  await page.getByRole('combobox', { name: 'Brewing water' }).selectOption('Pretty Hard');
+  const distilled = page.getByRole('button', { name: /^Set Distilled water;/ });
+  const magnesium = page.getByRole('button', { name: /^Set Magnesium concentrate;/ });
+  await expect(distilled).toBeHidden();
+  await page.getByText('Adjust water recipe', { exact: true }).click();
+  await expect(distilled).toHaveText('838.816119');
+  await setKioskNumber(page, 'Magnesium concentrate', '100');
+  await setKioskNumber(page, 'Distilled water', '445');
+  await page.getByRole('button', { name: 'Restore Distilled water to 838.816119 g' }).click();
+  await expect(distilled).toHaveText('838.816119');
+  await expect(magnesium).toHaveText('100');
+
+  await page.getByRole('button', { name: 'Increase Distilled water' }).click();
+  await expect(distilled).toHaveText('838.826119');
+  await setKioskNumber(page, 'Distilled water', '838.816119');
+  await expect(distilled).toHaveText('838.816119');
+  await expect(magnesium).toHaveText('100');
+});
 
 test('recipe edits require confirmation before navigating away', async ({ page }) => {
   await mockCommonApi(page, () => null);
@@ -888,6 +913,7 @@ test('kiosk servings rescale both batch totals', async ({ page }) => {
 
 test('unusual actual water requires confirmation before finalization', async ({ page }) => {
   const input: BrewInput = {
+    water_profile: { preset: 'Tap water' },
     coffee_id: coffee.id,
     grinder_id: grinder.id,
     dripper_id: null,

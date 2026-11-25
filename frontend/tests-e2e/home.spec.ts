@@ -28,6 +28,7 @@ const session: Session = {
   expires_at: '2099-01-01T00:00:00Z'
 };
 const brew: Brew = {
+  water_profile: { preset: 'Tap water' },
   id: 1,
   coffee_id: 1,
   coffee_name: 'Ethiopia Guji Hambela',

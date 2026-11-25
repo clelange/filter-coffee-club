@@ -38,6 +38,7 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
         cloned_from_id=brew.cloned_from_id,
         dose_g=brew.dose_g,
         water_g=brew.water_g,
+        water_profile=brew.water_profile,
         post_brew_water_added=brew.post_brew_water_added,
         post_brew_water_g=brew.post_brew_water_g,
         target_ratio=brew.target_ratio,

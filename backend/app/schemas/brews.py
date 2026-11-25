@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .profiles import ProfileIdentity
+from .water import TapWater, WaterProfile
 
 
 class BrewNaming(BaseModel):
@@ -17,6 +18,7 @@ class BrewNaming(BaseModel):
 
 
 class BrewInput(BrewNaming):
+    water_profile: WaterProfile = Field(default_factory=lambda: TapWater(preset="Tap water"))
     coffee_id: int
     grinder_id: int
     dripper_id: int | None = None
@@ -102,6 +104,7 @@ class BrewCorrection(BrewUpdate, PostBrewWater):
 
 
 class BrewResponse(BrewInput, PostBrewWater):
+    water_profile: WaterProfile
     target_ratio: float
     id: int
     operator_id: int

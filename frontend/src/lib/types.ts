@@ -244,8 +244,11 @@ export interface Preset extends Omit<PresetInput, 'custom_grinder_ranges'> {
 }
 
 type BrewNaming = Pick<components['schemas']['BrewCreate'], 'brew_name'>;
+export type WaterProfile = components['schemas']['BrewResponse']['water_profile'];
+export type MineralWater = components['schemas']['MineralWater'];
 
 export interface BrewInput extends BrewNaming {
+  water_profile: WaterProfile;
   coffee_id: number;
   grinder_id: number;
   dripper_id: number | null;

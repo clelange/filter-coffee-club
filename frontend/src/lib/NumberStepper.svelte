@@ -7,6 +7,7 @@
     label,
     value = $bindable(),
     step = 1,
+    buttonIncrement,
     min = 0,
     max = Number.POSITIVE_INFINITY,
     unit = '',
@@ -19,6 +20,7 @@
     label: string;
     value: number | null;
     step?: number;
+    buttonIncrement?: number;
     min?: number;
     max?: number;
     unit?: string;
@@ -39,6 +41,7 @@
   const decimalErrorId = $props.id();
   const decimal = $derived(inputmode === 'decimal');
   const precision = $derived(decimalPlaces(step));
+  const increment = $derived(buttonIncrement ?? step);
 
   $effect(() => {
     if (!valueInput) return;
@@ -55,13 +58,14 @@
     if (decimal && valueInput) {
       const number = decimalNumberInput(valueInput);
       if (!number.value) number.value = String(Math.max(min, 0));
-      if (direction > 0) number.stepUp();
-      else number.stepDown();
+      const steps = Math.round(increment / step);
+      if (direction > 0) number.stepUp(steps);
+      else number.stepDown(steps);
       valueInput.value = number.value;
       commitDecimal();
     } else {
       const base = value ?? Math.max(min, 0);
-      const next = Math.min(max, Math.max(min, base + direction * step));
+      const next = Math.min(max, Math.max(min, base + direction * increment));
       value = Number(next.toFixed(precision));
       error = '';
       onvaliditychange?.(true);
@@ -186,8 +190,7 @@
         : `${label} must be at least ${min}.`;
       return;
     }
-    const scale = 10 ** precision;
-    if (Math.abs(parsed * scale - Math.round(parsed * scale)) > 1e-8) {
+    if (decimalPlaces(parsed) > precision) {
       error = `${label} supports at most ${precision} decimal place${precision === 1 ? '' : 's'}.`;
       return;
     }

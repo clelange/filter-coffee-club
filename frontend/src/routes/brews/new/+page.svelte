@@ -19,6 +19,8 @@
     type RecipeCalculationState
   } from '#lib/brew-recipe.ts';
   import BrewerPicker from '#lib/BrewerPicker.svelte';
+  import BrewingWaterFields from '#lib/BrewingWaterFields.svelte';
+  import { isValidWaterProfile, type WaterDraft } from '#lib/brewing-water.ts';
   import CoffeeColorPicker from '#lib/CoffeeColorPicker.svelte';
   import ConfirmDialog from '#lib/ConfirmDialog.svelte';
   import ProfileLink from '#lib/ProfileLink.svelte';
@@ -49,7 +51,10 @@
     ProfileIdentity
   } from '#lib/types.ts';
 
-  type BrewDraft = Omit<BrewInput, 'grinder_setting'> & { grinder_setting: number | null };
+  type BrewDraft = Omit<BrewInput, 'grinder_setting' | 'water_profile'> & {
+    grinder_setting: number | null;
+    water_profile: WaterDraft;
+  };
 
   let coffees: Coffee[] = $state([]);
   let coffeeColorPeers: Coffee[] = $state([]);
@@ -105,6 +110,7 @@
     chart_color: ''
   });
   let form: BrewDraft = $state({
+    water_profile: { preset: 'Tap water' },
     coffee_id: 0,
     brew_name: null,
     grinder_id: 0,
@@ -133,6 +139,9 @@
   });
 
   const ratio = $derived(calculateBrewRatio(form.water_g, form.dose_g));
+  const waterProfile = $derived(
+    isValidWaterProfile(form.water_profile) ? form.water_profile : null
+  );
   const unusualRatio = $derived(brewRatioIsUnusual(form.water_g, form.dose_g));
   const grinder = $derived(grinders.find((item) => item.id === Number(form.grinder_id)));
   const grinderDefinition = $derived(
@@ -170,6 +179,7 @@
   const recipeInvalid = $derived(
     Boolean(
       amountError ||
+      !waterProfile ||
       bloomWaterInvalid ||
       grinderSettingInvalid ||
       !form.grinder_id ||
@@ -378,6 +388,7 @@
   function copyBrew(source: Brew) {
     recordedTargetRatio = source.target_ratio;
     form = {
+      water_profile: { ...source.water_profile },
       coffee_id: source.coffee_id,
       grinder_id: source.grinder_id,
       dripper_id: source.dripper_id,
@@ -553,9 +564,10 @@
   }
 
   async function saveBrew(confirmUnusualRatio: boolean) {
-    if (saving || form.grinder_setting === null || postBrewWaterInvalid) return;
+    if (saving || form.grinder_setting === null || postBrewWaterInvalid || !waterProfile) return;
     const brewForm = {
       ...form,
+      water_profile: waterProfile,
       grinder_setting: form.grinder_setting,
       operator_ids:
         canManageBrewers && [...selectedBrewerIds].sort().join(',') !== originalBrewerIds
@@ -902,6 +914,7 @@
         </p>
       {/if}
 
+      <BrewingWaterFields bind:draft={form.water_profile} profile={waterProfile} />
       <div class="field-grid">
         <NumberStepper
           label="Temperature"

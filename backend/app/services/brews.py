@@ -142,6 +142,8 @@ def _brew_update_exclusions(payload: BrewUpdate) -> set[str]:
     # Omission preserves the name for older clients; an explicit null clears it.
     if "brew_name" not in payload.model_fields_set:
         excluded.add("brew_name")
+    if "water_profile" not in payload.model_fields_set:
+        excluded.add("water_profile")
     return excluded
 
 
@@ -418,6 +420,7 @@ def clone_brew(
         cloned_from_id=source.id,
         dose_g=source.dose_g,
         water_g=source.water_g,
+        water_profile=source.water_profile,
         target_ratio=source.target_ratio,
         temperature_c=source.temperature_c,
         grinder_setting=source.grinder_setting,

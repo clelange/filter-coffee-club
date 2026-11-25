@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { brewCoffeeSubtitle, brewTitle, namedBrewDescription } from '#lib/brew-name.ts';
+  import { waterLabel, waterMixDescription } from '#lib/brewing-water.ts';
   import {
     brewRatioIsUnusual,
     calculateBrewRatio,
@@ -25,7 +26,7 @@
     sessionStore,
     logout
   } from '#lib/api.ts';
-  import type { Brew, ProfileIdentity, RatingAggregate } from '#lib/types.ts';
+  import type { Brew, ProfileIdentity, RatingAggregate, WaterProfile } from '#lib/types.ts';
 
   type FinishIssue =
     | { kind: 'request'; message: string }
@@ -584,6 +585,13 @@
   }
 </script>
 
+{#snippet brewingWater(profile: WaterProfile)}
+  <p>
+    Brewing water · <strong>{waterLabel(profile)}</strong>
+    {#if profile.preset !== 'Tap water'}<br />{waterMixDescription(profile)}{/if}
+  </p>
+{/snippet}
+
 <svelte:window onkeydown={handleDialogKeydown} />
 
 <svelte:head
@@ -642,6 +650,7 @@
         >
       </article>
     </div>
+    {@render brewingWater(brew.water_profile)}
     {#if brew.bloom_water_g || brew.bloom_time_s || brew.pour_count}
       <div class="pour-strip">
         {#if brew.bloom_water_g}<span><b>{brew.bloom_water_g} g</b> bloom water</span>{/if}
@@ -796,6 +805,7 @@
           >{brew.temperature_c} °C</span
         >
       </div>
+      {@render brewingWater(brew.water_profile)}
       {#if brew.post_brew_water_added}
         <p>
           {brew.post_brew_water_g === null
@@ -864,6 +874,7 @@
   <div class="panel">
     <p class="eyebrow">Brew #{brew.id}</p>
     <h1>This brew is {brew.status}.</h1>
+    {@render brewingWater(brew.water_profile)}
     <p class="lede">It is kept in the log but cannot be rated.</p>
     <a class="button secondary" href="/">Return home</a>
   </div>

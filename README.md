@@ -44,6 +44,7 @@ AI-generated text below!
 - Coffee bag/lot catalog with responsive photo framing, extensible grinders/drippers/filters, editable FCC starting presets, and reference-sheet serving calculators.
 - Draft recipe, high-contrast brew mode with Screen Wake Lock when available, final scale values, permanent QR invitation, and on-device rating handoff.
 - Optional brew names to distinguish recipes made with the same coffee. Set or edit a name from a personal device; it is also visible on the kiosk.
+- Brewing water defaults to tap. Choose one of eight Barista Hustle presets to adjust the mix for a brew. Ingredient weights are normalised to one litre and carried over when you repeat the brew. [Water recipes and concentrate instructions](https://www.baristahustle.com/diy-water-recipes-the-world-in-two-bottles/)
 - A compact 1–9 liking scale, 0–5 sensory intensities, structured flavor tags, visibility rules, member tasting profiles with favorite coffees and per-brew comparisons, and lightweight SVG analytics.
 - JSON/CSV exports, configurable branding, health endpoints, Alembic migrations, WAL mode, and structured request logs.
 

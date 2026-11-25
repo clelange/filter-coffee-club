@@ -27,6 +27,8 @@ def brew_creation_fingerprint(payload: BrewInput, profile_id: int) -> str:
     # An unnamed request keeps the same fingerprint as before names were added.
     if values["brew_name"] is None:
         values.pop("brew_name")
+    if values["water_profile"]["preset"] == "Tap water":
+        values.pop("water_profile")
     operator_ids = values.pop("operator_ids", None)
     # Preserve fingerprints from before co-brewer selection was added. Omitting
     # the selection and explicitly selecting only the creator mean the same thing.

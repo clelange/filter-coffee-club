@@ -89,7 +89,9 @@ def test_pre_upgrade_creation_retries_preserve_the_original_draft(tmp_path: Path
         creation_headers = {**headers, "Idempotency-Key": "pre-upgrade-draft"}
         draft = client.post("/api/v1/brews", headers=creation_headers, json=values).json()
         # Legacy retries were hashed before operator_ids and brew_name existed.
-        legacy_payload = BrewInput(**values).model_dump(mode="json", exclude={"brew_name"})
+        legacy_payload = BrewInput(**values).model_dump(
+            mode="json", exclude={"brew_name", "water_profile"}
+        )
         legacy_request = json.dumps(
             {"payload": legacy_payload, "profile_id": 1},
             ensure_ascii=True,
