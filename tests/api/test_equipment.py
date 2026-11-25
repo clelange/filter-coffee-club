@@ -5,6 +5,25 @@ from pathlib import Path
 from tests.api_helpers import bootstrap, build_client
 
 
+def test_restart_preserves_edited_preset_catalog(tmp_path: Path) -> None:
+    endpoint = "/api/v1/presets"
+    with build_client(tmp_path) as client:
+        _, headers = bootstrap(client)
+        first, second, *_ = client.get(endpoint).json()
+        for preset, change in (
+            (first, {"name": "Club house recipe"}),
+            (second, {"reference_grinder_range": None}),
+        ):
+            response = client.put(
+                f"{endpoint}/{preset['id']}", headers=headers, json={**preset, **change}
+            )
+            assert response.status_code == 200
+        expected = client.get(endpoint, params={"active_only": False}).json()
+
+    with build_client(tmp_path) as restarted:
+        assert restarted.get(endpoint, params={"active_only": False}).json() == expected
+
+
 def test_grinder_definitions_custom_ranges_and_live_conversion(tmp_path: Path) -> None:
     with build_client(tmp_path) as client:
         _session, headers = bootstrap(client)

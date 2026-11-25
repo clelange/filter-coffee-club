@@ -52,6 +52,51 @@ from .brew_store import (
 from .brew_types import BrewActor, BrewNotifications
 
 
+def _commit_new_brew(
+    db: Session,
+    brew: Brew,
+    notifications: BrewNotifications,
+    idempotency_key: str | None,
+    fingerprint: str,
+    *,
+    operator_ids: list[int] | None = None,
+    confirmed_ratio: float | None = None,
+) -> Brew:
+    try:
+        reserve_active_brew_capacity(db)
+        primary = load_active_operator(db, brew.operator_id)
+        brew.operators = selected_brewers(db, operator_ids or [primary.id], primary.id, [primary])
+        brew.creation_token = idempotency_key
+        brew.creation_request_hash = fingerprint if idempotency_key else None
+        db.add(brew)
+        enqueue_brew_notification(
+            db,
+            brew,
+            "brew_started",
+            notifications.public_base_url,
+            demo_mode=notifications.demo_mode,
+        )
+        db.commit()
+    except (BrewConflictError, IntegrityError):
+        # A concurrent request with the same key may have taken the last slot or
+        # committed the brew first. Only replay a matching committed request.
+        db.rollback()
+        existing = replay_idempotent_brew_creation(db, idempotency_key, fingerprint)
+        if existing is None:
+            raise
+        return existing
+    if confirmed_ratio is not None:
+        log_unusual_brew_ratio(
+            "unusual_brew_ratio_confirmed",
+            action="create",
+            brew_id=brew.id,
+            dose_g=brew.dose_g,
+            water_g=brew.water_g,
+            ratio=confirmed_ratio,
+        )
+    return load_brew(db, brew.id)
+
+
 @rollback_on_failure
 def create_brew(
     db: Session,
@@ -64,10 +109,9 @@ def create_brew(
     before_create: Callable[[], None] | None = None,
 ) -> Brew:
     request_fingerprint = brew_creation_fingerprint(payload, actor.profile_id)
-    if idempotency_key is not None:
-        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-        if existing is not None:
-            return replay_idempotent_brew_creation(db, existing, request_fingerprint)
+    existing = replay_idempotent_brew_creation(db, idempotency_key, request_fingerprint)
+    if existing is not None:
+        return existing
     if before_create is not None:
         before_create()
     reserve_available_coffee(db, payload.coffee_id)
@@ -78,56 +122,19 @@ def create_brew(
         action="create",
         confirmed=confirm_unusual_ratio,
     )
-    try:
-        reserve_active_brew_capacity(db)
-    except BrewConflictError:
-        if idempotency_key is not None:
-            existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-            if existing is not None:
-                return replay_idempotent_brew_creation(db, existing, request_fingerprint)
-        raise
-    operators = selected_brewers(
-        db,
-        payload.operator_ids or [actor.profile_id],
-        actor.profile_id,
-        [load_active_operator(db, actor.profile_id)],
-    )
     brew = Brew(
         **payload.model_dump(exclude={"operator_ids"}),
         operator_id=actor.profile_id,
-        operators=operators,
-        creation_token=idempotency_key,
-        creation_request_hash=request_fingerprint if idempotency_key else None,
     )
-    db.add(brew)
-    try:
-        enqueue_brew_notification(
-            db,
-            brew,
-            "brew_started",
-            notifications.public_base_url,
-            demo_mode=notifications.demo_mode,
-        )
-        db.commit()
-    except IntegrityError:
-        if idempotency_key is None:
-            raise
-        db.rollback()
-        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-        if existing is None:
-            raise
-        return replay_idempotent_brew_creation(db, existing, request_fingerprint)
-    result = load_brew(db, brew.id)
-    if confirmed_ratio is not None:
-        log_unusual_brew_ratio(
-            "unusual_brew_ratio_confirmed",
-            action="create",
-            brew_id=brew.id,
-            dose_g=payload.dose_g,
-            water_g=payload.water_g,
-            ratio=confirmed_ratio,
-        )
-    return result
+    return _commit_new_brew(
+        db,
+        brew,
+        notifications,
+        idempotency_key,
+        request_fingerprint,
+        operator_ids=payload.operator_ids,
+        confirmed_ratio=confirmed_ratio,
+    )
 
 
 def _brew_update_exclusions(payload: BrewUpdate) -> set[str]:
@@ -393,23 +400,14 @@ def clone_brew(
     before_create: Callable[[], None] | None = None,
 ) -> Brew:
     fingerprint = hashlib.sha256(f"clone:{brew_id}:{actor.profile_id}".encode()).hexdigest()
-    if idempotency_key is not None:
-        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-        if existing is not None:
-            return replay_idempotent_brew_creation(db, existing, fingerprint)
+    existing = replay_idempotent_brew_creation(db, idempotency_key, fingerprint)
+    if existing is not None:
+        return existing
     if before_create is not None:
         before_create()
     source = load_brew(db, brew_id)
     validate_bloom_water(source.bloom_water_g, source.water_g)
     reserve_available_coffee(db, source.coffee_id)
-    try:
-        reserve_active_brew_capacity(db)
-    except BrewConflictError:
-        if idempotency_key is not None:
-            existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-            if existing is not None:
-                return replay_idempotent_brew_creation(db, existing, fingerprint)
-        raise
     clone = Brew(
         coffee_id=source.coffee_id,
         operator_id=actor.profile_id,
@@ -418,8 +416,6 @@ def clone_brew(
         filter_id=source.filter_id,
         source_preset_id=source.source_preset_id,
         cloned_from_id=source.id,
-        creation_token=idempotency_key,
-        creation_request_hash=fingerprint if idempotency_key else None,
         dose_g=source.dose_g,
         water_g=source.water_g,
         target_ratio=source.target_ratio,
@@ -432,27 +428,8 @@ def clone_brew(
         pour_count=source.pour_count,
         technique_note=source.technique_note,
         status="draft",
-        operators=[load_active_operator(db, actor.profile_id)],
     )
-    db.add(clone)
-    try:
-        enqueue_brew_notification(
-            db,
-            clone,
-            "brew_started",
-            notifications.public_base_url,
-            demo_mode=notifications.demo_mode,
-        )
-        db.commit()
-    except IntegrityError:
-        if idempotency_key is None:
-            raise
-        db.rollback()
-        existing = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
-        if existing is None:
-            raise
-        return replay_idempotent_brew_creation(db, existing, fingerprint)
-    return load_brew(db, clone.id)
+    return _commit_new_brew(db, clone, notifications, idempotency_key, fingerprint)
 
 
 @rollback_on_failure

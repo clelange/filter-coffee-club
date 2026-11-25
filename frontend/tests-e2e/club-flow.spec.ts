@@ -186,6 +186,8 @@ async function createTestCoffee(page: Page, session: Session, name: string) {
 test('Pi operator brews, then phone and kiosk tasters rate', async ({ page, browser }) => {
   test.setTimeout(120_000);
   await page.addInitScript(() => {
+    // A phone or kiosk using a local-network HTTP address has no randomUUID.
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined });
     Object.defineProperty(navigator, 'wakeLock', {
       configurable: true,
       value: {
@@ -2087,6 +2089,42 @@ test('switching tasting invitations starts a separate rating', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Thanks, Ada.' })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole('main')).toContainText('Tasting control');
+});
+
+test('a reloaded kiosk rating signs out and returns to its invitation', async ({ page }) => {
+  const session = await loginAda(page, 'kiosk');
+  const coffee = await createTestCoffee(page, session, 'Kiosk handoff coffee');
+  const headers = { 'X-CSRF-Token': session.csrf_token };
+  const [grinder] = await (await page.request.get('/api/v1/grinders')).json();
+  const created = await page.request.post('/api/v1/brews', {
+    headers,
+    data: {
+      coffee_id: coffee.id,
+      grinder_id: grinder.id,
+      dose_g: 15,
+      water_g: 240,
+      temperature_c: 94,
+      grinder_setting: 30
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const draft = await created.json();
+  const finished = await page.request.post(`/api/v1/brews/${draft.id}/finalize`, {
+    headers,
+    data: { revision: draft.revision, total_brew_time_s: 180 }
+  });
+  expect(finished.ok()).toBeTruthy();
+  await page.clock.install();
+  await page.goto(`/rate/${(await finished.json()).rating_token}?kiosk=1`);
+  await completeRequiredRatingScales(page);
+  await page.getByRole('button', { name: 'Submit rating' }).click();
+  const thanks = page.getByRole('heading', { name: 'Thanks, Ada.' });
+  await expect(thanks).toBeVisible();
+  await page.reload();
+  await expect(thanks).toBeVisible();
+  await page.clock.runFor(10_000);
+  await expect(page).toHaveURL(`${e2eBaseURL}/brews/${draft.id}`);
+  expect((await page.request.get('/api/v1/auth/me')).status()).toBe(401);
 });
 
 test('browser Back after cloning a bag restores the original coffee', async ({ page }) => {

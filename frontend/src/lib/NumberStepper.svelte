@@ -12,6 +12,7 @@
     unit = '',
     inputmode = 'decimal',
     nullable = false,
+    recordedValue,
     onvaliditychange,
     onchange
   }: {
@@ -23,6 +24,7 @@
     unit?: string;
     inputmode?: 'numeric' | 'decimal';
     nullable?: boolean;
+    recordedValue?: number;
     onvaliditychange?: (valid: boolean) => void;
     onchange?: (value: number | null) => void;
   } = $props();
@@ -93,8 +95,10 @@
 
   function validateDecimal(input: HTMLInputElement) {
     const number = decimalNumberInput(input);
+    // Older recipes can contain an exact ratio between the current input steps.
+    const message = number.valueAsNumber === recordedValue ? '' : number.validationMessage;
     input.setCustomValidity(
-      input.value.trim() && !number.value ? `${label} must be a number.` : number.validationMessage
+      input.value.trim() && !number.value ? `${label} must be a number.` : message
     );
     return number.valueAsNumber;
   }
@@ -168,6 +172,14 @@
       return;
     }
     const parsed = Number(draft);
+    if (parsed === recordedValue) {
+      if (value !== parsed) {
+        value = parsed;
+        onchange?.(value);
+      }
+      void closePad();
+      return;
+    }
     if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
       error = Number.isFinite(max)
         ? `${label} must be between ${min} and ${max}.`

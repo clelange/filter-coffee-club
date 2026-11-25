@@ -24,7 +24,14 @@
   import ProfileLink from '#lib/ProfileLink.svelte';
   import { selectedOption } from '#lib/selected-option.ts';
   import { deviceModeStore, loginPath } from '#lib/device.ts';
-  import { ApiError, api, appSettingsStore, ensureSession, jsonBody } from '#lib/api.ts';
+  import {
+    ApiError,
+    api,
+    appSettingsStore,
+    ensureSession,
+    jsonBody,
+    newIdempotencyKey
+  } from '#lib/api.ts';
   import NumberStepper from '#lib/NumberStepper.svelte';
   import PostBrewWaterFields from '#lib/PostBrewWaterFields.svelte';
   import { formatGrinderSetting } from '#lib/catalog.ts';
@@ -60,6 +67,7 @@
   let history: Brew[] = $state([]);
   let editId = $state<number | null>(null);
   let sourceRevision = $state(0);
+  let recordedTargetRatio = $state<number>();
   let editorChangedExternally = $state(false);
   let active: ActiveBrews | null = $state(null);
   let revisionTimer: ReturnType<typeof setInterval> | null = null;
@@ -368,6 +376,7 @@
   }
 
   function copyBrew(source: Brew) {
+    recordedTargetRatio = source.target_ratio;
     form = {
       coffee_id: source.coffee_id,
       grinder_id: source.grinder_id,
@@ -489,12 +498,11 @@
     if (addingCoffee) return;
     addingCoffee = true;
     coffeeError = '';
-    const idempotencyKey = coffeeCreationKey || crypto.randomUUID();
-    coffeeCreationKey = idempotencyKey;
     try {
+      coffeeCreationKey ||= newIdempotencyKey();
       const coffee = await api<Coffee>('/coffees', {
         method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
+        headers: { 'Idempotency-Key': coffeeCreationKey },
         body: jsonBody({
           ...newCoffee,
           country: newCoffee.country || null,
@@ -520,8 +528,7 @@
       coffeeCreationKey = '';
       await loadHistory();
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status < 500)
-        coffeeCreationKey = crypto.randomUUID();
+      if (caught instanceof ApiError && caught.status < 500) coffeeCreationKey = '';
       coffeeError = caught instanceof Error ? caught.message : 'Could not add this coffee.';
     } finally {
       addingCoffee = false;
@@ -531,7 +538,7 @@
   function toggleCoffeeForm() {
     if (addingCoffee) return;
     showCoffeeForm = !showCoffeeForm;
-    coffeeCreationKey = showCoffeeForm ? crypto.randomUUID() : '';
+    coffeeCreationKey = '';
     if (showCoffeeForm) coffeeError = '';
   }
 
@@ -558,13 +565,13 @@
     ratioConfirmationOpen = false;
     saving = true;
     error = '';
-    const creatingBrew = !editId && !correctionId;
-    const idempotencyKey = creatingBrew ? brewCreationKey || crypto.randomUUID() : '';
-    if (creatingBrew) brewCreationKey = idempotencyKey;
-    const requestHeaders: Record<string, string> = {};
-    if (creatingBrew) requestHeaders['Idempotency-Key'] = idempotencyKey;
-    if (confirmUnusualRatio) requestHeaders['X-Confirm-Unusual-Ratio'] = 'true';
     try {
+      const requestHeaders: Record<string, string> = {};
+      if (!editId && !correctionId) {
+        brewCreationKey ||= newIdempotencyKey();
+        requestHeaders['Idempotency-Key'] = brewCreationKey;
+      }
+      if (confirmUnusualRatio) requestHeaders['X-Confirm-Unusual-Ratio'] = 'true';
       const path = correctionId
         ? `/brews/${correctionId}/correction`
         : editId
@@ -612,10 +619,10 @@
   async function clone(source: Brew) {
     if (repeatingBrewId !== null) return;
     repeatingBrewId = source.id;
-    const key = repeatKeys.get(source.id) ?? crypto.randomUUID();
-    repeatKeys.set(source.id, key);
     error = '';
     try {
+      const key = repeatKeys.get(source.id) ?? newIdempotencyKey();
+      repeatKeys.set(source.id, key);
       const brew = await api<Brew>(`/brews/${source.id}/clone`, {
         headers: { 'Idempotency-Key': key },
         method: 'POST',
@@ -851,6 +858,7 @@
         <NumberStepper
           label="Target ratio"
           bind:value={form.target_ratio}
+          recordedValue={recordedTargetRatio}
           onchange={changeRatio}
           min={0.1}
           max={5000}

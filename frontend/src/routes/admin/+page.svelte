@@ -3,7 +3,17 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import GrinderFields from '#lib/GrinderFields.svelte';
-  import { emptyGrinderForm, grinderPayload } from '#lib/catalog.ts';
+  import DripperFields from '#lib/DripperFields.svelte';
+  import FilterFields from '#lib/FilterFields.svelte';
+  import {
+    dripperPayload,
+    emptyDripperForm,
+    emptyFilterForm,
+    emptyGrinderForm,
+    filterPayload,
+    grinderPayload,
+    isClickUnit
+  } from '#lib/catalog.ts';
   import { contrastRatio } from '#lib/coffee-colors.ts';
   import { deviceModeStore, loginPath } from '#lib/device.ts';
   import { api, appSettingsStore, ensureSession, jsonBody } from '#lib/api.ts';
@@ -59,8 +69,8 @@
   let personForm = $state({ display_name: '', pin: '', role: 'member' });
   let pinResets: Record<number, string> = $state({});
   let grinderForm: GrinderFormData = $state(emptyGrinderForm());
-  let dripperForm = $state({ manufacturer: '', model: '', notes: '' });
-  let filterForm = $state({ name: '', notes: '' });
+  let dripperForm = $state(emptyDripperForm());
+  let filterForm = $state(emptyFilterForm());
   let tagForm = $state({ name: '', parent_id: null as number | null, active: true, sort_order: 0 });
   let presetForm: PresetInput = $state({
     name: '',
@@ -148,10 +158,6 @@
       const ratio = contrastRatio(foreground, background);
       return ratio < 4.5 ? [`${label}: ${ratio.toFixed(2)}:1 (needs at least 4.5:1).`] : [];
     });
-  }
-
-  function isClickUnit(unit: string) {
-    return ['click', 'clicks'].includes(unit.trim().toLowerCase());
   }
 
   function isSeededDemoProfile(person: Profile) {
@@ -348,17 +354,13 @@
         () =>
           api<Dripper>('/drippers', {
             method: 'POST',
-            body: jsonBody({
-              ...dripperForm,
-              manufacturer: dripperForm.manufacturer || null,
-              notes: dripperForm.notes || null
-            })
+            body: jsonBody(dripperPayload(dripperForm))
           }),
         'Dripper added.',
         (updated) => (drippers = upsertById(drippers, updated, compareDrippers))
       )
     ) {
-      dripperForm = { manufacturer: '', model: '', notes: '' };
+      dripperForm = emptyDripperForm();
     }
   }
   async function addFilter(event: SubmitEvent) {
@@ -368,13 +370,13 @@
         () =>
           api<BrewFilter>('/filters', {
             method: 'POST',
-            body: jsonBody({ ...filterForm, notes: filterForm.notes || null })
+            body: jsonBody(filterPayload(filterForm))
           }),
         'Filter added.',
         (updated) => (filters = upsertById(filters, updated, compareFilters))
       )
     ) {
-      filterForm = { name: '', notes: '' };
+      filterForm = emptyFilterForm();
     }
   }
   async function savePreset(preset: Preset) {
@@ -880,17 +882,13 @@
         </form>
         <form class="panel" onsubmit={addDripper}>
           <h2>Dripper</h2>
-          <label>Manufacturer<input bind:value={dripperForm.manufacturer} /></label><label
-            >Model<input bind:value={dripperForm.model} required /></label
-          ><label>Notes<textarea bind:value={dripperForm.notes}></textarea></label><button
-            class="primary">Add dripper</button
-          >
+          <DripperFields bind:form={dripperForm} />
+          <button class="primary">Add dripper</button>
         </form>
         <form class="panel" onsubmit={addFilter}>
           <h2>Filter</h2>
-          <label>Name<input bind:value={filterForm.name} required /></label><label
-            >Notes<textarea bind:value={filterForm.notes}></textarea></label
-          ><button class="primary">Add filter</button>
+          <FilterFields bind:form={filterForm} />
+          <button class="primary">Add filter</button>
         </form>
       </div>
       <section class="panel section">

@@ -19,7 +19,14 @@ def conflict_detail(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
 
 
-def replay_idempotent_brew_creation(db: Session, brew: Brew, request_fingerprint: str) -> Brew:
+def replay_idempotent_brew_creation(
+    db: Session, idempotency_key: str | None, request_fingerprint: str
+) -> Brew | None:
+    if idempotency_key is None:
+        return None
+    brew = db.scalar(select(Brew).where(Brew.creation_token == idempotency_key))
+    if brew is None:
+        return None
     if brew.creation_request_hash == request_fingerprint:
         return load_brew(db, brew.id)
     raise BrewConflictError(
