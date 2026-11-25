@@ -2011,6 +2011,7 @@ test('browser and API save the same water profile when ingredient rounding ties'
     });
     expect(retry.ok()).toBeTruthy();
     expect(await retry.json()).toMatchObject({ id: brew.id, water_profile: brew.water_profile });
+    await expect(page).toHaveURL(`${e2eBaseURL}/brews/${brew.id}`);
     await expect(page.getByText('SCA (adjusted)', { exact: true })).toBeVisible();
     await page.goto(`/brews/new?repeat=${brew.id}`);
     await expect(selector).toHaveValue('SCA');
