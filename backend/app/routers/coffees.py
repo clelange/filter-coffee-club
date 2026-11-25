@@ -4,11 +4,6 @@ from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Requ
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..catalog_photos import (
-    remove_catalog_photo,
-    save_catalog_photo,
-    update_catalog_photo_framing,
-)
 from ..db import session_dependency
 from ..demo import enforce_demo_capacity, enforce_demo_seed_protection
 from ..models import Brew, Coffee, LoginSession, Profile, Rating
@@ -17,14 +12,10 @@ from ..schemas.photos import PhotoFramingUpdate
 from ..schemas.ratings import CoffeeRatingInsights, RatedBrewInsight
 from ..security import require_csrf, require_personal_csrf, require_user
 from ..services import coffees as coffee_service
+from ..services.brew_store import brew_detail_query
 from ..tasting import MIN_RANKING_RATINGS, ranked_brew_ids, rating_aggregate
 from ._brew_support import brew_payload, load_brew
-from ._catalog_photos import (
-    catalog_photo_http_errors,
-    ensure_catalog_photo_writes_allowed,
-    photo_framing_tuple,
-    uploaded_photo_framing,
-)
+from ._catalog_photos import delete_item_photo, reframe_item_photo, upload_item_photo
 from ._coffee_errors import coffee_http_errors
 from ._rating_support import load_flavor_tags
 
@@ -110,14 +101,8 @@ def get_coffee_rating_insights(
     )
     page = list(
         db.scalars(
-            select(Brew)
+            brew_detail_query()
             .options(
-                selectinload(Brew.coffee),
-                selectinload(Brew.operator),
-                selectinload(Brew.operators),
-                selectinload(Brew.grinder),
-                selectinload(Brew.dripper),
-                selectinload(Brew.brew_filter),
                 selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
             )
             .where(
@@ -182,16 +167,7 @@ async def put_coffee_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Coffee:
-    ensure_catalog_photo_writes_allowed(request)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    framing = uploaded_photo_framing(focus_x, focus_y, zoom)
-    settings = request.app.state.settings
-    content = await photo.read(settings.max_catalog_photo_bytes + 1)
-    with catalog_photo_http_errors():
-        await save_catalog_photo(content, settings, db, coffee, framing)
-    return coffee
+    return await upload_item_photo(request, db, Coffee, coffee_id, photo, focus_x, focus_y, zoom)
 
 
 @router.patch("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
@@ -202,13 +178,7 @@ def patch_coffee_photo_framing(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Coffee:
-    ensure_catalog_photo_writes_allowed(request)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    with catalog_photo_http_errors():
-        update_catalog_photo_framing(db, coffee, photo_framing_tuple(payload.photo_framing))
-    return coffee
+    return reframe_item_photo(request, db, Coffee, coffee_id, payload.photo_framing)
 
 
 @router.delete("/coffees/{coffee_id}/photo", response_model=CoffeeResponse)
@@ -218,12 +188,7 @@ def delete_coffee_photo(
     db: Session = Depends(session_dependency),
     _session: LoginSession = Depends(require_personal_csrf),
 ) -> Coffee:
-    ensure_catalog_photo_writes_allowed(request)
-    coffee = db.get(Coffee, coffee_id)
-    if coffee is None:
-        raise HTTPException(status_code=404, detail="Coffee not found")
-    remove_catalog_photo(request.app.state.settings, db, coffee)
-    return coffee
+    return delete_item_photo(request, db, Coffee, coffee_id)
 
 
 @router.post("/coffees/{coffee_id}/archive", response_model=CoffeeResponse)

@@ -171,7 +171,6 @@
             href={`/coffees/${coffee.id}`}
             photoPath={coffee.photo_path}
             photoFraming={coffee.photo_framing}
-            photoEndpoint={`/coffees/${coffee.id}/photo`}
             alt={`${coffee.roaster} ${coffee.name}`}
             eyebrow={coffee.roaster}
             title={coffee.name}
@@ -208,7 +207,6 @@
             href={`/coffees/${coffee.id}`}
             photoPath={coffee.photo_path}
             photoFraming={coffee.photo_framing}
-            photoEndpoint={`/coffees/${coffee.id}/photo`}
             alt={`${coffee.roaster} ${coffee.name}`}
             eyebrow={coffee.roaster}
             title={coffee.name}

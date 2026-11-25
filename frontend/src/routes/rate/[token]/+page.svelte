@@ -8,22 +8,13 @@
   import FlavorRadar from '#lib/FlavorRadar.svelte';
   import type { Brew, FlavorTag, RatingInput, RatingSummary, Session } from '#lib/types.ts';
 
-  type RatingScaleKey = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
+  import {
+    intensityScales,
+    likingScale,
+    ratingScales,
+    type RatingScaleKey
+  } from '#lib/rating-scales.ts';
   type RatingDraft = Record<RatingScaleKey, number | null> & { flavor_tag_ids: number[] };
-
-  const intensityScales = [
-    { key: 'acidity', label: 'Acidity' },
-    { key: 'bitterness', label: 'Bitterness' },
-    { key: 'sweetness', label: 'Sweetness' },
-    { key: 'body', label: 'Body' }
-  ] as const;
-  const requiredScaleKeys: RatingScaleKey[] = [
-    'liking',
-    'acidity',
-    'bitterness',
-    'sweetness',
-    'body'
-  ];
 
   let brew: Brew | null = $state(null);
   let session: Session | null = $state(null);
@@ -48,7 +39,7 @@
 
   const token = $derived(page.params.token);
   const activeTagIds = $derived(new Set(tags.map((tag) => tag.id)));
-  const ratingComplete = $derived(requiredScaleKeys.every((key) => rating[key] !== null));
+  const ratingComplete = $derived(ratingScales.every(({ key }) => rating[key] !== null));
   const parents = $derived(
     tags
       .filter((tag) => tag.parent_id === null)
@@ -257,7 +248,9 @@
         <div class="scale-title">
           <label class="scale-name" for="rating-liking">Overall liking</label><output
             for="rating-liking"
-            >{rating.liking === null ? 'Not set · 5 shown' : `${rating.liking} / 9`}</output
+            >{rating.liking === null
+              ? 'Not set · 5 shown'
+              : `${rating.liking} / ${likingScale.maximum}`}</output
           >
         </div>
         <input
@@ -269,7 +262,7 @@
           onkeydown={(event) => handleRatingScaleKeydown('liking', event)}
           oninput={(event) => setRatingScale('liking', event)}
           min="1"
-          max="9"
+          max={likingScale.maximum}
           step="1"
         />
         <div id="rating-liking-hint" class="anchors scale-hint">
@@ -294,7 +287,7 @@
               onkeydown={(event) => handleRatingScaleKeydown(item.key, event)}
               oninput={(event) => setRatingScale(item.key, event)}
               min="0"
-              max="5"
+              max={item.maximum}
               step="1"
             /><small id={`rating-${item.key}-hint`} class="scale-hint"
               >not perceived → very intense</small

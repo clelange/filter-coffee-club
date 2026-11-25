@@ -13,6 +13,14 @@ from ..services.brew_store import load_brew as query_brew
 from ._brew_errors import brew_http_errors
 
 
+def _operator_identities(brew: Brew) -> list[ProfileIdentity]:
+    operators = sorted(
+        brew.operators,
+        key=lambda operator: (operator.id != brew.operator_id, operator.display_name.casefold()),
+    )
+    return [ProfileIdentity.model_validate(operator) for operator in operators]
+
+
 def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
     ratio = brew_ratio(brew.water_g, brew.dose_g)
     throughput = overall_throughput(brew.water_g, brew.total_brew_time_s)
@@ -21,16 +29,7 @@ def brew_payload(brew: Brew, include_token: bool = False) -> BrewResponse:
         brew_name=brew.brew_name,
         coffee_id=brew.coffee_id,
         operator_id=brew.operator_id,
-        operators=[
-            ProfileIdentity.model_validate(operator)
-            for operator in sorted(
-                brew.operators,
-                key=lambda operator: (
-                    operator.id != brew.operator_id,
-                    operator.display_name.casefold(),
-                ),
-            )
-        ],
+        operators=_operator_identities(brew),
         revision=brew.revision,
         grinder_id=brew.grinder_id,
         dripper_id=brew.dripper_id,
@@ -77,16 +76,7 @@ def brew_activity_payload(brew: Brew, include_token: bool = False) -> BrewActivi
         brew_name=brew.brew_name,
         coffee_name=brew.coffee.name,
         coffee_roaster=brew.coffee.roaster,
-        operators=[
-            ProfileIdentity.model_validate(operator)
-            for operator in sorted(
-                brew.operators,
-                key=lambda operator: (
-                    operator.id != brew.operator_id,
-                    operator.display_name.casefold(),
-                ),
-            )
-        ],
+        operators=_operator_identities(brew),
         status=brew.status,
         rating_token=brew.rating_token if include_token else None,
     )

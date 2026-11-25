@@ -1,13 +1,11 @@
 <script lang="ts">
   import CatalogPhoto from '#lib/CatalogPhoto.svelte';
   import CatalogUsageSummary from '#lib/CatalogUsageSummary.svelte';
-  import type { CatalogUsageItem } from '#lib/types.ts';
-  import type { PhotoFraming } from '#lib/types.ts';
+  import type { CatalogUsageItem, PhotoFraming } from '#lib/types.ts';
 
   export let href: string;
   export let photoPath: string | null;
   export let photoFraming: PhotoFraming | null = null;
-  export let photoEndpoint: string;
   export let alt: string;
   export let eyebrow: string;
   export let title: string;
@@ -22,14 +20,7 @@
 
 <article class="catalog-card" data-testid="catalog-card">
   <a class="catalog-summary" {href} aria-label={`View details for ${title}`}>
-    <CatalogPhoto
-      {photoPath}
-      {photoFraming}
-      {alt}
-      endpoint={photoEndpoint}
-      compact
-      {beanFallback}
-    />
+    <CatalogPhoto {photoPath} {photoFraming} {alt} compact {beanFallback} />
     <div class="catalog-copy">
       <div class="catalog-topline">
         <p class="eyebrow">{eyebrow}</p>

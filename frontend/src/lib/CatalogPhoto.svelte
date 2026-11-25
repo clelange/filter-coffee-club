@@ -1,50 +1,12 @@
 <script lang="ts">
-  import { api, uploadCatalogPhoto } from '#lib/api.ts';
   import { photoFramingStyle } from '#lib/photo-framing.ts';
   import type { PhotoFraming } from '#lib/types.ts';
 
   export let photoPath: string | null;
   export let photoFraming: PhotoFraming | null = null;
   export let alt: string;
-  export let endpoint: string;
-  export let editable = false;
   export let compact = false;
   export let beanFallback = false;
-  export let onchanged: (photoPath: string | null) => void | Promise<void> = () => undefined;
-
-  let input: HTMLInputElement;
-  let busy = false;
-  let error = '';
-
-  async function replacePhoto(event: Event) {
-    const file = (event.currentTarget as HTMLInputElement).files?.[0];
-    if (!file) return;
-    busy = true;
-    error = '';
-    try {
-      const updated = await uploadCatalogPhoto<{ photo_path: string | null }>(endpoint, file);
-      await onchanged(updated.photo_path);
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not upload photo.';
-    } finally {
-      busy = false;
-      if (input) input.value = '';
-    }
-  }
-
-  async function removePhoto() {
-    if (!confirm('Remove this photo?')) return;
-    busy = true;
-    error = '';
-    try {
-      const updated = await api<{ photo_path: string | null }>(endpoint, { method: 'DELETE' });
-      await onchanged(updated.photo_path);
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not remove photo.';
-    } finally {
-      busy = false;
-    }
-  }
 </script>
 
 <div class:compact class="catalog-photo">
@@ -64,26 +26,6 @@
       </div>
     {/if}
   </div>
-  {#if editable}
-    <div class="photo-actions">
-      <label class="button secondary small" class:disabled={busy}>
-        {busy ? 'Working…' : photoPath ? 'Replace photo' : 'Add photo'}
-        <input
-          bind:this={input}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          disabled={busy}
-          onchange={replacePhoto}
-        />
-      </label>
-      {#if photoPath}
-        <button class="secondary" type="button" disabled={busy} onclick={removePhoto}
-          >Remove photo</button
-        >
-      {/if}
-    </div>
-  {/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>
 
 <style>
@@ -139,25 +81,6 @@
     background: currentColor;
     transform: rotate(12deg);
   }
-  .photo-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  label {
-    position: relative;
-    overflow: hidden;
-  }
-  label input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-  }
-  label.disabled {
-    pointer-events: none;
-    opacity: 0.45;
-  }
   .compact .photo-frame {
     aspect-ratio: 16 / 10;
     border-radius: 14px;
@@ -165,8 +88,5 @@
   .compact .photo-fallback.bean {
     width: 54px;
     height: 74px;
-  }
-  .error {
-    margin: 0;
   }
 </style>

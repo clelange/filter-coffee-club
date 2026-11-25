@@ -25,6 +25,7 @@ from ..schemas.brews import (
 from ..schemas.ratings import RatingAggregate
 from ..security import require_csrf, require_user
 from ..services import brews as brew_service
+from ..services.brew_store import brew_detail_query
 from ..services.brew_types import BrewActor, BrewNotifications
 from ..tasting import rating_aggregate
 from ._brew_errors import brew_http_errors
@@ -118,19 +119,7 @@ def list_brews(
     limit: int = 100,
     db: Session = Depends(session_dependency),
 ) -> list[BrewResponse]:
-    query = (
-        select(Brew)
-        .options(
-            selectinload(Brew.coffee),
-            selectinload(Brew.operator),
-            selectinload(Brew.operators),
-            selectinload(Brew.grinder),
-            selectinload(Brew.dripper),
-            selectinload(Brew.brew_filter),
-        )
-        .order_by(Brew.created_at.desc())
-        .limit(min(limit, 500))
-    )
+    query = brew_detail_query().order_by(Brew.created_at.desc()).limit(min(limit, 500))
     if coffee_id is not None:
         query = query.where(Brew.coffee_id == coffee_id)
     if status:

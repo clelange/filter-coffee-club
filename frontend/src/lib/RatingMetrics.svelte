@@ -1,16 +1,9 @@
 <script lang="ts">
+  import { ratingScales } from '#lib/rating-scales.ts';
   import type { RatingAggregate } from '#lib/types.ts';
 
   export let aggregate: RatingAggregate;
   export let compact = false;
-
-  const metrics = [
-    { key: 'liking', label: 'Liking', maximum: 9 },
-    { key: 'acidity', label: 'Acidity', maximum: 5 },
-    { key: 'bitterness', label: 'Bitterness', maximum: 5 },
-    { key: 'sweetness', label: 'Sweetness', maximum: 5 },
-    { key: 'body', label: 'Body', maximum: 5 }
-  ];
 
   function score(key: string): string {
     const value = aggregate.averages[key];
@@ -21,7 +14,7 @@
 </script>
 
 <div class:compact class="rating-metrics" data-testid="rating-metrics">
-  {#each metrics as metric}
+  {#each ratingScales as metric}
     <div class="rating-metric">
       <strong
         >{score(metric.key)}{#if aggregate.averages[metric.key] !== undefined}<i

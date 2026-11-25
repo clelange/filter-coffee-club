@@ -5,6 +5,7 @@ import type {
   AppSettings,
   BrewActivityItem,
   Coffee,
+  Grinder,
   MattermostSettings,
   ProfileIdentity,
   Session
@@ -2760,9 +2761,9 @@ test('the rail waits for bootstrap and omits start during a mandatory PIN change
   await expect(page.getByTestId('start-brew-chip')).toHaveCount(0);
 });
 
-test('photo framing previews update live at responsive viewport sizes', async ({ page }) => {
+async function createCoffeeWithPhoto(page: Page, name: string) {
   const session = await loginAda(page);
-  const coffee = await createTestCoffee(page, session, 'Live framing preview');
+  const coffee = await createTestCoffee(page, session, name);
   const upload = await page.context().request.put(`/api/v1/coffees/${coffee.id}/photo`, {
     headers: { 'X-CSRF-Token': session.csrf_token },
     multipart: {
@@ -2774,7 +2775,90 @@ test('photo framing previews update live at responsive viewport sizes', async ({
     }
   });
   expect(upload.ok()).toBeTruthy();
+  return coffee;
+}
 
+test('saving coffee details preserves the photo framing submitted with the form', async ({
+  page
+}) => {
+  const coffee = await createCoffeeWithPhoto(page, 'Slow catalog save');
+  const path = `/api/v1/coffees/${coffee.id}`;
+  await page.goto(`/coffees/${coffee.id}?edit=1`);
+  await page.getByLabel('Purchased from').fill('Club shelf');
+  const pending: Route[] = [];
+  await page.route(path, (route) => {
+    pending.push(route);
+  });
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect.poll(() => pending.length).toBe(1);
+  await expect(page.getByRole('button', { name: 'Edit framing' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Remove current photo on save' })).toBeDisabled();
+  await expect(page.getByLabel('Purchased from')).toBeDisabled();
+  await pending[0].continue();
+  await expect(page.getByText('Coffee updated.', { exact: true })).toBeVisible();
+  const saved = await (await page.request.get(path)).json();
+  expect(saved.purchase_location).toBe('Club shelf');
+  expect(saved.photo_framing).toBeNull();
+});
+
+test('equipment photo controls unlock after a failed upload', async ({ page }) => {
+  const session = await loginAda(page);
+  const created = await page.request.post('/api/v1/grinders', {
+    headers: { 'X-CSRF-Token': session.csrf_token },
+    data: { definition_key: 'kingrinder_k6' }
+  });
+  expect(created.ok()).toBeTruthy();
+  const grinder = (await created.json()) as Grinder;
+  const path = `/api/v1/grinders/${grinder.id}/photo`;
+  await page.goto(`/equipment/grinders/${grinder.id}?edit=1`);
+  const file = page.getByLabel(/photo \(optional\)/i);
+  await file.setInputFiles(ethiopiaPhoto);
+  const pending: Route[] = [];
+  await page.route(
+    path,
+    (route) => {
+      pending.push(route);
+    },
+    { times: 1 }
+  );
+  const save = page.getByRole('button', { name: 'Save changes' });
+  await save.click();
+  await expect.poll(() => pending.length).toBe(1);
+  await expect(file).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Edit framing' })).toBeDisabled();
+  await pending[0].fulfill({ status: 503 });
+  await expect(page.getByRole('alert')).toContainText('photo failed');
+  await expect(file).toBeEnabled();
+  await save.click();
+  await expect(page.getByText('Equipment updated.', { exact: true })).toBeVisible();
+});
+
+test('a pending photo removal can be undone or retried after a failed save', async ({ page }) => {
+  const coffee = await createCoffeeWithPhoto(page, 'Photo removal');
+  const path = `/api/v1/coffees/${coffee.id}`;
+  await page.goto(`/coffees/${coffee.id}?edit=1`);
+  const remove = page.getByRole('button', { name: 'Remove current photo on save' });
+  const keep = page.getByRole('button', { name: 'Keep current photo' });
+  const save = page.getByRole('button', { name: 'Save changes' });
+  const image = page.getByTestId('detail-photo').locator('img');
+  await expect(image).toBeVisible();
+  const original = await image.getAttribute('src');
+  await remove.click();
+  await keep.click();
+  await expect(image).toHaveAttribute('src', original!);
+  await remove.click();
+  await page.route(`${path}/photo`, (route) => route.fulfill({ status: 503 }), { times: 1 });
+  await save.click();
+  await expect(page.getByRole('alert')).toContainText('photo failed');
+  await expect(keep).toBeVisible();
+  expect((await (await page.request.get(path)).json()).photo_path).toBe(original);
+  await save.click();
+  await expect(page.getByText('Coffee updated.', { exact: true })).toBeVisible();
+  expect((await (await page.request.get(path)).json()).photo_path).toBeNull();
+});
+
+test('photo framing previews update live at responsive viewport sizes', async ({ page }) => {
+  const coffee = await createCoffeeWithPhoto(page, 'Live framing preview');
   await page.goto(`/coffees/${coffee.id}`);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('button', { name: 'Edit framing' }).click();

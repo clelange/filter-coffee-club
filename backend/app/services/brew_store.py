@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from sqlalchemy import delete, insert, select, text, update
+from sqlalchemy import Select, delete, insert, select, text, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import AppSettings, Brew, Coffee, Profile, Rating, brew_operators
@@ -64,16 +64,21 @@ def reserve_available_coffee(db: Session, coffee_id: int) -> Coffee:
     )
 
 
+def brew_detail_query() -> Select[tuple[Brew]]:
+    return select(Brew).options(
+        selectinload(Brew.coffee),
+        selectinload(Brew.operator),
+        selectinload(Brew.operators),
+        selectinload(Brew.grinder),
+        selectinload(Brew.dripper),
+        selectinload(Brew.brew_filter),
+    )
+
+
 def load_brew(db: Session, brew_id: int) -> Brew:
     brew = db.scalar(
-        select(Brew)
+        brew_detail_query()
         .options(
-            selectinload(Brew.coffee),
-            selectinload(Brew.operator),
-            selectinload(Brew.operators),
-            selectinload(Brew.grinder),
-            selectinload(Brew.dripper),
-            selectinload(Brew.brew_filter),
             selectinload(Brew.ratings).selectinload(Rating.profile),
             selectinload(Brew.ratings).selectinload(Rating.flavor_tags),
         )

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ratingScales } from '#lib/rating-scales.ts';
   import { tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -18,13 +19,6 @@
   const PAGE_SIZE = 25;
 
   const profileId = $derived(Number(page.params.id));
-  const metrics = [
-    { key: 'liking', label: 'Liking', maximum: 9 },
-    { key: 'acidity', label: 'Acidity', maximum: 5 },
-    { key: 'bitterness', label: 'Bitterness', maximum: 5 },
-    { key: 'sweetness', label: 'Sweetness', maximum: 5 },
-    { key: 'body', label: 'Body', maximum: 5 }
-  ];
 
   $effect(() => {
     const id = profileId;
@@ -138,7 +132,7 @@
         </div>
       </div>
       <div class="average-grid">
-        {#each metrics as metric}
+        {#each ratingScales as metric}
           <article>
             <span>{metric.label}</span>
             <strong>{formatScore(data.averages[metric.key])}<i>/{metric.maximum}</i></strong>

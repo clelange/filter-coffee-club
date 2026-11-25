@@ -585,6 +585,12 @@ tr:last-child td {
   gap: var(--catalog-gap-md);
 }
 
+.detail-page .edit-panel {
+  margin: 0;
+  padding: 0;
+  font-weight: inherit;
+}
+
 .detail-page .identity-topline,
 .detail-page .detail-actions {
   display: flex;

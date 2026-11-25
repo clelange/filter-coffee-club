@@ -6,6 +6,7 @@
   import CoffeeTastingAnalysis from '#lib/CoffeeTastingAnalysis.svelte';
   import CoffeeFields from '#lib/CoffeeFields.svelte';
   import ConfirmDialog from '#lib/ConfirmDialog.svelte';
+  import { CatalogPhotoDraft } from '#lib/catalog-photo-draft.svelte.ts';
   import PhotoPicker from '#lib/PhotoPicker.svelte';
   import RecentBrews from '#lib/RecentBrews.svelte';
   import {
@@ -14,13 +15,11 @@
     appSettingsStore,
     ensureSession,
     jsonBody,
-    sessionStore,
-    updateCatalogPhotoFraming,
-    uploadCatalogPhoto
+    sessionStore
   } from '#lib/api.ts';
   import { coffeePayload, coffeeToForm, emptyCoffeeForm, formatCatalogDate } from '#lib/catalog.ts';
   import { deviceModeStore, loginPath } from '#lib/device.ts';
-  import type { CatalogInsights, Coffee, CoffeeRatingInsights, PhotoFraming } from '#lib/types.ts';
+  import type { CatalogInsights, Coffee, CoffeeRatingInsights } from '#lib/types.ts';
 
   let coffee: Coffee | null = $state(null);
   let coffeePeers: Coffee[] = $state([]);
@@ -37,10 +36,7 @@
   let loadMoreError = $state('');
   let success = $state('');
   let photoError = $state('');
-  let photoFile: File | null = $state(null);
-  let photoFramingDraft: PhotoFraming | null = $state(null);
-  let photoFramingBaseline = $state('null');
-  let removePhotoDraft = $state(false);
+  const photo = new CatalogPhotoDraft();
   let saving = $state(false);
   let cloning = $state(false);
   let archiveOpen = $state(false);
@@ -50,13 +46,7 @@
   let loadingMore = $state(false);
 
   const id = $derived(Number(page.params.id));
-  const dirty = $derived(
-    editMode &&
-      (JSON.stringify(form) !== baseline ||
-        photoFile !== null ||
-        removePhotoDraft ||
-        JSON.stringify(photoFramingDraft) !== photoFramingBaseline)
-  );
+  const dirty = $derived(editMode && (JSON.stringify(form) !== baseline || photo.dirty));
   function canManage(): boolean {
     return Boolean($sessionStore && $deviceModeStore !== 'kiosk' && coffee && !coffee.archived);
   }
@@ -131,10 +121,7 @@
     if (!coffee || !canManage()) return;
     form = coffeeToForm(coffee);
     baseline = JSON.stringify(form);
-    photoFile = null;
-    photoFramingDraft = coffee.photo_framing;
-    photoFramingBaseline = JSON.stringify(coffee.photo_framing);
-    removePhotoDraft = false;
+    photo.reset(coffee);
     photoError = '';
     success = '';
     editMode = true;
@@ -152,10 +139,7 @@
     if (!coffee) return;
     form = coffeeToForm(coffee);
     baseline = JSON.stringify(form);
-    photoFile = null;
-    photoFramingDraft = coffee.photo_framing;
-    photoFramingBaseline = JSON.stringify(coffee.photo_framing);
-    removePhotoDraft = false;
+    photo.reset(coffee);
     photoError = '';
     editMode = false;
     clearEditQuery();
@@ -163,13 +147,12 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!coffee) return;
+    if (!coffee || saving) return;
     saving = true;
     error = '';
     success = '';
     photoError = '';
     try {
-      const framingChanged = JSON.stringify(photoFramingDraft) !== photoFramingBaseline;
       coffee = await api<Coffee>(`/coffees/${coffee.id}`, {
         method: 'PUT',
         body: jsonBody(coffeePayload(form))
@@ -177,28 +160,12 @@
       form = coffeeToForm(coffee);
       baseline = JSON.stringify(form);
       try {
-        if (photoFile) {
-          coffee = await uploadCatalogPhoto<Coffee>(
-            `/coffees/${coffee.id}/photo`,
-            photoFile,
-            photoFramingDraft
-          );
-        } else if (removePhotoDraft && coffee.photo_path) {
-          coffee = await api<Coffee>(`/coffees/${coffee.id}/photo`, { method: 'DELETE' });
-        } else if (framingChanged) {
-          coffee = await updateCatalogPhotoFraming<Coffee>(
-            `/coffees/${coffee.id}/photo`,
-            photoFramingDraft
-          );
-        }
+        coffee = await photo.save(`/coffees/${coffee.id}/photo`, coffee);
       } catch (caught) {
         photoError = `Coffee details were saved, but the photo failed: ${caught instanceof Error ? caught.message : 'Could not update the photo.'}`;
         return;
       }
-      photoFile = null;
-      photoFramingDraft = coffee.photo_framing;
-      photoFramingBaseline = JSON.stringify(coffee.photo_framing);
-      removePhotoDraft = false;
+      photo.reset(coffee);
       editMode = false;
       clearEditQuery();
       success = 'Coffee updated.';
@@ -318,10 +285,9 @@
     <section class="detail-hero">
       <div class="detail-photo" data-testid="detail-photo">
         <CatalogPhoto
-          photoPath={editMode && removePhotoDraft ? null : coffee.photo_path}
-          photoFraming={editMode ? photoFramingDraft : coffee.photo_framing}
+          photoPath={editMode && photo.removeOnSave ? null : coffee.photo_path}
+          photoFraming={editMode ? photo.framing : coffee.photo_framing}
           alt={`${coffee.roaster} ${coffee.name}`}
-          endpoint={`/coffees/${coffee.id}/photo`}
           beanFallback
         />
       </div>
@@ -377,46 +343,40 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     {#if editMode}
-      <form class="panel edit-panel" onsubmit={save}>
-        <div class="section-heading">
-          <p class="eyebrow">Edit mode</p>
-          <h2>Update bag details.</h2>
-          <p class="muted">Changes stay local until you press Save changes.</p>
-        </div>
-        <CoffeeFields
-          bind:form
-          coffees={coffeePeers}
-          currentCoffeeId={coffee.id}
-          surfaceColor={$appSettingsStore?.color_surface ?? '#FFFDFC'}
-        />
-        {#if !$appSettingsStore?.demo_mode}
-          <div class="photo-edit">
-            <PhotoPicker
-              bind:file={photoFile}
-              bind:framing={photoFramingDraft}
-              photoPath={removePhotoDraft ? null : coffee.photo_path}
-              label={coffee.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
-            />
-            {#if coffee.photo_path && !photoFile}
-              {#if removePhotoDraft}<button
-                  class="secondary"
-                  type="button"
-                  onclick={() => (removePhotoDraft = false)}>Keep current photo</button
-                >{:else}<button
-                  class="secondary"
-                  type="button"
-                  onclick={() => (removePhotoDraft = true)}>Remove current photo on save</button
-                >{/if}
-            {/if}
+      <form class="panel" onsubmit={save}>
+        <fieldset class="edit-panel" aria-labelledby="catalog-edit-title" disabled={saving}>
+          <div class="section-heading">
+            <p class="eyebrow">Edit mode</p>
+            <h2 id="catalog-edit-title">Update bag details.</h2>
+            <p class="muted">Changes stay local until you press Save changes.</p>
           </div>
-        {/if}
-        {#if photoError}<p class="error" role="alert">{photoError}</p>{/if}
-        <div class="actions">
-          <button class="primary" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button
-          ><button class="secondary" type="button" disabled={saving} onclick={cancelEdit}
-            >Cancel</button
-          >
-        </div>
+          <CoffeeFields
+            bind:form
+            coffees={coffeePeers}
+            currentCoffeeId={coffee.id}
+            surfaceColor={$appSettingsStore?.color_surface ?? '#FFFDFC'}
+          />
+          {#if !$appSettingsStore?.demo_mode}
+            <div class="photo-edit">
+              <PhotoPicker
+                bind:file={photo.file}
+                bind:framing={photo.framing}
+                photoPath={coffee.photo_path}
+                allowRemoval
+                bind:removeOnSave={photo.removeOnSave}
+                label={coffee.photo_path ? 'Replacement photo (optional)' : 'Photo (optional)'}
+              />
+            </div>
+          {/if}
+          {#if photoError}<p class="error" role="alert">{photoError}</p>{/if}
+          <div class="actions">
+            <button class="primary">{saving ? 'Saving…' : 'Save changes'}</button><button
+              class="secondary"
+              type="button"
+              onclick={cancelEdit}>Cancel</button
+            >
+          </div>
+        </fieldset>
       </form>
     {:else}
       <section class="metadata-section" aria-labelledby="metadata-heading">

@@ -1,19 +1,10 @@
 <script lang="ts">
+  import { ratingScales } from '#lib/rating-scales.ts';
   import type { RatingComparison } from '#lib/types.ts';
-
-  type RatingField = 'liking' | 'acidity' | 'bitterness' | 'sweetness' | 'body';
 
   export let result: RatingComparison;
   export let compact = false;
   export let subjectLabel = 'You';
-
-  const metrics: { key: RatingField; label: string; maximum: number }[] = [
-    { key: 'liking', label: 'Liking', maximum: 9 },
-    { key: 'acidity', label: 'Acidity', maximum: 5 },
-    { key: 'bitterness', label: 'Bitterness', maximum: 5 },
-    { key: 'sweetness', label: 'Sweetness', maximum: 5 },
-    { key: 'body', label: 'Body', maximum: 5 }
-  ];
 
   function formatScore(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -26,7 +17,7 @@
 </script>
 
 <div class:compact class="rating-comparison">
-  {#each metrics as metric}
+  {#each ratingScales as metric}
     <div class="comparison-cell">
       <span>{metric.label}</span>
       <strong>{result.rating[metric.key]}<i>/{metric.maximum}</i></strong>
